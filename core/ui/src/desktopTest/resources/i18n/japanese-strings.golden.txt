@@ -573,7 +573,9 @@ languageDesc	アプリの UI 表示言語を即座に切り替えます。
 languageLabel	表示言語
 languageName	日本語
 languageSectionTitle	言語
+linkHandlingChangeInSystemSettings	システム設定で変更
 linkHandlingDefaultDesc	デフォルトで開く設定から github.com を有効にすると、Web リンクをこのアプリで直接開けます。
+linkHandlingEnabledBadge	有効
 linkHandlingEnabledDesc	github.com のリンクは github-mobile-maxxing で開くよう設定されています。
 linkHandlingOfficialClaimsDesc	公式 GitHub Mobile アプリが github.com リンクに関連付けられています。先に公式アプリ側で対応リンクを開く設定を無効にしてから、こちらを有効にしてください。
 linkHandlingOfficialInstalledDesc	公式 GitHub Mobile アプリがインストールされています。リンクが奪われる場合は関連付けを解除し、このアプリで github.com を有効にしてください。

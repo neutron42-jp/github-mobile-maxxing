@@ -111,12 +111,14 @@ languageSectionTitle,,Language,言語
 languageLabel,,Display language,表示言語
 languageDesc,,Switch the UI display language immediately.,アプリの UI 表示言語を即座に切り替えます。
 linkHandlingTitle,,GitHub Link Handling,GitHub リンクの開き方
+linkHandlingEnabledBadge,,Enabled,有効
 linkHandlingEnabledDesc,,github.com links are set to open in github-mobile-maxxing.,github.com のリンクは github-mobile-maxxing で開くよう設定されています。
 linkHandlingOfficialClaimsDesc,,"Official GitHub Mobile currently claims github.com links. Disable ""Open supported links"" there first, then enable github.com here.",公式 GitHub Mobile アプリが github.com リンクに関連付けられています。先に公式アプリ側で対応リンクを開く設定を無効にしてから、こちらを有効にしてください。
 linkHandlingOfficialInstalledDesc,,"Official GitHub Mobile is installed. Unlink it if it intercepts github.com links, then enable github.com for this app.",公式 GitHub Mobile アプリがインストールされています。リンクが奪われる場合は関連付けを解除し、このアプリで github.com を有効にしてください。
 linkHandlingDefaultDesc,,Enable github.com under Open by default so web links launch directly in this app.,デフォルトで開く設定から github.com を有効にすると、Web リンクをこのアプリで直接開けます。
 unlinkGitHubMobile,,Unlink GitHub Mobile,GitHub Mobile の関連付けを解除
 manageAppLinks,,Manage App Links,アプリリンクを管理
+linkHandlingChangeInSystemSettings,,Change in system settings,システム設定で変更
 enableGitHubLinks,,Enable github.com Links,github.com リンクを有効化
 failedOpenGitHubMobileLinkSettings,,Could not open GitHub Mobile app link settings,GitHub Mobile のアプリリンク設定を開けませんでした
 failedOpenAppLinkSettings,,Could not open app link settings,アプリリンク設定を開けませんでした

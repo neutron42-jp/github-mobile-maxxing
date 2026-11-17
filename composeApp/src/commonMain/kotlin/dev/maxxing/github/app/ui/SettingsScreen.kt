@@ -1175,20 +1175,50 @@ private fun GeneralSettingsPage(
                     modifier = Modifier.padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    val linkUi = linkHandlingUi(linkHandlingState)
+                    val openThisAppSettings = {
+                        if (!openThisAppLinkSettings()) {
+                            onMessage(strings.failedOpenAppLinkSettings)
+                        }
+                    }
+                    val openOfficialSettings = {
+                        if (!openOfficialGitHubAppLinkSettings()) {
+                            onMessage(strings.failedOpenGitHubMobileLinkSettings)
+                        }
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Lucide.Link2, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(10.dp))
-                        Text(strings.linkHandlingTitle, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            strings.linkHandlingTitle,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (linkUi.status == LinkHandlingStatus.ENABLED_HERE) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.tertiaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Lucide.Check, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(strings.linkHandlingEnabledBadge, style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
                     }
-                    val statusSummary = when {
-                        linkHandlingState.thisAppHandlesGitHubLinks ->
-                            strings.linkHandlingEnabledDesc
-                        linkHandlingState.officialGitHubInstalled &&
-                            linkHandlingState.officialGitHubHandlesLinks == true ->
+                    val statusSummary = when (linkUi.status) {
+                        LinkHandlingStatus.OFFICIAL_APP_CLAIMS ->
                             strings.linkHandlingOfficialClaimsDesc
-                        linkHandlingState.officialGitHubInstalled ->
+                        LinkHandlingStatus.ENABLED_HERE ->
+                            strings.linkHandlingEnabledDesc
+                        LinkHandlingStatus.OFFICIAL_INSTALLED_UNKNOWN ->
                             strings.linkHandlingOfficialInstalledDesc
-                        else ->
+                        LinkHandlingStatus.NOT_ENABLED ->
                             strings.linkHandlingDefaultDesc
                     }
                     Text(
@@ -1201,35 +1231,41 @@ private fun GeneralSettingsPage(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        if (linkHandlingState.officialGitHubInstalled) {
-                            OutlinedButton(
-                                onClick = {
-                                    if (!openOfficialGitHubAppLinkSettings()) {
-                                        onMessage(strings.failedOpenGitHubMobileLinkSettings)
-                                    }
+                        if (linkUi.showUnlinkOfficial) {
+                            // Unlinking is the required first step when the official app holds the links.
+                            if (linkUi.status == LinkHandlingStatus.OFFICIAL_APP_CLAIMS) {
+                                FilledTonalButton(onClick = openOfficialSettings) {
+                                    Icon(Lucide.ExternalLink, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(strings.unlinkGitHubMobile)
                                 }
-                            ) {
-                                Icon(Lucide.ExternalLink, contentDescription = null, modifier = Modifier.size(15.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(strings.unlinkGitHubMobile)
+                            } else {
+                                OutlinedButton(onClick = openOfficialSettings) {
+                                    Icon(Lucide.ExternalLink, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(strings.unlinkGitHubMobile)
+                                }
                             }
                         }
-                        FilledTonalButton(
-                            onClick = {
-                                if (!openThisAppLinkSettings()) {
-                                    onMessage(strings.failedOpenAppLinkSettings)
+                        if (linkUi.showEnableHere) {
+                            if (linkUi.status == LinkHandlingStatus.OFFICIAL_APP_CLAIMS) {
+                                OutlinedButton(onClick = openThisAppSettings, enabled = linkUi.enableHereEnabled) {
+                                    Icon(Lucide.Link2, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(strings.enableGitHubLinks)
+                                }
+                            } else {
+                                FilledTonalButton(onClick = openThisAppSettings, enabled = linkUi.enableHereEnabled) {
+                                    Icon(Lucide.Link2, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(strings.enableGitHubLinks)
                                 }
                             }
-                        ) {
-                            Icon(Lucide.Link2, contentDescription = null, modifier = Modifier.size(15.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                if (linkHandlingState.thisAppHandlesGitHubLinks) {
-                                    strings.manageAppLinks
-                                } else {
-                                    strings.enableGitHubLinks
-                                }
-                            )
+                        }
+                        if (linkUi.showManageLink) {
+                            TextButton(onClick = openThisAppSettings) {
+                                Text(strings.linkHandlingChangeInSystemSettings)
+                            }
                         }
                     }
                 }
@@ -1686,7 +1722,7 @@ internal fun formatGeneralSummary(
 ): String {
     val langLabel = strings.languageOptionLabel(language)
     if (!linkHandlingState.supportedOnPlatform) return langLabel
-    val linksLabel = if (linkHandlingState.thisAppHandlesGitHubLinks) {
+    val linksLabel = if (linkHandlingUi(linkHandlingState).status == LinkHandlingStatus.ENABLED_HERE) {
         strings.settingsSummaryLinksEnabled
     } else {
         strings.settingsSummaryLinksOff

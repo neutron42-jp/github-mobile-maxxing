@@ -573,7 +573,9 @@ languageDesc	Switch the UI display language immediately.
 languageLabel	Display language
 languageName	English
 languageSectionTitle	Language
+linkHandlingChangeInSystemSettings	Change in system settings
 linkHandlingDefaultDesc	Enable github.com under Open by default so web links launch directly in this app.
+linkHandlingEnabledBadge	Enabled
 linkHandlingEnabledDesc	github.com links are set to open in github-mobile-maxxing.
 linkHandlingOfficialClaimsDesc	Official GitHub Mobile currently claims github.com links. Disable "Open supported links" there first, then enable github.com here.
 linkHandlingOfficialInstalledDesc	Official GitHub Mobile is installed. Unlink it if it intercepts github.com links, then enable github.com for this app.

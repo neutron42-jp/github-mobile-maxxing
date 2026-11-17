@@ -283,6 +283,16 @@ private fun openOpenByDefaultSettings(context: Context, packageName: String): Bo
     }.getOrDefault(false)
 }
 
+/** Both hosts are declared in the manifest; a VERIFIED or SELECTED state on either one counts as handling. */
+private fun claimsAnyGitHubHost(hostToStateMap: Map<String, Int>): Boolean =
+    GITHUB_LINK_HOSTS.any { host ->
+        val state = hostToStateMap[host]
+        state == DomainVerificationUserState.DOMAIN_STATE_VERIFIED ||
+            state == DomainVerificationUserState.DOMAIN_STATE_SELECTED
+    }
+
+private val GITHUB_LINK_HOSTS = listOf("github.com", "www.github.com")
+
 actual fun inspectGitHubLinkHandling(): GitHubLinkHandlingState {
     val context = AndroidAuthContextHolder.requireContext()
     val pm = context.packageManager
@@ -291,21 +301,14 @@ actual fun inspectGitHubLinkHandling(): GitHubLinkHandlingState {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         val dvm = runCatching { context.getSystemService(DomainVerificationManager::class.java) }.getOrNull()
         val selfState = runCatching { dvm?.getDomainVerificationUserState(context.packageName) }.getOrNull()
-        val selfGitHubState = selfState?.hostToStateMap?.get("github.com")
-        val selfHandles = selfState?.isLinkHandlingAllowed == true && (
-            selfGitHubState == DomainVerificationUserState.DOMAIN_STATE_VERIFIED ||
-                selfGitHubState == DomainVerificationUserState.DOMAIN_STATE_SELECTED
-            )
+        val selfHandles = selfState?.isLinkHandlingAllowed == true &&
+            claimsAnyGitHubHost(selfState.hostToStateMap)
 
         val officialHandles = if (!officialInstalled) {
             false
         } else {
             runCatching { dvm?.getDomainVerificationUserState(OFFICIAL_GITHUB_PACKAGE) }.getOrNull()?.let { ghState ->
-                val ghMap = ghState.hostToStateMap["github.com"]
-                ghState.isLinkHandlingAllowed && (
-                    ghMap == DomainVerificationUserState.DOMAIN_STATE_VERIFIED ||
-                        ghMap == DomainVerificationUserState.DOMAIN_STATE_SELECTED
-                    )
+                ghState.isLinkHandlingAllowed && claimsAnyGitHubHost(ghState.hostToStateMap)
             }
         }
 
