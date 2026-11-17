@@ -32,9 +32,12 @@ data class CustomFontFile(
     val filePath: String
 )
 
-/** Supported UI display languages. */
+/**
+ * Supported UI display languages. [code] names the column of core/ui/i18n/strings.csv that holds the texts;
+ * the entry name is what the settings store, so keep it when renaming.
+ */
 @Serializable
-enum class AppLanguage {
-    DEFAULT,
-    JAPANESE
+enum class AppLanguage(val code: String) {
+    DEFAULT("en"),
+    JAPANESE("ja")
 }

@@ -38,6 +38,24 @@ class AppStringsTest {
     }
 
     @Test
+    fun everyLanguageReadsItsOwnStringsCsvColumn() {
+        assertEquals("en", GeneratedStringTable.languageCodes.first(), "English must be the first (fallback) column")
+        AppLanguage.entries.forEach { language ->
+            assertTrue(language.code in GeneratedStringTable.languageCodes, "strings.csv has no '${language.code}' column")
+            assertSame(language, stringsFor(language).language)
+        }
+        assertEquals(AppLanguage.entries.map { it.code }.toSet().size, AppLanguage.entries.size, "two languages share a column")
+    }
+
+    @Test
+    fun templatesFillNumberedPlaceholdersAndKeepOtherBraces() {
+        assertEquals("b then a", formatTemplate("{1} then {0}", "a", "b"))
+        assertEquals("7 / 7", formatTemplate("{0} / {0}", 7))
+        assertEquals("{x} {} {2} {0", formatTemplate("{x} {} {2} {0", "a"))
+        assertEquals("a{", formatTemplate("{0}{", "a"))
+    }
+
+    @Test
     fun languageOptionsAreAlwaysShownInTheirOwnLanguage() {
         listOf(EnglishStrings, JapaneseStrings).forEach { strings ->
             assertEquals("English", strings.languageOptionLabel(AppLanguage.DEFAULT))

@@ -11,8 +11,8 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * Walks every abstract string property of [AppStrings] with reflection, so a new key cannot ship blank,
- * untranslated or with a dropped placeholder without failing a test.
+ * Walks every string property of [AppStrings] (the rows of strings.csv plus the few keys that pick a row)
+ * with reflection, so a new key cannot ship blank, untranslated or with a dropped placeholder without failing a test.
  */
 class AppStringsCompletenessTest {
 
@@ -27,15 +27,21 @@ class AppStringsCompletenessTest {
         "fontPreviewPrimarySample",    // Latin pangram sample
         "fontPreviewSecondarySample",  // mixed sample text
         "fileDefaultCreateCommitMsg",  // commit messages stay English
-        "fileDefaultUpdateCommitMsg"
+        "fileDefaultUpdateCommitMsg",
+        "checkRollupLabel",            // "CI: {0}"
+        "editorMetricsLabel",          // "{0} · {1}" joins the line and character counts
+        "timelineUnrecognized"         // "{0} {1}": actor + GitHub's own phrase
     )
 
     private val stringSentinels = listOf("zqa1", "zqb2", "zqc3")
     private val intSentinels = listOf(7301, 7302, 7303)
     private val longSentinels = listOf(9301L, 9302L, 9303L)
 
-    private val keyGetters: List<Method> = AppStrings::class.java.declaredMethods
-        .filter { Modifier.isAbstract(it.modifiers) && it.parameterCount == 0 && it.name.startsWith("get") }
+    private val keyGetters: List<Method> = listOf(GeneratedAppStrings::class.java, AppStrings::class.java)
+        .flatMap { it.declaredMethods.asList() }
+        .filter { Modifier.isPublic(it.modifiers) && !Modifier.isStatic(it.modifiers) }
+        .filter { it.parameterCount == 0 && it.name.startsWith("get") }
+        .filter { it.returnType == String::class.java || it.returnType.name.startsWith("kotlin.jvm.functions.Function") }
         .sortedBy { it.name }
 
     private fun keyName(getter: Method) = getter.name.removePrefix("get").replaceFirstChar { it.lowercase() }
@@ -75,7 +81,9 @@ class AppStringsCompletenessTest {
 
     @Test
     fun reflectionSeesEveryKey() {
-        assertTrue(keyGetters.size > 600, "expected the full key set, found ${keyGetters.size}")
+        assertTrue(keyGetters.size > 800, "expected the full key set, found ${keyGetters.size}")
+        val csvKeys = GeneratedStringTable.keys.toSet()
+        assertEquals(csvKeys, keyGetters.map(::keyName).filter { it in csvKeys }.toSet(), "every CSV row is a property")
     }
 
     @Test

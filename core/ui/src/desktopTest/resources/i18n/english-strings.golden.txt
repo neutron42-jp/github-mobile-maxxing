@@ -23,7 +23,92 @@ actionsRunWorkflowTitle	Run Workflow
 actionsRunsBack	Runs
 actionsSelectWorkflow	Select workflow
 actionsStarting	Starting...
+activityCommentedOn	zqa1 commented on #7301
+activityCommentedOnThread	zqa1 commented on a thread
+activityCommitComment	zqa1 commented on a commit
+activityCreatedBranch	zqa1 created branch zqb2
+activityCreatedBranchNoName	zqa1 created a branch
+activityCreatedRef	zqa1 created ref zqb2
+activityCreatedRefNoName	zqa1 created a ref
+activityCreatedRepository	zqa1 created repository zqb2
+activityCreatedRepositoryNoName	zqa1 created a repository
+activityCreatedTag	zqa1 created tag zqb2
+activityCreatedTagNoName	zqa1 created a tag
+activityDeletedBranch	zqa1 deleted branch zqb2
+activityDeletedBranchNoName	zqa1 deleted a branch
+activityDeletedRef	zqa1 deleted ref zqb2
+activityDeletedRefNoName	zqa1 deleted a ref
+activityDeletedRepository	zqa1 deleted repository zqb2
+activityDeletedRepositoryNoName	zqa1 deleted a repository
+activityDeletedTag	zqa1 deleted tag zqb2
+activityDeletedTagNoName	zqa1 deleted a tag
 activityFeed	Activity Feed
+activityForked	zqa1 forked the repository
+activityIssueAssigned	zqa1 changed assignees of issue #7301
+activityIssueAssignedNoNumber	zqa1 changed assignees of an issue
+activityIssueClosed	zqa1 closed issue #7301
+activityIssueClosedNoNumber	zqa1 closed an issue
+activityIssueEdited	zqa1 edited issue #7301
+activityIssueEditedNoNumber	zqa1 edited an issue
+activityIssueOpened	zqa1 opened issue #7301
+activityIssueOpenedNoNumber	zqa1 opened an issue
+activityIssueReopened	zqa1 reopened issue #7301
+activityIssueReopenedNoNumber	zqa1 reopened an issue
+activityIssueUpdated	zqa1 updated issue #7301
+activityIssueUpdatedNoNumber	zqa1 updated an issue
+activityMadePublic	zqa1 made the repository public
+activityMemberAdded	zqa1 added zqb2 as a collaborator
+activityMemberAddedNoName	zqa1 added a collaborator
+activityMemberEdited	zqa1 changed the permissions of zqb2
+activityMemberEditedNoName	zqa1 changed a collaborator's permissions
+activityMemberRemoved	zqa1 removed collaborator zqb2
+activityMemberRemovedNoName	zqa1 removed a collaborator
+activityPrAssigned	zqa1 changed assignees of pull request #7301
+activityPrAssignedNoNumber	zqa1 changed assignees of a pull request
+activityPrClosed	zqa1 closed pull request #7301
+activityPrClosedNoNumber	zqa1 closed a pull request
+activityPrConvertedToDraft	zqa1 converted pull request #7301 to a draft
+activityPrConvertedToDraftNoNumber	zqa1 converted a pull request to a draft
+activityPrEdited	zqa1 edited pull request #7301
+activityPrEditedNoNumber	zqa1 edited a pull request
+activityPrMerged	zqa1 merged pull request #7301
+activityPrMergedNoNumber	zqa1 merged a pull request
+activityPrOpened	zqa1 opened pull request #7301
+activityPrOpenedNoNumber	zqa1 opened a pull request
+activityPrReadyForReview	zqa1 marked pull request #7301 as ready for review
+activityPrReadyForReviewNoNumber	zqa1 marked a pull request as ready for review
+activityPrReopened	zqa1 reopened pull request #7301
+activityPrReopenedNoNumber	zqa1 reopened a pull request
+activityPrReviewRequested	zqa1 requested review on pull request #7301
+activityPrReviewRequestedNoNumber	zqa1 requested review on a pull request
+activityPrUpdated	zqa1 updated pull request #7301
+activityPrUpdatedNoNumber	zqa1 updated a pull request
+activityPrereleased	zqa1 published pre-release zqb2
+activityPrereleasedNoTag	zqa1 published a pre-release
+activityPushed	zqa1 pushed 7301 commits to zqb2
+activityReleaseCreated	zqa1 created release zqb2
+activityReleaseCreatedNoTag	zqa1 created a release
+activityReleaseDeleted	zqa1 deleted release zqb2
+activityReleaseDeletedNoTag	zqa1 deleted a release
+activityReleaseEdited	zqa1 edited release zqb2
+activityReleaseEditedNoTag	zqa1 edited a release
+activityReleasePublished	zqa1 published release zqb2
+activityReleasePublishedNoTag	zqa1 published a release
+activityReleaseUnpublished	zqa1 unpublished release zqb2
+activityReleaseUnpublishedNoTag	zqa1 unpublished a release
+activityReleaseUpdated	zqa1 updated release zqb2
+activityReleaseUpdatedNoTag	zqa1 updated a release
+activityReviewApproved	zqa1 approved pull request #7301
+activityReviewApprovedNoNumber	zqa1 approved a pull request
+activityReviewChangesRequested	zqa1 requested changes on pull request #7301
+activityReviewChangesRequestedNoNumber	zqa1 requested changes on a pull request
+activityReviewReviewed	zqa1 reviewed pull request #7301
+activityReviewReviewedNoNumber	zqa1 reviewed a pull request
+activityStarred	zqa1 starred the repository
+activityUnknown	zqa1 activity
+activityUnknownWithDetail	zqa1 zqb2
+activityWikiUpdated	zqa1 updated the wiki
+actorSubject	zqa1
 addReactionDesc	Add reaction
 addReviewerDesc	Add reviewer
 addedInlineDiffComment	Added inline diff comment
@@ -36,10 +121,38 @@ appearanceSystem	System
 apply	Apply
 authMethodDeviceFlow	OAuth device flow
 authMethodPat	Personal access token
+authorAssociationCollaborator	COLLABORATOR
+authorAssociationContributor	CONTRIBUTOR
+authorAssociationFirstTimeContributor	FIRST_TIME_CONTRIBUTOR
+authorAssociationFirstTimer	FIRST_TIMER
+authorAssociationMannequin	MANNEQUIN
+authorAssociationMember	MEMBER
+authorAssociationOwner	OWNER
 back	Back
 backToDiscussionsDesc	Back to discussions
+badgeClosed	CLOSED
+badgeDraft	DRAFT
+badgeMerged	MERGED
+badgeOpen	OPEN
 cancel	Cancel
 cancelReplyDesc	Cancel reply
+checkConclusionActionRequired	ACTION_REQUIRED
+checkConclusionCancelled	CANCELLED
+checkConclusionCompleted	COMPLETED
+checkConclusionFailure	FAILURE
+checkConclusionInProgress	IN_PROGRESS
+checkConclusionNeutral	NEUTRAL
+checkConclusionPending	PENDING
+checkConclusionQueued	QUEUED
+checkConclusionSkipped	SKIPPED
+checkConclusionStale	STALE
+checkConclusionSuccess	SUCCESS
+checkConclusionTimedOut	TIMED_OUT
+checkRollupExpected	EXPECTED
+checkRollupFailure	FAILURE
+checkRollupLabel	CI: zqa1
+checkRollupPending	PENDING
+checkRollupSuccess	SUCCESS
 clear	Clear
 closeAction	Close
 closeDiffViewer	Close diff viewer
@@ -60,7 +173,15 @@ compareCommitsHeader	Commits (7301)
 compareFailed	Compare failed
 compareLoading	Comparing zqa1...zqb2...
 compareSelectRefs	Select two refs to compare.
+compareStatusAhead	AHEAD
+compareStatusBehind	BEHIND
+compareStatusDiverged	DIVERGED
+compareStatusIdentical	IDENTICAL
 compareSummaryCounts	7301 commits · 7302 changed files
+confirmCloseIssue	Are you sure you want to close this issue?
+confirmClosePullRequest	Are you sure you want to close this pull request?
+confirmReopenIssue	Are you sure you want to reopen this issue?
+confirmReopenPullRequest	Are you sure you want to reopen this pull request?
 contributionsInLastYear	7301 in the last year
 contributionsLess	Less
 contributionsMore	More
@@ -82,6 +203,26 @@ deleteImportedFontDesc	Delete imported font
 deleteImportedFontTitle	Delete imported font?
 deleteSelectedFontInUseDesc	This font is currently selected. Text will use System Default instead.
 deletingAction	Deleting...
+dependabotNoticeDisabled	Dependabot vulnerability alerts are not enabled for this repository.
+dependabotNoticeFailed	Could not load Dependabot alerts.
+dependabotNoticeFailedHttp	Could not load Dependabot alerts (HTTP 7301).
+dependabotNoticeForbidden	Viewing Dependabot alerts requires admin access to the repository or the security_events scope.
+deviceFlowErrorBadClientId	The client ID is not valid. Check the client ID you entered (error: zqa1).
+deviceFlowErrorDenied	Authorization was denied in the browser.
+deviceFlowErrorDisabled	Device Flow is not enabled for this OAuth App. Turn on "Enable Device Flow" in the OAuth App settings on GitHub (error: zqa1).
+deviceFlowErrorExpired	The device code expired. Request a new code.
+deviceFlowErrorFailed	Authentication with GitHub failed. Try again.
+deviceFlowErrorFailedWithCode	Authentication with GitHub failed (error: zqa1).
+deviceFlowErrorMissingClientId	Enter an OAuth client ID.
+deviceFlowErrorNetwork	Could not connect to GitHub. Check your network connection.
+deviceFlowErrorRejected	GitHub refused to issue a device code. Check the client ID.
+deviceFlowErrorRejectedHttp	GitHub refused to issue a device code (HTTP 7301). Check the client ID.
+deviceFlowErrorTimedOut	Authorization was not completed in time. Try again.
+deviceFlowVerifying	Signing in...
+deviceFlowWaitCodeIssued	Enter this code on GitHub to authorize zqa1.
+deviceFlowWaitNetworkRetry	Temporary network error. Retrying...
+deviceFlowWaitPending	Waiting for approval in the browser...
+deviceFlowWaitSlowDown	GitHub asked to slow down. Checking every 7301 seconds...
 diffBinaryOrLarge	Binary file or diff too large to display inline.
 diffCommentBodyLabel	Comment (Markdown)
 diffEmptyPatch	Empty patch.
@@ -117,9 +258,18 @@ dynamicColorDesc	Uses Material You system palette on Android 12+, falls back to 
 dynamicColorTitle	Android Wallpaper Dynamic Color
 editCommentBodyLabel	Comment body (Markdown)
 editCommentDesc	Edit comment
+editorCharCountOne	7301 char
+editorCharCountOther	7301 chars
+editorLineCountOne	7301 line
+editorLineCountOther	7301 lines
+editorMetricsLabel	zqa1 · zqb2
 enableGitHubLinks	Enable github.com Links
 enableOsAlerts	Enable OS Alerts
 enableOsAlertsDesc	Android notifications with Mark Read / Done actions & Linux notify-send.
+errorHintSuffix	. zqa1
+errorSignInAgainSuffix	. Please sign in again.
+errorWithDetail	zqa1\nDetails: zqb2
+errorWithHttpStatus	zqa1 (HTTP 7301)
 expandDetails	Expand details
 exploreTitle	Explore
 failedCancelRun	Failed to cancel run
@@ -187,6 +337,8 @@ fileCommitButton	Commit
 fileCommitFailed	Failed to commit file
 fileCommitMessageLabel	Commit message
 fileCommittedMessage	Committed zqa1 (zqb2)
+fileCommittedMessageNoSha	Committed zqa1
+fileCommittedMessageWithSha	Committed zqa1 (zqb2)
 fileCommitting	Committing...
 fileContentsLabel	File contents
 fileCreateTitle	Create File
@@ -196,9 +348,17 @@ fileDeleteConfirm	Delete zqa1 on branch zqb2? This creates a new commit removing
 fileDeleteFailed	Failed to delete file
 fileDeleteTitle	Delete File
 fileDeletedMessage	Deleted zqa1 (zqb2)
+fileDeletedMessageNoSha	Deleted zqa1
+fileDeletedMessageWithSha	Deleted zqa1 (zqb2)
 fileEditTitle	Edit File
 fileMetadataSummary	zqa1 · branch: zqb2 · zqc3
 filePathLabel	Path (e.g. docs/notes.md)
+fileStatusAdded	ADD
+fileStatusChanged	CHA
+fileStatusCopied	COP
+fileStatusModified	MOD
+fileStatusRemoved	REM
+fileStatusRenamed	REN
 fileUntitledName	file
 filterNotificationsPlaceholder	Filter by repo or title...
 follow	Follow
@@ -228,6 +388,8 @@ gistDeletedMessage	Deleted gist
 gistEditAction	Edit gist
 gistEditTitle	Edit Gist
 gistFileCount	7301 files
+gistFileCountOne	7301 file
+gistFileCountOther	7301 files
 gistFilenameLabel	Filename (e.g. notes.md)
 gistNewTitle	New Gist
 gistPublicBadge	Public
@@ -300,6 +462,9 @@ issueManageLabelsTitle	Manage Labels
 issueMergeAction	Merge
 issueMergeConfirmTitle	Merge #7301?
 issueMergeFailed	Merge failed
+issueMergedMerge	Merged #7301 (merge)
+issueMergedRebase	Merged #7301 (rebase)
+issueMergedSquash	Merged #7301 (squash)
 issueMilestoneCleared	Cleared milestone
 issueMilestoneFallback	Milestone
 issueMilestoneUpdated	Updated milestone
@@ -328,9 +493,12 @@ issueSubmitAction	Submit
 issueSubmitReviewTitle	Submit PR Review
 issueUsernameLabel	GitHub username
 issuesAndPrsTitle	Issues & PRs
+jobLogsErrorHttp	Logs unavailable (HTTP 7301). Check the repo scope and whether the logs have expired.
+jobLogsErrorNetwork	Logs unavailable. Check your network connection.
 labelsTitle	Labels
 languageDesc	Switch the UI display language immediately.
 languageLabel	Display language
+languageName	English
 languageSectionTitle	Language
 linkHandlingDefaultDesc	Enable github.com under Open by default so web links launch directly in this app.
 linkHandlingEnabledDesc	github.com links are set to open in github-mobile-maxxing.
@@ -352,6 +520,8 @@ markDoneAction	Mark done
 markdownSupportedHint	Markdown supported
 markedDone	Marked done
 mergeCommitLabel	Create a merge commit
+mergeConfirmQuestionInto	Are you sure you want to merge into zqa1 using zqb2?
+mergeConfirmQuestionIntoBase	Are you sure you want to merge into base using zqa1?
 mergeRebaseLabel	Rebase and merge
 mergeSquashLabel	Squash and merge
 milestoneDue	Due zqa1
@@ -366,6 +536,16 @@ newAction	New
 noFileDiffs	No file diffs returned for this pull request.
 noFollowersYet	No followers yet.
 noGistsFound	No gists found.
+noIssuesOrPrsBodyAll	There are no all items for 'zqa1'.
+noIssuesOrPrsBodyClosed	There are no closed items for 'zqa1'.
+noIssuesOrPrsBodyOpen	There are no open items for 'zqa1'.
+noIssuesOrPrsTitleAll	No All Issues or PRs
+noIssuesOrPrsTitleClosed	No Closed Issues or PRs
+noIssuesOrPrsTitleOpen	No Open Issues or PRs
+noIssuesPresetAssigned	assigned
+noIssuesPresetCreated	created
+noIssuesPresetMentioned	mentioned
+noIssuesPresetReviewRequested	review requested
 noMatchingSystemFonts	No matching system fonts
 noPublicRepos	No public repositories.
 noRecentActivity	No recent activity events yet.
@@ -386,6 +566,19 @@ notifRerunningFailed	Re-running failed jobs
 notifRerunningWorkflow	Re-running workflow
 notifUpdatedAt	Updated: zqa1
 notifWorkflowRunsTitle	Recent Workflow Runs
+notificationReasonAssign	assign
+notificationReasonAuthor	author
+notificationReasonCiActivity	ci activity
+notificationReasonComment	comment
+notificationReasonInvitation	invitation
+notificationReasonManual	manual
+notificationReasonMention	mention
+notificationReasonOther	other
+notificationReasonReviewRequested	review requested
+notificationReasonSecurityAlert	security alert
+notificationReasonStateChange	state change
+notificationReasonSubscribed	subscribed
+notificationReasonTeamMention	team mention
 oauthClientIdLabel	GitHub OAuth Client ID
 oauthConfigTitle	OAuth Client Configuration
 openDetails	Open details
@@ -426,7 +619,15 @@ profileTabRepos	Repos
 profileTabStarred	Starred
 publicRepo	Public repository
 reactedDesc	Reacted
+reactionConfused	confused
+reactionEyes	eyes
 reactionFailed	Reaction failed
+reactionHeart	heart
+reactionHooray	hooray
+reactionLaugh	laugh
+reactionRocket	rocket
+reactionThumbsDown	thumbs down
+reactionThumbsUp	thumbs up
 reasonAll	All Reasons
 reasonAssigned	Assigned
 reasonCi	CI
@@ -504,6 +705,12 @@ repoForkedMessage	Forked to zqa1
 repoForking	Forking...
 repoHeadLabel	Head
 repoIssueTitleLabel	Title
+repoIssuesEmptyBodyAll	There are no all issues in this repository.
+repoIssuesEmptyBodyClosed	There are no closed issues in this repository.
+repoIssuesEmptyBodyOpen	There are no open issues in this repository.
+repoIssuesEmptyTitleAll	No All Issues
+repoIssuesEmptyTitleClosed	No Closed Issues
+repoIssuesEmptyTitleOpen	No Open Issues
 repoLoadingCommits	Loading commits...
 repoLoadingIssues	Loading Issues...
 repoLoadingPulls	Loading Pull Requests...
@@ -524,6 +731,12 @@ repoPeopleTabStars	Stars
 repoPinAction	Pin repository
 repoPinnedMessage	Pinned zqa1 to Home
 repoPrTitleLabel	PR Title
+repoPullsEmptyBodyAll	There are no all pull requests in this repository.
+repoPullsEmptyBodyClosed	There are no closed pull requests in this repository.
+repoPullsEmptyBodyOpen	There are no open pull requests in this repository.
+repoPullsEmptyTitleAll	No All Pull Requests
+repoPullsEmptyTitleClosed	No Closed Pull Requests
+repoPullsEmptyTitleOpen	No Open Pull Requests
 repoRefreshIssues	Refresh Issues
 repoRefreshPulls	Refresh Pull Requests
 repoSearchFailed	Repository search failed
@@ -550,6 +763,12 @@ reviewApproveLabel	Approve
 reviewCommentLabel	Comment
 reviewCommentLineTitle	Review Comment: zqa1:7301
 reviewRequestChangesLabel	Request changes
+reviewStateApproved	APPROVED
+reviewStateChangesRequested	CHANGES REQUESTED
+reviewStateCommented	COMMENTED
+reviewStateDismissed	DISMISSED
+reviewStatePending	PENDING
+reviewStateReviewRequired	REVIEW REQUIRED
 reviewersHeader	Reviewers:
 save	Save
 savedClientId	Saved Client ID
@@ -584,6 +803,10 @@ selectedOption	Selected
 sendCommentDesc	Send comment
 sendTestNotification	Send Test Notification
 settingsTitle	Settings & Appearance
+severityCritical	CRITICAL
+severityHigh	HIGH
+severityLow	LOW
+severityMedium	MEDIUM
 share	Share
 shareEllipsis	Share...
 shareRepository	Share repository
@@ -628,11 +851,17 @@ syncedCount	Synced 7301 notifications
 syncedUnreadCount	Synced 7301 unread notifications
 syncingNotifications	Syncing notifications...
 systemActorFallback	system
+systemActorSubject	@system
 systemDefaultLabel	System Default
 systemFontsHeader	System Fonts
 testNotificationBlocked	Notifications blocked or notify-send unavailable — check OS permissions
 testNotificationSent	Test notification dispatched
 themeTitle	Material 3 Expressive Theme
+timelineClosed	zqa1 closed this
+timelineMergedInto	zqa1 merged into zqb2
+timelineMergedIntoBase	zqa1 merged into base
+timelineReopened	zqa1 reopened this
+timelineUnrecognized	zqa1 zqb2
 trendingAll	Trending All
 unfollowedUser	Unfollowed @zqa1
 unknownError	Unknown error

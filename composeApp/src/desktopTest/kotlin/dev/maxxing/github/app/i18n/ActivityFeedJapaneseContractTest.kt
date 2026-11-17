@@ -19,7 +19,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * The network layer builds English activity/timeline phrases and JapaneseStrings parses them back.
+ * The network layer builds English activity/timeline phrases and AppStrings parses them back for Japanese.
  * These tests run the real producers (GitHubRestService / GitHubGraphQlService) and pin each English
  * phrase to its Japanese line, so a producer wording change fails here instead of silently falling back.
  */
