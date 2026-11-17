@@ -1,12 +1,16 @@
 package dev.maxxing.github.app.ui
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -35,6 +40,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -42,6 +48,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -52,6 +59,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.composables.icons.lucide.Activity
 import com.composables.icons.lucide.BookMarked
@@ -356,50 +364,11 @@ private fun HomeDashboardPane(
 
                     if (pinnedRepoNames.isNotEmpty()) {
                         item(key = "pinned_repos_strip", contentType = "pinned_repos") {
-                            val repoByFullName = remember(recentRepos) {
-                                recentRepos.associateBy { it.fullName.lowercase() }
-                            }
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = MaxxingFilledIcons.Bookmark,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp),
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                    Text(
-                                        text = strings.pinnedBookmarks,
-                                        style = MaterialTheme.typography.titleMedium
-                                    )
-                                }
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    pinnedRepoNames.forEach { fullName ->
-                                        val owner = fullName.substringBefore('/', "")
-                                        val name = fullName.substringAfter('/', fullName)
-                                        val summary = repoByFullName[fullName.lowercase()]
-                                        AssistChip(
-                                            onClick = { if (owner.isNotBlank()) onOpenRepo(owner, name) },
-                                            leadingIcon = {
-                                                Icon(
-                                                    imageVector = if (summary?.isPrivate == true) Lucide.Lock else Lucide.Bookmark,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(15.dp),
-                                                    tint = MaterialTheme.colorScheme.primary
-                                                )
-                                            },
-                                            label = { Text(fullName, maxLines = 1) }
-                                        )
-                                    }
-                                }
-                            }
+                            PinnedBookmarksSection(
+                                pinnedRepoNames = pinnedRepoNames,
+                                recentRepos = recentRepos,
+                                onOpenRepo = onOpenRepo
+                            )
                         }
                     }
 
@@ -610,6 +579,82 @@ private fun HomeDashboardPane(
                             )
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/** Collapsed item limit for pinned bookmarks: fewer on compact widths. */
+internal fun pinnedBookmarksCollapsedLimit(availableWidth: Dp): Int =
+    if (availableWidth < 600.dp) 6 else 12
+
+/** Items to render: everything when expanded or within [limit], otherwise the first [limit]. */
+internal fun <T> pinnedBookmarksVisibleItems(items: List<T>, limit: Int, expanded: Boolean): List<T> =
+    if (expanded || items.size <= limit) items else items.take(limit)
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PinnedBookmarksSection(
+    pinnedRepoNames: List<String>,
+    recentRepos: List<RepoSummary>,
+    onOpenRepo: (String, String) -> Unit
+) {
+    val repoByFullName = remember(recentRepos) {
+        recentRepos.associateBy { it.fullName.lowercase() }
+    }
+    val strings = appStrings()
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val limit = pinnedBookmarksCollapsedLimit(maxWidth)
+        val visibleNames = pinnedBookmarksVisibleItems(pinnedRepoNames, limit, expanded)
+        Column(
+            modifier = Modifier.fillMaxWidth().animateContentSize(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = MaxxingFilledIcons.Bookmark,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = strings.pinnedBookmarks,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                if (pinnedRepoNames.size > limit) {
+                    TextButton(onClick = { expanded = !expanded }) {
+                        Text(if (expanded) strings.pinnedBookmarksShowLess else strings.pinnedBookmarksShowAll(pinnedRepoNames.size))
+                    }
+                }
+            }
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                visibleNames.forEach { fullName ->
+                    val owner = fullName.substringBefore('/', "")
+                    val name = fullName.substringAfter('/', fullName)
+                    val summary = repoByFullName[fullName.lowercase()]
+                    AssistChip(
+                        onClick = { if (owner.isNotBlank()) onOpenRepo(owner, name) },
+                        modifier = Modifier.widthIn(max = 240.dp),
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (summary?.isPrivate == true) Lucide.Lock else Lucide.Bookmark,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        },
+                        label = { Text(fullName, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    )
                 }
             }
         }
