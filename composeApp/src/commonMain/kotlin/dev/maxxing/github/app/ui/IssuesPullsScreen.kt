@@ -61,6 +61,8 @@ import com.composables.icons.lucide.Pencil
 import com.composables.icons.lucide.RefreshCw
 import dev.maxxing.github.app.AppContainer
 import dev.maxxing.github.app.IssuePullTarget
+import dev.maxxing.github.app.issuePullTargetFromPaneKey
+import dev.maxxing.github.app.toPaneKey
 import dev.maxxing.github.model.IssueFilterPreset
 import dev.maxxing.github.model.IssueOrPullKind
 import dev.maxxing.github.model.IssueOrPullState
@@ -89,7 +91,11 @@ fun IssuesPullsScreen(
     container: AppContainer,
     onMessage: (String) -> Unit
 ) {
-    val navigator = rememberListDetailPaneScaffoldNavigator<IssuePullTarget>()
+    // String content keys keep the navigator saveable into the Android Bundle; IssuePullTarget is not.
+    val navigator = rememberListDetailPaneScaffoldNavigator<String>()
+    // Targets opened in this composition, so the detail pane keeps hintTitle. After the state is
+    // restored (e.g. process recreation) the key is decoded instead, without a hint title.
+    val openedTargets = remember { mutableMapOf<String, IssuePullTarget>() }
     val scope = rememberCoroutineScope()
     val strings = appStrings()
     val profile by container.viewerProfile.collectAsState()
@@ -309,25 +315,21 @@ fun IssuesPullsScreen(
                                     key = { it.id },
                                     contentType = { "issue_pull_summary" }
                                 ) { summary ->
-                                    val isSelected = navigator.currentDestination?.contentKey?.let {
-                                        it.owner == summary.repoOwner &&
-                                            it.repo == summary.repoName &&
-                                            it.number == summary.number
-                                    } == true
+                                    val summaryTarget = IssuePullTarget(
+                                        owner = summary.repoOwner,
+                                        repo = summary.repoName,
+                                        number = summary.number,
+                                        hintTitle = summary.title
+                                    )
+                                    val summaryKey = summaryTarget.toPaneKey()
+                                    val isSelected = navigator.currentDestination?.contentKey == summaryKey
                                     IssuePullSummaryCard(
                                         item = summary,
                                         selected = isSelected,
                                         onClick = {
+                                            openedTargets[summaryKey] = summaryTarget
                                             scope.launch {
-                                                navigator.navigateTo(
-                                                    ListDetailPaneScaffoldRole.Detail,
-                                                    IssuePullTarget(
-                                                        owner = summary.repoOwner,
-                                                        repo = summary.repoName,
-                                                        number = summary.number,
-                                                        hintTitle = summary.title
-                                                    )
-                                                )
+                                                navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, summaryKey)
                                             }
                                         }
                                     )
@@ -341,7 +343,16 @@ fun IssuesPullsScreen(
         },
         detailPane = {
             AnimatedPane {
-                val target = navigator.currentDestination?.contentKey
+                val targetKey = navigator.currentDestination?.contentKey
+                val target = remember(targetKey) {
+                    targetKey?.let { openedTargets[it] ?: issuePullTargetFromPaneKey(it) }
+                }
+                LaunchedEffect(targetKey, target) {
+                    // A key that cannot be decoded has nothing to show; return to the list.
+                    if (targetKey != null && target == null && navigator.canNavigateBack()) {
+                        navigator.navigateBack()
+                    }
+                }
                 if (target != null) {
                     IssuePullDetailPane(
                         target = target,
