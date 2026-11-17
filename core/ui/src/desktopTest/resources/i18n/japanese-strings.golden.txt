@@ -9,6 +9,7 @@ actionsJobsBack	ジョブ一覧
 actionsLoadingJobs	ジョブを読み込み中...
 actionsLoadingLogs	ログを読み込み中...
 actionsLoadingRuns	ワークフロー実行履歴を読み込み中...
+actionsLogsAfterJobFinishes	ログはジョブの完了後に表示できます
 actionsLogsButton	ログ
 actionsLogsUnavailable	ログを取得できません
 actionsNoLogs	このジョブのログはありません。
@@ -23,6 +24,7 @@ actionsRunWorkflowTitle	ワークフローを実行
 actionsRunsBack	実行一覧
 actionsSelectWorkflow	ワークフローを選択
 actionsStarting	開始中...
+actionsViewInBrowser	ブラウザで表示
 activityCommentedOn	zqa1 #7301 にコメントしました
 activityCommentedOnThread	zqa1スレッドにコメントしました
 activityCommitComment	zqa1コミットにコメントしました
@@ -436,6 +438,8 @@ insightsTopContributors	主なコントリビューター
 insightsWeeklyPulse	週間コミット推移（16 週間）
 issueAssigneesCount	アサイン (7301)
 issueAssigneesUpdated	アサインを更新しました
+issueCheckRunCountOne	チェック 7301 件
+issueCheckRunCountOther	チェック 7301 件
 issueCloseAction	クローズ
 issueCloseConfirmTitle	#7301 をクローズしますか？
 issueClosedMessage	#7301 をクローズしました
@@ -477,6 +481,7 @@ issueNoMilestone	マイルストーンなし
 issueReactAction	リアクション
 issueReadyForReview	レビュー可能にする
 issueRefreshChecks	チェックを更新
+issueRefreshChecksDesc	チェックを更新
 issueReopenAction	再開
 issueReopenConfirmTitle	#7301 を再開しますか？
 issueReopenedMessage	#7301 を再開しました

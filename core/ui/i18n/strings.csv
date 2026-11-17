@@ -367,6 +367,8 @@ actionsCancelRun,,Cancel Run,実行をキャンセル
 actionsRerunAll,,Re-run All,すべて再実行
 actionsRerunFailed,,Re-run Failed,失敗ジョブを再実行
 actionsLogsButton,,Logs,ログ
+actionsViewInBrowser,,View in browser,ブラウザで表示
+actionsLogsAfterJobFinishes,,Logs available after the job finishes,ログはジョブの完了後に表示できます
 actionsJobsBack,,Jobs,ジョブ一覧
 actionsLoadingLogs,,Loading logs...,ログを読み込み中...
 actionsNoLogs,,No logs returned for this job.,このジョブのログはありません。
@@ -481,6 +483,9 @@ issueLoadingNumber,Int,Loading #{0}...,#{0} を読み込み中...
 issueLoadingChecks,,Loading CI check runs...,CI チェック結果を読み込み中...
 issueNoChecks,,No CI check runs reported,CI チェックの実行結果はありません
 issueRefreshChecks,,Refresh Checks,チェックを更新
+issueRefreshChecksDesc,,Refresh checks,チェックを更新
+issueCheckRunCountOne,Int,{0} check run,チェック {0} 件
+issueCheckRunCountOther,Int,{0} check runs,チェック {0} 件
 issueReviewAction,,Review,レビュー
 issueReopenAction,,Reopen,再開
 issueCloseAction,,Close,クローズ

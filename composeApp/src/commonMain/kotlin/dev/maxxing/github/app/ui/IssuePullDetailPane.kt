@@ -49,6 +49,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,6 +62,9 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.composables.icons.lucide.ArrowLeft
 import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.CircleCheck
@@ -114,7 +118,48 @@ import dev.maxxing.github.ui.components.SplitActionOption
 import dev.maxxing.github.ui.components.UserAvatar
 import dev.maxxing.github.ui.components.diffFileLazyItems
 import dev.maxxing.github.ui.i18n.appStrings
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+private const val CHECKS_POLL_INTERVAL_MS = 30_000L
+
+// Stop polling a PR after ~30 minutes of foreground polling in total (e.g. runs stuck waiting for a runner).
+private const val CHECKS_POLL_MAX_COUNT = 60
+
+/**
+ * Ref used to list a PR's check runs on the base repository. The head commit SHA
+ * also resolves for PRs from forks, whose head branch does not exist in the base repo.
+ */
+internal fun resolveChecksRef(headRefOid: String?, headRefName: String?): String? =
+    headRefOid?.takeIf { it.isNotBlank() } ?: headRefName?.takeIf { it.isNotBlank() }
+
+internal fun hasPendingCheckRuns(runs: List<CheckRunSummary>?): Boolean =
+    runs.orEmpty().any { it.status != "completed" }
+
+internal enum class ChecksViewState { LOADING, ERROR, EMPTY, LIST }
+
+/** What the Checks tab shows. Loaded runs stay visible while a refresh is running or after it fails. */
+internal fun checksViewState(loading: Boolean, error: String?, runs: List<CheckRunSummary>?): ChecksViewState =
+    when {
+        !runs.isNullOrEmpty() -> ChecksViewState.LIST
+        loading -> ChecksViewState.LOADING
+        error != null -> ChecksViewState.ERROR
+        else -> ChecksViewState.EMPTY
+    }
+
+internal enum class ChecksFailureAction { SHOW_ERROR, SNACKBAR, IGNORE }
+
+/**
+ * How a failed check-runs load is reported: replace an empty list with the error state,
+ * otherwise keep the shown runs and notify, except for background polls.
+ */
+internal fun checksFailureAction(hasRuns: Boolean, silent: Boolean): ChecksFailureAction =
+    when {
+        !hasRuns -> ChecksFailureAction.SHOW_ERROR
+        silent -> ChecksFailureAction.IGNORE
+        else -> ChecksFailureAction.SNACKBAR
+    }
 
 private enum class DetailTab {
     CONVERSATION,
@@ -163,6 +208,13 @@ private fun IssuePullDetailPaneContent(
     var filesLoading by remember(target) { mutableStateOf(false) }
     var checkRuns by remember(target) { mutableStateOf<List<CheckRunSummary>?>(null) }
     var checksLoading by remember(target) { mutableStateOf(false) }
+    var checksError by remember(target) { mutableStateOf<String?>(null) }
+    // Ref (head SHA or branch) that checkRuns belong to; null until the first load.
+    var checksLoadedRef by remember(target) { mutableStateOf<String?>(null) }
+    // Only the latest check-runs request may update the state above.
+    var checksRequestId by remember(target) { mutableIntStateOf(0) }
+    // Polls spent on this PR; the cap holds across tab switches and returns from the background.
+    var checksPollsUsed by remember(target) { mutableIntStateOf(0) }
     var errorMsg by remember(target) { mutableStateOf<String?>(null) }
     var selectedTab by remember(target) { mutableStateOf(DetailTab.CONVERSATION) }
 
@@ -201,6 +253,39 @@ private fun IssuePullDetailPaneContent(
     var selectedReviewerLogins by remember { mutableStateOf<Set<String>>(emptySet()) }
     var customReviewerLogin by remember { mutableStateOf("") }
 
+    fun loadChecks(ref: String, forceRefresh: Boolean, silent: Boolean = false) {
+        if (checksLoadedRef != ref) {
+            // A new head commit: drop runs that belong to the previous one.
+            checkRuns = null
+            checksError = null
+        }
+        checksLoadedRef = ref
+        checksLoading = true
+        checksRequestId += 1
+        val requestId = checksRequestId
+        scope.launch {
+            val result = container.repository.getCheckRunsForRef(target.owner, target.repo, ref, forceRefresh = forceRefresh)
+            // A newer request (another head commit or a later refresh) owns the state now.
+            if (requestId != checksRequestId) return@launch
+            result
+                .onSuccess {
+                    checkRuns = it
+                    checksError = null
+                }
+                .onFailure {
+                    if (it !is CancellationException) {
+                        val message = strings.errorMessage(it, strings.failedLoadCiChecks)
+                        when (checksFailureAction(hasRuns = !checkRuns.isNullOrEmpty(), silent = silent)) {
+                            ChecksFailureAction.SHOW_ERROR -> checksError = message
+                            ChecksFailureAction.SNACKBAR -> onMessage(message)
+                            ChecksFailureAction.IGNORE -> Unit
+                        }
+                    }
+                }
+            checksLoading = false
+        }
+    }
+
     fun loadDetail(forceRefresh: Boolean = false) {
         scope.launch {
             val cached = container.repository.peekIssueOrPullDetail(target.owner, target.repo, target.number)
@@ -220,6 +305,13 @@ private fun IssuePullDetailPaneContent(
                             .onSuccess { files = it }
                         filesLoading = false
                     }
+                    if (forceRefresh && loaded.kind == IssueOrPullKind.PULL_REQUEST && checksLoadedRef != null) {
+                        resolveChecksRef(loaded.headRefOid, loaded.headRefName)?.let {
+                            // Silent: a reload triggered by an unrelated action (reaction, comment, ...)
+                            // must not pop a check-runs error snackbar; an empty tab still shows the error.
+                            loadChecks(it, forceRefresh = true, silent = true)
+                        }
+                    }
                 }
                 .onFailure {
                     errorMsg = strings.errorMessage(it, strings.failedLoadDetails)
@@ -230,6 +322,20 @@ private fun IssuePullDetailPaneContent(
 
     LaunchedEffect(target) {
         loadDetail(forceRefresh = false)
+    }
+
+    // Head ref whose runs were last seen unfinished. When they all finish, reload the PR so
+    // the header CI rollup and the head commit catch up with the Checks tab.
+    var checksPendingRef by remember(target) { mutableStateOf<String?>(null) }
+    LaunchedEffect(checkRuns) {
+        val runs = checkRuns ?: return@LaunchedEffect
+        val ref = checksLoadedRef
+        if (hasPendingCheckRuns(runs)) {
+            checksPendingRef = ref
+        } else if (ref != null && checksPendingRef == ref) {
+            checksPendingRef = null
+            loadDetail(forceRefresh = true)
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -315,14 +421,24 @@ private fun IssuePullDetailPaneContent(
                                 if (!headerTracker.isCollapsed) {
                                     Spacer(Modifier.height(6.dp))
                                 }
-                                val headRef = item.headRefName
-                                LaunchedEffect(headRef, selectedTab) {
-                                    if (!headRef.isNullOrBlank() && selectedTab == DetailTab.CHECKS && checkRuns == null) {
-                                        checksLoading = true
-                                        container.repository.getCheckRunsForRef(target.owner, target.repo, headRef)
-                                            .onSuccess { checkRuns = it }
-                                            .onFailure { onMessage(strings.errorMessage(it, strings.failedLoadCiChecks)) }
-                                        checksLoading = false
+                                val checksRef = resolveChecksRef(item.headRefOid, item.headRefName)
+                                LaunchedEffect(checksRef, selectedTab) {
+                                    if (checksRef != null && selectedTab == DetailTab.CHECKS && checksLoadedRef != checksRef) {
+                                        loadChecks(checksRef, forceRefresh = false)
+                                    }
+                                }
+                                val checksPending = hasPendingCheckRuns(checkRuns)
+                                val lifecycle = LocalLifecycleOwner.current.lifecycle
+                                LaunchedEffect(checksRef, selectedTab, checksPending, lifecycle) {
+                                    if (checksRef == null || selectedTab != DetailTab.CHECKS || !checksPending) return@LaunchedEffect
+                                    // Poll while CI is still running and the Checks tab is visible,
+                                    // pausing while the app is in the background or minimized.
+                                    lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                                        while (checksPollsUsed < CHECKS_POLL_MAX_COUNT) {
+                                            delay(CHECKS_POLL_INTERVAL_MS)
+                                            checksPollsUsed += 1
+                                            if (!checksLoading) loadChecks(checksRef, forceRefresh = true, silent = true)
+                                        }
                                     }
                                 }
                                 PrimaryScrollableTabRow(
@@ -505,13 +621,37 @@ private fun IssuePullDetailPaneContent(
                         }
                     } else if (selectedTab == DetailTab.CHECKS) {
                         val runs = checkRuns
-                        when {
-                            checksLoading && runs == null -> {
+                        val checksRef = resolveChecksRef(item.headRefOid, item.headRefName)
+                        when (checksViewState(checksLoading, checksError, runs)) {
+                            ChecksViewState.LOADING -> {
                                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     MaxxingLoadingState(message = strings.issueLoadingChecks)
                                 }
                             }
-                            runs.isNullOrEmpty() -> {
+                            ChecksViewState.ERROR -> {
+                                Column(
+                                    modifier = Modifier.fillMaxSize().padding(32.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    val errorText = checksError.orEmpty()
+                                    // Translated messages already start with the heading; do not show it twice.
+                                    if (!errorText.startsWith(strings.failedLoadCiChecks)) {
+                                        Text(strings.failedLoadCiChecks, style = MaterialTheme.typography.titleMedium)
+                                        Spacer(Modifier.height(6.dp))
+                                    }
+                                    Text(
+                                        text = errorText,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                    if (checksRef != null) {
+                                        Spacer(Modifier.height(12.dp))
+                                        Button(onClick = { loadChecks(checksRef, forceRefresh = true) }) { Text(strings.retry) }
+                                    }
+                                }
+                            }
+                            ChecksViewState.EMPTY -> {
                                 Column(
                                     modifier = Modifier.fillMaxSize().padding(32.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -525,41 +665,45 @@ private fun IssuePullDetailPaneContent(
                                     )
                                     Spacer(Modifier.height(10.dp))
                                     Text(strings.issueNoChecks, style = MaterialTheme.typography.titleMedium)
-                                    val headRef = item.headRefName
-                                    if (!headRef.isNullOrBlank()) {
+                                    if (checksRef != null) {
                                         Spacer(Modifier.height(10.dp))
-                                        FilledTonalButton(onClick = {
-                                            scope.launch {
-                                                checksLoading = true
-                                                container.repository.getCheckRunsForRef(
-                                                    target.owner, target.repo, headRef, forceRefresh = true
-                                                ).onSuccess { checkRuns = it }
-                                                checksLoading = false
-                                            }
-                                        }) { Text(strings.issueRefreshChecks) }
+                                        FilledTonalButton(
+                                            enabled = !checksLoading,
+                                            onClick = { loadChecks(checksRef, forceRefresh = true) }
+                                        ) { Text(strings.issueRefreshChecks) }
                                     }
                                 }
                             }
-                            else -> {
+                            ChecksViewState.LIST -> {
+                                val shownRuns = runs.orEmpty()
                                 LazyColumn(
                                     modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp),
+                                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
                                     verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    items(items = runs, key = { it.id }, contentType = { "check_run" }) { cr ->
-                                        val isSuccess = cr.conclusion.equals("success", ignoreCase = true)
-                                        val isFailure = cr.conclusion.equals("failure", ignoreCase = true) ||
-                                            cr.conclusion.equals("timed_out", ignoreCase = true)
-                                        val tint = when {
-                                            isSuccess -> Color(0xFF16A34A)
-                                            isFailure -> MaterialTheme.colorScheme.error
-                                            else -> Color(0xFFD97706)
+                                    item(key = "checks_header", contentType = "checks_header") {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = if (shownRuns.size == 1) strings.issueCheckRunCountOne(shownRuns.size) else strings.issueCheckRunCountOther(shownRuns.size),
+                                                style = MaterialTheme.typography.labelLarge,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            if (checksRef != null) {
+                                                IconButton(
+                                                    enabled = !checksLoading,
+                                                    onClick = { loadChecks(checksRef, forceRefresh = true) }
+                                                ) {
+                                                    Icon(Lucide.RefreshCw, contentDescription = strings.issueRefreshChecksDesc, modifier = Modifier.size(16.dp))
+                                                }
+                                            }
                                         }
-                                        val icon = when {
-                                            isSuccess -> Lucide.CircleCheck
-                                            isFailure -> Lucide.X
-                                            else -> Lucide.CircleDot
-                                        }
+                                    }
+                                    items(items = shownRuns, key = { it.id }, contentType = { "check_run" }) { cr ->
+                                        val (icon, tint) = actionStatusVisual(cr.status, cr.conclusion)
                                         ElevatedCard(
                                             shape = MaterialTheme.shapes.large,
                                             colors = CardDefaults.elevatedCardColors(

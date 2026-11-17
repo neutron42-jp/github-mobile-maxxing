@@ -4306,6 +4306,15 @@ private fun RefSelectorDropdown(
     }
 }
 
+internal enum class JobLogAction { DOWNLOAD, OPEN_IN_BROWSER, UNAVAILABLE }
+
+/** GitHub returns 404 for the logs of a job that is still running, so only finished jobs download them. */
+internal fun jobLogAction(status: String, htmlUrl: String): JobLogAction = when {
+    status == "completed" -> JobLogAction.DOWNLOAD
+    htmlUrl.isNotBlank() -> JobLogAction.OPEN_IN_BROWSER
+    else -> JobLogAction.UNAVAILABLE
+}
+
 @Composable
 internal fun actionStatusVisual(status: String, conclusion: String?): Pair<ImageVector, Color> {
     return when {
@@ -4580,6 +4589,7 @@ internal fun WorkflowRunDetailView(
 
                 items(items = jobs.orEmpty(), key = { it.id }, contentType = { "workflow_job" }) { job ->
                     val (jIcon, jTint) = actionStatusVisual(job.status, job.conclusion)
+                    val logAction = jobLogAction(job.status, job.htmlUrl)
                     ElevatedCard(
                         shape = MaterialTheme.shapes.large,
                         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
@@ -4592,14 +4602,33 @@ internal fun WorkflowRunDetailView(
                             ) {
                                 Icon(jIcon, contentDescription = null, tint = jTint, modifier = Modifier.size(18.dp))
                                 Text(job.name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                                FilledTonalButton(
-                                    onClick = { onOpenLogs(job) },
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                                ) {
-                                    Icon(Lucide.FileCode, contentDescription = null, modifier = Modifier.size(14.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(strings.actionsLogsButton)
+                                if (logAction == JobLogAction.OPEN_IN_BROWSER) {
+                                    FilledTonalButton(
+                                        onClick = { openUrlInBrowser(job.htmlUrl) },
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                    ) {
+                                        Icon(Lucide.ExternalLink, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(strings.actionsViewInBrowser)
+                                    }
+                                } else {
+                                    FilledTonalButton(
+                                        onClick = { onOpenLogs(job) },
+                                        enabled = logAction == JobLogAction.DOWNLOAD,
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                    ) {
+                                        Icon(Lucide.FileCode, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(strings.actionsLogsButton)
+                                    }
                                 }
+                            }
+                            if (logAction != JobLogAction.DOWNLOAD) {
+                                Text(
+                                    strings.actionsLogsAfterJobFinishes,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                             job.steps.forEach { step ->
                                 val (sIcon, sTint) = actionStatusVisual(step.status, step.conclusion)

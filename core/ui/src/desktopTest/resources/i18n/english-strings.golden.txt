@@ -9,6 +9,7 @@ actionsJobsBack	Jobs
 actionsLoadingJobs	Loading jobs...
 actionsLoadingLogs	Loading logs...
 actionsLoadingRuns	Loading workflow runs...
+actionsLogsAfterJobFinishes	Logs available after the job finishes
 actionsLogsButton	Logs
 actionsLogsUnavailable	Logs unavailable (check repo scope / expiration)
 actionsNoLogs	No logs returned for this job.
@@ -23,6 +24,7 @@ actionsRunWorkflowTitle	Run Workflow
 actionsRunsBack	Runs
 actionsSelectWorkflow	Select workflow
 actionsStarting	Starting...
+actionsViewInBrowser	View in browser
 activityCommentedOn	zqa1 commented on #7301
 activityCommentedOnThread	zqa1 commented on a thread
 activityCommitComment	zqa1 commented on a commit
@@ -436,6 +438,8 @@ insightsTopContributors	Top Contributors
 insightsWeeklyPulse	Weekly Commit Pulse (16w)
 issueAssigneesCount	Assignees (7301)
 issueAssigneesUpdated	Updated assignees
+issueCheckRunCountOne	7301 check run
+issueCheckRunCountOther	7301 check runs
 issueCloseAction	Close
 issueCloseConfirmTitle	Close #7301?
 issueClosedMessage	Closed #7301
@@ -477,6 +481,7 @@ issueNoMilestone	No milestone
 issueReactAction	React
 issueReadyForReview	Ready for review
 issueRefreshChecks	Refresh Checks
+issueRefreshChecksDesc	Refresh checks
 issueReopenAction	Reopen
 issueReopenConfirmTitle	Reopen #7301?
 issueReopenedMessage	Reopened #7301
