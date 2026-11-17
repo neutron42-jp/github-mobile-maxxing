@@ -8,7 +8,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import com.mikepenz.markdown.coil3.Coil3ImageTransformerImpl
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
@@ -270,7 +269,7 @@ fun GitHubMarkdownPreNormalized(
                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
             )
         ),
-        imageTransformer = Coil3ImageTransformerImpl,
+        imageTransformer = GitHubImageTransformer,
         modifier = modifier.fillMaxWidth()
     )
 }
