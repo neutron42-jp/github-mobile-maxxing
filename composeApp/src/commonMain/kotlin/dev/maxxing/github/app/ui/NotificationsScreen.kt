@@ -56,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
@@ -95,7 +96,7 @@ import dev.maxxing.github.ui.i18n.AppStrings
 import dev.maxxing.github.ui.i18n.appStrings
 import kotlinx.coroutines.launch
 
-private enum class InboxFilter {
+internal enum class InboxFilter {
     UNREAD,
     PARTICIPATING,
     ALL;
@@ -106,6 +107,13 @@ private enum class InboxFilter {
         ALL -> strings.inboxFilterAll
     }
 }
+
+/**
+ * Whether marking a thread done (swipe or the check button) is offered for [filter].
+ * It is hidden in the All filter: GitHub keeps returning done threads for `all=true`,
+ * so a done thread would vanish locally and then reappear on the next load.
+ */
+internal fun isMarkDoneAvailable(filter: InboxFilter): Boolean = filter != InboxFilter.ALL
 
 internal enum class ReasonFilter {
     ALL,
@@ -567,18 +575,22 @@ fun NotificationsScreen(
                                         SwipeToDismissBox(
                                             state = dismissState,
                                             enableDismissFromStartToEnd = false,
+                                            gesturesEnabled = isMarkDoneAvailable(filter),
                                             backgroundContent = {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .padding(horizontal = 20.dp),
-                                                    contentAlignment = Alignment.CenterEnd
-                                                ) {
-                                                    Icon(
-                                                        Lucide.Check,
-                                                        contentDescription = strings.doneAction,
-                                                        tint = MaterialTheme.colorScheme.primary
-                                                    )
+                                                // Only draw the done hint while the card is actually being swiped.
+                                                if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .padding(horizontal = 20.dp),
+                                                        contentAlignment = Alignment.CenterEnd
+                                                    ) {
+                                                        Icon(
+                                                            Lucide.Check,
+                                                            contentDescription = strings.doneAction,
+                                                            tint = MaterialTheme.colorScheme.primary
+                                                        )
+                                                    }
                                                 }
                                             }
                                         ) {
@@ -621,13 +633,17 @@ fun NotificationsScreen(
                                                         openThreadSubjectDetail(thread)
                                                     }
                                                 },
-                                                onMarkDone = {
-                                                    threads = threads.filterNot { it.id == thread.id }
-                                                    container.updateUnreadCount(threads.count { it.unread })
-                                                    scope.launch {
-                                                        container.repository.markNotificationDone(thread.id)
-                                                            .onFailure { loadNotifications() }
+                                                onMarkDone = if (isMarkDoneAvailable(filter)) {
+                                                    {
+                                                        threads = threads.filterNot { it.id == thread.id }
+                                                        container.updateUnreadCount(threads.count { it.unread })
+                                                        scope.launch {
+                                                            container.repository.markNotificationDone(thread.id)
+                                                                .onFailure { loadNotifications() }
+                                                        }
                                                     }
+                                                } else {
+                                                    null
                                                 }
                                             )
                                         }
@@ -726,7 +742,7 @@ private fun NotificationThreadCard(
     thread: NotificationThread,
     selected: Boolean,
     onClick: () -> Unit,
-    onMarkDone: () -> Unit
+    onMarkDone: (() -> Unit)?
 ) {
     val icon = when (thread.subjectType) {
         NotificationSubjectType.PULL_REQUEST -> Lucide.GitPullRequest
@@ -741,7 +757,9 @@ private fun NotificationThreadCard(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
             containerColor = when {
+                // Opaque so the swipe background behind the card never shows through.
                 selected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                    .compositeOver(MaterialTheme.colorScheme.surface)
                 thread.unread -> MaterialTheme.colorScheme.surfaceContainerHigh
                 else -> MaterialTheme.colorScheme.surfaceContainerLow
             }
@@ -801,13 +819,15 @@ private fun NotificationThreadCard(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            IconButton(onClick = onMarkDone, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    Lucide.Check,
-                    contentDescription = appStrings().markDoneAction,
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
+            if (onMarkDone != null) {
+                IconButton(onClick = onMarkDone, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        Lucide.Check,
+                        contentDescription = appStrings().markDoneAction,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
     }
