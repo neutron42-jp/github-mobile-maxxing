@@ -53,6 +53,9 @@ class AppStringsTest {
         assertEquals("7 / 7", formatTemplate("{0} / {0}", 7))
         assertEquals("{x} {} {2} {0", formatTemplate("{x} {} {2} {0", "a"))
         assertEquals("a{", formatTemplate("{0}{", "a"))
+        // An argument that looks like a placeholder is inserted as is, never filled again.
+        assertEquals("{1} and x", formatTemplate("{0} and {1}", "{1}", "x"))
+        assertEquals("{99999999999}", formatTemplate("{99999999999}", "a"))
     }
 
     @Test

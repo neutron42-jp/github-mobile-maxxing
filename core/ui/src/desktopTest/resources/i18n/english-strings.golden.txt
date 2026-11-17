@@ -343,6 +343,7 @@ fileCommitting	Committing...
 fileContentsLabel	File contents
 fileCreateTitle	Create File
 fileDefaultCreateCommitMsg	Create zqa1
+fileDefaultDeleteCommitMsg	Delete zqa1
 fileDefaultUpdateCommitMsg	Update zqa1
 fileDeleteConfirm	Delete zqa1 on branch zqb2? This creates a new commit removing the file.
 fileDeleteFailed	Failed to delete file

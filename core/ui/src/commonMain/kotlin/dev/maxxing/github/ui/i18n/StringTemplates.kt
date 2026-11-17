@@ -13,8 +13,8 @@ internal fun formatTemplate(template: String, vararg args: Any): String {
             var end = i + 1
             while (end < template.length && template[end].isAsciiDigit()) end++
             if (end > i + 1 && end < template.length && template[end] == '}') {
-                val index = template.substring(i + 1, end).toInt()
-                if (index < args.size) {
+                val index = template.substring(i + 1, end).toIntOrNull()
+                if (index != null && index < args.size) {
                     out.append(args[index].toString())
                     i = end + 1
                     continue

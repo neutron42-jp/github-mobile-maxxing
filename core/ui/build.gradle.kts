@@ -118,7 +118,10 @@ fun parseAppStringsCsv(bytes: ByteArray, name: String): AppStringsTable {
         if (values[0].isBlank()) throw GradleException("$name:$line: '$key' has no English (en) text.")
         values.forEachIndexed { index, value ->
             if (value.isEmpty()) return@forEachIndexed
-            val used = placeholder.findAll(value).map { it.groupValues[1].toInt() }.toSet()
+            val used = placeholder.findAll(value).map {
+                it.groupValues[1].toIntOrNull()
+                    ?: throw GradleException("$name:$line: the ${languages[index]} text of '$key' has a placeholder number that is too large: ${it.value}")
+            }.toSet()
             val language = languages[index]
             used.filter { it >= args.size }.forEach {
                 throw GradleException("$name:$line: the $language text of '$key' uses {$it}, but the args column declares ${args.size} argument(s).")
@@ -132,6 +135,12 @@ fun parseAppStringsCsv(bytes: ByteArray, name: String): AppStringsTable {
     return AppStringsTable(languages, rows)
 }
 
+/** Character types written as \uXXXX in the generated code, so invisible characters stay visible there. */
+val invisibleCharTypes: Set<Byte> = setOf(
+    Character.CONTROL, Character.FORMAT, Character.SPACE_SEPARATOR, Character.LINE_SEPARATOR,
+    Character.PARAGRAPH_SEPARATOR, Character.UNASSIGNED, Character.PRIVATE_USE, Character.SURROGATE
+)
+
 fun kotlinStringLiteral(value: String): String = buildString {
     append('"')
     for (c in value) {
@@ -141,7 +150,7 @@ fun kotlinStringLiteral(value: String): String = buildString {
             c == '$' -> append("\\$")
             c == '\n' -> append("\\n")
             c == '\t' -> append("\\t")
-            c.code < 0x20 || c.code == 0xA0 || c.code in 0x2000..0x200F || c.code == 0x202F || c.code == 0x3000 ->
+            c.code < 0x20 || (c.code > 0x7E && Character.getType(c).toByte() in invisibleCharTypes) ->
                 append("\\u").append(c.code.toString(16).uppercase().padStart(4, '0'))
             else -> append(c)
         }
@@ -157,17 +166,17 @@ fun renderGeneratedAppStrings(table: AppStringsTable, sourcePath: String): Strin
     appendLine()
     appendLine("/** One property per row of $sourcePath; the values come from the column of the given language code. */")
     appendLine("public abstract class GeneratedAppStrings internal constructor(languageCode: String) {")
-    appendLine("    private val texts: Array<String> = GeneratedStringTable.column(languageCode)")
+    appendLine("    private val _texts: Array<String> = GeneratedStringTable.column(languageCode)")
     table.rows.forEachIndexed { index, row ->
         appendLine()
-        appendLine("    /** ${row.values[0].replace("*/", "* /").replace("/*", "/ *").replace("\n", "\\n")} */")
+        appendLine("    /** ${kotlinStringLiteral(row.values[0]).removeSurrounding("\"").replace("*/", "* /").replace("/*", "/ *")} */")
         if (row.args.isEmpty()) {
-            appendLine("    public val ${row.key}: String get() = texts[$index]")
+            appendLine("    public val ${row.key}: String get() = _texts[$index]")
         } else {
             val params = row.args.indices.joinToString(", ") { "a$it" }
             appendLine(
                 "    public val ${row.key}: (${row.args.joinToString(", ")}) -> String " +
-                    "get() = { $params -> formatTemplate(texts[$index], $params) }"
+                    "get() = { $params -> formatTemplate(_texts[$index], $params) }"
             )
         }
     }
@@ -270,3 +279,6 @@ kotlin {
         }
     }
 }
+
+// IDE sync (Android Studio / IntelliJ) also generates GeneratedAppStrings.kt, so strings.* resolves in a fresh clone.
+tasks.matching { it.name == "prepareKotlinIdeaImport" }.configureEach { dependsOn(generateAppStrings) }

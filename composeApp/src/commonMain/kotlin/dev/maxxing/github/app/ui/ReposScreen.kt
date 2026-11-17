@@ -4828,7 +4828,7 @@ private fun DeleteRepoFileDialog(
 ) {
     val strings = appStrings()
     var commitMessage by remember(filePath) {
-        mutableStateOf("Delete ${filePath.substringAfterLast('/')}")
+        mutableStateOf(strings.fileDefaultDeleteCommitMsg(filePath.substringAfterLast('/')))
     }
     var branch by remember(initialBranch) { mutableStateOf(initialBranch) }
 

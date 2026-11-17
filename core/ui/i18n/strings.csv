@@ -391,6 +391,7 @@ fileCommitMessageLabel,,Commit message,コミットメッセージ
 fileBranchLabel,,Branch,ブランチ
 fileDefaultCreateCommitMsg,String,Create {0},Create {0}
 fileDefaultUpdateCommitMsg,String,Update {0},Update {0}
+fileDefaultDeleteCommitMsg,String,Delete {0},Delete {0}
 fileMetadataSummary,String;String;String,{0} · branch: {1} · {2},{0} · ブランチ: {1} · {2}
 fileCommittedMessageWithSha,String;String,Committed {0} ({1}),{0} をコミットしました（{1}）
 fileCommittedMessageNoSha,String,Committed {0},{0} をコミットしました

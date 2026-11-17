@@ -28,6 +28,7 @@ class AppStringsCompletenessTest {
         "fontPreviewSecondarySample",  // mixed sample text
         "fileDefaultCreateCommitMsg",  // commit messages stay English
         "fileDefaultUpdateCommitMsg",
+        "fileDefaultDeleteCommitMsg",
         "checkRollupLabel",            // "CI: {0}"
         "editorMetricsLabel",          // "{0} · {1}" joins the line and character counts
         "timelineUnrecognized"         // "{0} {1}": actor + GitHub's own phrase
@@ -101,25 +102,31 @@ class AppStringsCompletenessTest {
     }
 
     /**
-     * Pins every English value (lambdas rendered with sentinel arguments) to a golden file, so the English UI
-     * cannot drift from upstream wording unnoticed. When an English change is intended, copy
-     * build/english-strings.actual.txt over src/desktopTest/resources/i18n/english-strings.golden.txt.
+     * Pins every value (lambdas rendered with sentinel arguments, so the placeholder order is pinned too) to a
+     * golden file per language, so neither the English wording nor a translation can change unnoticed when
+     * strings.csv is edited. When a change is intended, copy build/<language>-strings.actual.txt over
+     * src/desktopTest/resources/i18n/<language>-strings.golden.txt.
      */
     @Test
-    fun englishValuesMatchTheGoldenFile() {
+    fun englishValuesMatchTheGoldenFile() = assertMatchesGolden(EnglishStrings, "english")
+
+    @Test
+    fun japaneseValuesMatchTheGoldenFile() = assertMatchesGolden(JapaneseStrings, "japanese")
+
+    private fun assertMatchesGolden(strings: AppStrings, name: String) {
         val actual = keyGetters.joinToString(separator = "\n", postfix = "\n") { getter ->
-            val text = render(EnglishStrings, getter).first.replace("\\", "\\\\").replace("\n", "\\n")
+            val text = render(strings, getter).first.replace("\\", "\\\\").replace("\n", "\\n")
             "${keyName(getter)}\t$text"
         }
-        java.io.File("build/english-strings.actual.txt").apply { parentFile?.mkdirs() }.writeText(actual)
-        val golden = javaClass.getResource("/i18n/english-strings.golden.txt")?.readText()
-            ?: fail("missing golden file src/desktopTest/resources/i18n/english-strings.golden.txt")
+        java.io.File("build/$name-strings.actual.txt").apply { parentFile?.mkdirs() }.writeText(actual)
+        val golden = javaClass.getResource("/i18n/$name-strings.golden.txt")?.readText()
+            ?: fail("missing golden file src/desktopTest/resources/i18n/$name-strings.golden.txt")
         val goldenLines = golden.lines().filter { it.isNotEmpty() }.toSet()
         val actualLines = actual.lines().filter { it.isNotEmpty() }.toSet()
         assertEquals(
             emptyList(),
             (goldenLines - actualLines).map { "- $it" } + (actualLines - goldenLines).map { "+ $it" },
-            "English strings differ from the golden file (- golden, + current)"
+            "$name strings differ from the golden file (- golden, + current)"
         )
     }
 
