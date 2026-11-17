@@ -121,7 +121,6 @@ private enum class DetailTab(val label: String) {
     FILES("Files")
 }
 
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun IssuePullDetailPane(
     target: IssuePullTarget,
@@ -129,6 +128,29 @@ fun IssuePullDetailPane(
     showBackButton: Boolean = false,
     onBack: () -> Unit = {},
     onMessage: (String) -> Unit = {}
+) {
+    // The detail content and its full-screen editors/viewers are emitted as siblings. Keep them in one
+    // Box so the editors draw on top of the content whatever layout the caller uses: ListDetailPaneScaffold's
+    // AnimatedPane lays its children out in a Column, which pushed the editors below the screen (#14).
+    Box(modifier = Modifier.fillMaxSize()) {
+        IssuePullDetailPaneContent(
+            target = target,
+            container = container,
+            showBackButton = showBackButton,
+            onBack = onBack,
+            onMessage = onMessage
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun IssuePullDetailPaneContent(
+    target: IssuePullTarget,
+    container: AppContainer,
+    showBackButton: Boolean,
+    onBack: () -> Unit,
+    onMessage: (String) -> Unit
 ) {
     var detail by remember(target) {
         mutableStateOf(container.repository.peekIssueOrPullDetail(target.owner, target.repo, target.number))
