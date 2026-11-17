@@ -61,11 +61,14 @@ import dev.maxxing.github.app.ui.SignInScreen
 import dev.maxxing.github.app.ui.UserProfileScreen
 import dev.maxxing.github.auth.openUrlInBrowser
 import dev.maxxing.github.model.AppBranding
+import dev.maxxing.github.model.AppLanguage
 import dev.maxxing.github.model.RepoSummary
 import dev.maxxing.github.network.createGitHubImageHttpClient
 import dev.maxxing.github.ui.components.MaxxingLoadingState
 import dev.maxxing.github.ui.components.MaxxingPredictiveBackContainer
 import dev.maxxing.github.ui.components.MaxxingPredictiveOverlayHost
+import dev.maxxing.github.ui.i18n.AppStrings
+import dev.maxxing.github.ui.i18n.appStrings
 import dev.maxxing.github.ui.theme.MaxxingTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -73,21 +76,29 @@ import kotlinx.coroutines.launch
 
 private enum class AppDestination(
     val shell: ShellDestination,
-    val label: String,
     val icon: ImageVector
 ) {
-    HOME(ShellDestination.HOME, "Home", Lucide.House),
-    INBOX(ShellDestination.INBOX, "Inbox", Lucide.Inbox),
-    ISSUES_PRS(ShellDestination.ISSUES_PRS, "Issues", Lucide.GitPullRequest),
-    REPOS(ShellDestination.REPOS, "Repos", Lucide.FolderGit2),
-    SETTINGS(ShellDestination.SETTINGS, "Settings", Lucide.Settings)
+    HOME(ShellDestination.HOME, Lucide.House),
+    INBOX(ShellDestination.INBOX, Lucide.Inbox),
+    ISSUES_PRS(ShellDestination.ISSUES_PRS, Lucide.GitPullRequest),
+    REPOS(ShellDestination.REPOS, Lucide.FolderGit2),
+    SETTINGS(ShellDestination.SETTINGS, Lucide.Settings);
+
+    fun label(strings: AppStrings): String = when (this) {
+        HOME -> strings.navHome
+        INBOX -> strings.navInbox
+        ISSUES_PRS -> strings.navIssues
+        REPOS -> strings.navRepos
+        SETTINGS -> strings.navSettings
+    }
 }
 
 @Composable
 fun GitHubMaxxingApp(
     deepLinkUrl: String? = null,
     onConsumeDeepLink: () -> Unit = {},
-    onDarkThemeChanged: (Boolean) -> Unit = {}
+    onDarkThemeChanged: (Boolean) -> Unit = {},
+    onLanguageChanged: (AppLanguage) -> Unit = {}
 ) {
     val container = remember { AppContainer() }
 
@@ -166,6 +177,11 @@ fun GitHubMaxxingApp(
         onDarkThemeChanged(resolvedDarkTheme)
     }
 
+    LaunchedEffect(themePrefs.language) {
+        onLanguageChanged(themePrefs.language)
+        PlatformNotifier.updateLanguage(themePrefs.language)
+    }
+
     ProvideAppTypographyFont(
         primary = themePrefs.primaryFont,
         fallback = themePrefs.fallbackFont
@@ -174,8 +190,10 @@ fun GitHubMaxxingApp(
             seedColorHex = themePrefs.seedColorHex,
             useDynamicColor = themePrefs.useDynamicColor,
             darkThemeOverride = themePrefs.darkModeOverride,
-            fontFamilyOverride = fontFamilyOverride
+            fontFamilyOverride = fontFamilyOverride,
+            language = themePrefs.language
         ) {
+            val strings = appStrings()
             when {
                 !isInitialized -> {
                     Surface(
@@ -183,7 +201,7 @@ fun GitHubMaxxingApp(
                         modifier = Modifier.fillMaxSize()
                     ) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            MaxxingLoadingState(message = "Starting ${AppBranding.APP_NAME}...")
+                            MaxxingLoadingState(message = strings.startingApp(AppBranding.APP_NAME))
                         }
                     }
                 }
@@ -264,10 +282,13 @@ private fun MainAuthenticatedShell(
         }
     }
 
+    val strings = appStrings()
+
     NavigationSuiteScaffold(
         containerColor = MaterialTheme.colorScheme.surface,
         navigationSuiteItems = {
             AppDestination.entries.forEach { dest ->
+                val destLabel = dest.label(strings)
                 item(
                     icon = {
                         if (dest == AppDestination.INBOX && unreadCount > 0) {
@@ -278,15 +299,15 @@ private fun MainAuthenticatedShell(
                                     }
                                 }
                             ) {
-                                Icon(dest.icon, contentDescription = dest.label)
+                                Icon(dest.icon, contentDescription = destLabel)
                             }
                         } else {
-                            Icon(dest.icon, contentDescription = dest.label)
+                            Icon(dest.icon, contentDescription = destLabel)
                         }
                     },
                     label = {
                         Text(
-                            text = dest.label,
+                            text = destLabel,
                             maxLines = 1,
                             softWrap = false,
                             overflow = TextOverflow.Ellipsis

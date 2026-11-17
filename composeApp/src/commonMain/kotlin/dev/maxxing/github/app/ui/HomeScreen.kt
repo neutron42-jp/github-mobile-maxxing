@@ -88,13 +88,20 @@ import dev.maxxing.github.ui.components.MaxxingPredictiveOverlayHost
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.formatCompactCount
 import dev.maxxing.github.ui.components.UserAvatar
+import dev.maxxing.github.ui.i18n.AppStrings
+import dev.maxxing.github.ui.i18n.appStrings
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
-private enum class FeedTab(val label: String) {
-    FOLLOWING("Following"),
-    MY_ACTIVITY("My Activity")
+private enum class FeedTab {
+    FOLLOWING,
+    MY_ACTIVITY;
+
+    fun label(strings: AppStrings): String = when (this) {
+        FOLLOWING -> strings.feedTabFollowing
+        MY_ACTIVITY -> strings.feedTabMyActivity
+    }
 }
 
 @OptIn(
@@ -217,6 +224,7 @@ private fun HomeDashboardPane(
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var requestSeq by remember { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
+    val strings = appStrings()
 
     fun loadHome(forceRefresh: Boolean = false) {
         if (login.isBlank()) return
@@ -256,7 +264,7 @@ private fun HomeDashboardPane(
                     .onSuccess { if (seq == requestSeq) feedEvents = it }
                     .onFailure {
                         if (seq == requestSeq) {
-                            errorMsg = it.message ?: "Failed to load activity feed"
+                            errorMsg = strings.errorMessage(it, strings.failedLoadActivity)
                             if (forceRefresh) onMessage(errorMsg!!)
                         }
                     }
@@ -312,10 +320,10 @@ private fun HomeDashboardPane(
                     }
                 }
                 IconButton(onClick = onOpenGists) {
-                    Icon(Lucide.FileCode, contentDescription = "Gists", modifier = Modifier.size(18.dp))
+                    Icon(Lucide.FileCode, contentDescription = strings.gistsAction, modifier = Modifier.size(18.dp))
                 }
                 IconButton(onClick = { loadHome(forceRefresh = true) }) {
-                    Icon(Lucide.RefreshCw, contentDescription = "Refresh", modifier = Modifier.size(18.dp))
+                    Icon(Lucide.RefreshCw, contentDescription = strings.refresh, modifier = Modifier.size(18.dp))
                 }
             }
 
@@ -332,7 +340,7 @@ private fun HomeDashboardPane(
         ) {
             if (isLoading && feedEvents.isEmpty() && calendar == null) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    MaxxingLoadingState(message = "Loading GitHub home...")
+                    MaxxingLoadingState(message = strings.loadingHome)
                 }
             } else {
                 LazyColumn(
@@ -363,7 +371,7 @@ private fun HomeDashboardPane(
                                         tint = MaterialTheme.colorScheme.primary
                                     )
                                     Text(
-                                        text = "Pinned Bookmarks",
+                                        text = strings.pinnedBookmarks,
                                         style = MaterialTheme.typography.titleMedium
                                     )
                                 }
@@ -404,7 +412,7 @@ private fun HomeDashboardPane(
                                 ) {
                                     Icon(Lucide.FolderGit2, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                                     Text(
-                                        text = "Recent Repositories",
+                                        text = strings.recentRepositories,
                                         style = MaterialTheme.typography.titleMedium
                                     )
                                 }
@@ -438,7 +446,7 @@ private fun HomeDashboardPane(
                                                     ) {
                                                         Icon(
                                                             imageVector = if (repo.isPrivate) Lucide.Lock else Lucide.BookMarked,
-                                                            contentDescription = if (repo.isPrivate) "Private repository" else "Public repository",
+                                                            contentDescription = if (repo.isPrivate) strings.privateRepo else strings.publicRepo,
                                                             modifier = Modifier.size(13.dp),
                                                             tint = if (repo.isPrivate) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
                                                         )
@@ -452,7 +460,7 @@ private fun HomeDashboardPane(
                                                         if (repo.isFork) {
                                                             Icon(
                                                                 Lucide.GitFork,
-                                                                contentDescription = "Fork",
+                                                                contentDescription = strings.fork,
                                                                 modifier = Modifier.size(12.dp),
                                                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                                                             )
@@ -493,7 +501,7 @@ private fun HomeDashboardPane(
                                                             ) {
                                                                 Icon(
                                                                     MaxxingFilledIcons.Star,
-                                                                    contentDescription = "Starred",
+                                                                    contentDescription = strings.starred,
                                                                     tint = Color(0xFFEAB308),
                                                                     modifier = Modifier.size(12.dp)
                                                                 )
@@ -512,7 +520,7 @@ private fun HomeDashboardPane(
                                                         ) {
                                                             Icon(
                                                                 Lucide.Star,
-                                                                contentDescription = "Not starred",
+                                                                contentDescription = strings.notStarred,
                                                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                                                 modifier = Modifier.size(12.dp)
                                                             )
@@ -540,7 +548,7 @@ private fun HomeDashboardPane(
                         ) {
                             Icon(Lucide.Activity, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                             Text(
-                                text = "Activity Feed",
+                                text = strings.activityFeed,
                                 style = MaterialTheme.typography.titleMedium,
                                 maxLines = 1,
                                 modifier = Modifier.weight(1f)
@@ -549,7 +557,7 @@ private fun HomeDashboardPane(
                                 options = FeedTab.entries,
                                 selected = feedTab,
                                 onSelect = { feedTab = it },
-                                labelProvider = { it.label },
+                                labelProvider = { it.label(strings) },
                                 iconProvider = { tab ->
                                     if (tab == FeedTab.FOLLOWING) Lucide.Users else Lucide.User
                                 }
@@ -570,7 +578,7 @@ private fun HomeDashboardPane(
                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text(
-                                        text = errorMsg ?: "No recent activity events yet.",
+                                        text = errorMsg ?: strings.noRecentActivity,
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = if (errorMsg != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -610,6 +618,7 @@ private fun HomeDashboardPane(
 
 @Composable
 fun ContributionHeatmapCard(calendar: ContributionCalendar) {
+    val strings = appStrings()
     val baseGreen = Color(0xFF2EA043)
     val emptyColor = MaterialTheme.colorScheme.surfaceContainerHighest
     ElevatedCard(
@@ -627,10 +636,10 @@ fun ContributionHeatmapCard(calendar: ContributionCalendar) {
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Lucide.Flame, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                    Text("Contributions", style = MaterialTheme.typography.titleMedium)
+                    Text(strings.contributionsTitle, style = MaterialTheme.typography.titleMedium)
                 }
                 Text(
-                    text = "${calendar.totalContributions} in the last year",
+                    text = strings.contributionsInLastYear(calendar.totalContributions),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -668,7 +677,7 @@ fun ContributionHeatmapCard(calendar: ContributionCalendar) {
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Less", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(strings.contributionsLess, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.width(6.dp))
                 listOf(emptyColor, baseGreen.copy(0.28f), baseGreen.copy(0.50f), baseGreen.copy(0.75f), baseGreen).forEach { c ->
                     Box(
@@ -679,7 +688,7 @@ fun ContributionHeatmapCard(calendar: ContributionCalendar) {
                     )
                     Spacer(Modifier.width(3.dp))
                 }
-                Text("More", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(strings.contributionsMore, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -734,7 +743,7 @@ fun ActivityEventCard(
                         }
                     }
                     Text(
-                        text = "@${event.actor.login} ${event.summaryText}",
+                        text = appStrings().formatActivityEventLine(event),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.weight(1f)

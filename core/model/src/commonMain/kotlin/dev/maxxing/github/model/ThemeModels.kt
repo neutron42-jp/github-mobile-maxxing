@@ -18,15 +18,6 @@ data class FontSelection(
     val value: String = "",
     val displayName: String = ""
 ) {
-    fun displayLabel(): String = when (kind) {
-        FontSourceKind.SYSTEM_DEFAULT -> "System Default"
-        FontSourceKind.GENERIC_SANS -> "Sans-serif"
-        FontSourceKind.GENERIC_SERIF -> "Serif"
-        FontSourceKind.GENERIC_MONOSPACE -> "Monospace"
-        FontSourceKind.SYSTEM_FAMILY -> displayName.ifBlank { value }.ifBlank { "System Default" }
-        FontSourceKind.CUSTOM_FILE -> displayName.ifBlank { value.substringAfterLast('/').substringAfterLast('\\') }
-    }
-
     companion object {
         val SystemDefault = FontSelection(FontSourceKind.SYSTEM_DEFAULT)
         val SansSerif = FontSelection(FontSourceKind.GENERIC_SANS, displayName = "Sans-serif")
@@ -40,3 +31,10 @@ data class CustomFontFile(
     val displayName: String,
     val filePath: String
 )
+
+/** Supported UI display languages. */
+@Serializable
+enum class AppLanguage {
+    DEFAULT,
+    JAPANESE
+}

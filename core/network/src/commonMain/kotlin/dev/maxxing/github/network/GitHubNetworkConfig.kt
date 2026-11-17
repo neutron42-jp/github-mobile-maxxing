@@ -2,6 +2,7 @@ package dev.maxxing.github.network
 
 import dev.maxxing.github.auth.SessionManager
 import dev.maxxing.github.model.AppBranding
+import dev.maxxing.github.model.HttpStatusError
 import dev.maxxing.github.model.RateLimitInfo
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.DefaultRequest
@@ -17,8 +18,12 @@ import kotlinx.serialization.json.Json
 
 class GitHubApiException(
     val statusCode: Int,
-    override val message: String
-) : Exception(message)
+    override val message: String,
+    /** See [HttpStatusError.isSyntheticStatus]; true for statuses the client picked itself. */
+    override val isSyntheticStatus: Boolean = false
+) : Exception(message), HttpStatusError {
+    override val httpStatusCode: Int get() = statusCode
+}
 
 class GitHubNetworkConfig(
     private val sessionManager: SessionManager,

@@ -95,5 +95,7 @@ data class SecurityAdvisorySummary(
 data class RepoSecurityOverview(
     val alerts: List<DependabotAlertSummary> = emptyList(),
     val advisories: List<SecurityAdvisorySummary> = emptyList(),
-    val alertsAccessNotice: String? = null
+    val alertsAccessNotice: String? = null,
+    /** HTTP status of the failed Dependabot alerts request, so the UI can localize [alertsAccessNotice]. */
+    val alertsAccessStatusCode: Int? = null
 )

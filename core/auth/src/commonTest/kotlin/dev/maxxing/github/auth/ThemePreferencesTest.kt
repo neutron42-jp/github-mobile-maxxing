@@ -1,5 +1,6 @@
 package dev.maxxing.github.auth
 
+import dev.maxxing.github.model.AppLanguage
 import dev.maxxing.github.model.FontSelection
 import dev.maxxing.github.model.FontSourceKind
 import kotlinx.serialization.encodeToString
@@ -11,7 +12,7 @@ class ThemePreferencesTest {
     private val json = TokenStoreJson
 
     @Test
-    fun legacyJsonWithoutFontFallsBackToDefaults() {
+    fun legacyJsonWithoutFontOrLanguageFallsBackToDefaults() {
         val legacyJson = """{"seedColorHex":16734003,"useDynamicColor":false,"darkModeOverride":true}"""
         val decoded = json.decodeFromString<ThemePreferences>(legacyJson)
 
@@ -20,10 +21,11 @@ class ThemePreferencesTest {
         assertEquals(true, decoded.darkModeOverride)
         assertEquals(FontSelection.SystemDefault, decoded.primaryFont)
         assertEquals(FontSelection.SystemDefault, decoded.fallbackFont)
+        assertEquals(AppLanguage.DEFAULT, decoded.language)
     }
 
     @Test
-    fun layeredFontsRoundTripThroughJson() {
+    fun layeredFontsAndLanguageRoundTripThroughJson() {
         val systemPrimary = FontSelection(
             kind = FontSourceKind.SYSTEM_FAMILY,
             value = "Noto Sans",
@@ -36,13 +38,15 @@ class ThemePreferencesTest {
         )
         val prefs = ThemePreferences(
             primaryFont = systemPrimary,
-            fallbackFont = customFallback
+            fallbackFont = customFallback,
+            language = AppLanguage.JAPANESE
         )
         val encoded = json.encodeToString(prefs)
         val decoded = json.decodeFromString<ThemePreferences>(encoded)
 
         assertEquals(systemPrimary, decoded.primaryFont)
         assertEquals(customFallback, decoded.fallbackFont)
+        assertEquals(AppLanguage.JAPANESE, decoded.language)
     }
 
     @Test
@@ -56,12 +60,5 @@ class ThemePreferencesTest {
         assertEquals(false, decoded.useDynamicColor)
         assertEquals(FontSourceKind.SYSTEM_DEFAULT, decoded.primaryFont.kind)
         assertEquals(FontSelection.SystemDefault, decoded.fallbackFont)
-    }
-
-    @Test
-    fun customFileLabelUsesTheFileNameOnEveryPlatform() {
-        assertEquals("Foo.ttf", FontSelection(FontSourceKind.CUSTOM_FILE, "/home/u/fonts/Foo.ttf").displayLabel())
-        assertEquals("Foo.ttf", FontSelection(FontSourceKind.CUSTOM_FILE, "C:\\Users\\u\\fonts\\Foo.ttf").displayLabel())
-        assertEquals("Shown", FontSelection(FontSourceKind.CUSTOM_FILE, "/x/Foo.ttf", "Shown").displayLabel())
     }
 }

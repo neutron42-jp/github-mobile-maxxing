@@ -1555,6 +1555,9 @@ class GitHubRepository(
                 val advisoriesRes = advisoriesDeferred.await()
 
                 var notice: String? = null
+                val noticeStatus = (alertsRes.exceptionOrNull() as? GitHubApiException)
+                    ?.takeUnless { it.isSyntheticStatus }
+                    ?.statusCode
                 val alerts: List<DependabotAlertSummary> = alertsRes.getOrElse { err ->
                     val code = (err as? GitHubApiException)?.statusCode
                     when (code) {
@@ -1576,7 +1579,8 @@ class GitHubRepository(
                 RepoSecurityOverview(
                     alerts = alerts,
                     advisories = advisories,
-                    alertsAccessNotice = notice
+                    alertsAccessNotice = notice,
+                    alertsAccessStatusCode = noticeStatus
                 )
             }
         }.onSuccess {

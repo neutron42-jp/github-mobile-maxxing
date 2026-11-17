@@ -75,9 +75,9 @@ class GitHubGraphQlService(
         }
         val body = response.body<GraphQlResponse>()
         if (!body.errors.isNullOrEmpty() && body.data == null) {
-            throw GitHubApiException(422, body.errors.joinToString("; ") { it.message })
+            throw GitHubApiException(422, body.errors.joinToString("; ") { it.message }, isSyntheticStatus = true)
         }
-        return body.data ?: throw GitHubApiException(500, "Empty GraphQL response")
+        return body.data ?: throw GitHubApiException(500, "Empty GraphQL response", isSyntheticStatus = true)
     }
 
     suspend fun fetchViewerProfile(): ViewerProfile {
@@ -99,7 +99,7 @@ class GitHubGraphQlService(
             }
             """.trimIndent()
         )
-        val v = data.obj("viewer") ?: throw GitHubApiException(500, "Missing viewer in GraphQL response")
+        val v = data.obj("viewer") ?: throw GitHubApiException(500, "Missing viewer in GraphQL response", isSyntheticStatus = true)
         return ViewerProfile(
             login = v.str("login") ?: "",
             name = v.str("name"),
@@ -361,7 +361,7 @@ class GitHubGraphQlService(
         val repoNode = data.obj("repository")
         val viewerPermission = repoNode?.str("viewerPermission")?.uppercase()
         val item = repoNode?.obj("issueOrPullRequest")
-            ?: throw GitHubApiException(404, "Issue or PR #$number not found in $owner/$repo")
+            ?: throw GitHubApiException(404, "Issue or PR #$number not found in $owner/$repo", isSyntheticStatus = true)
 
         val viewerCanUpdate = item.bool("viewerCanUpdate") ?: false
         val canTriage = viewerPermission in TRIAGE_OR_HIGHER_PERMS
@@ -638,7 +638,7 @@ class GitHubGraphQlService(
             variables = mapOf("owner" to owner, "name" to name)
         )
         val repoObj = data.obj("repository")
-            ?: throw GitHubApiException(404, "Repository $owner/$name not found")
+            ?: throw GitHubApiException(404, "Repository $owner/$name not found", isSyntheticStatus = true)
         val topics = repoObj.obj("repositoryTopics")?.arr("nodes")
             ?.mapNotNull { (it as? JsonObject)?.obj("topic")?.str("name") } ?: emptyList()
 
@@ -670,7 +670,7 @@ class GitHubGraphQlService(
             variables = mapOf("owner" to owner, "name" to name)
         )
         val nodes = data.obj("repository")?.obj("stargazers")?.arr("nodes")
-            ?: throw GitHubApiException(404, "Repository $owner/$name not found")
+            ?: throw GitHubApiException(404, "Repository $owner/$name not found", isSyntheticStatus = true)
         return nodes.mapNotNull { el ->
             val obj = el as? JsonObject ?: return@mapNotNull null
             if (obj.str("login").isNullOrBlank()) return@mapNotNull null
@@ -703,7 +703,7 @@ class GitHubGraphQlService(
         val calendar = data.obj("user")
             ?.obj("contributionsCollection")
             ?.obj("contributionCalendar")
-            ?: throw GitHubApiException(404, "Contribution calendar not found for @$login")
+            ?: throw GitHubApiException(404, "Contribution calendar not found for @$login", isSyntheticStatus = true)
 
         val total = calendar.int("totalContributions") ?: 0
         val weeks = calendar.arr("weeks")?.mapNotNull { weekEl ->
@@ -902,7 +902,7 @@ class GitHubGraphQlService(
         }
         val data = execute(query, vars)
         val repoObj = data.obj("repository")
-            ?: throw GitHubApiException(404, "Repository $owner/$name not found")
+            ?: throw GitHubApiException(404, "Repository $owner/$name not found", isSyntheticStatus = true)
         val categories = parseDiscussionCategories(repoObj.obj("discussionCategories")?.arr("nodes"))
         val discussions = repoObj.obj("discussions")?.arr("nodes").orEmpty().mapNotNull { el ->
             (el as? JsonObject)?.let(::parseDiscussionSummary)
@@ -953,9 +953,9 @@ class GitHubGraphQlService(
         """.trimIndent()
         val data = execute(query, mapOf("owner" to owner, "name" to name))
         val repoObj = data.obj("repository")
-            ?: throw GitHubApiException(404, "Repository $owner/$name not found")
+            ?: throw GitHubApiException(404, "Repository $owner/$name not found", isSyntheticStatus = true)
         val discussionObj = repoObj.obj("discussion")
-            ?: throw GitHubApiException(404, "Discussion #$number not found")
+            ?: throw GitHubApiException(404, "Discussion #$number not found", isSyntheticStatus = true)
         val categories = parseDiscussionCategories(repoObj.obj("discussionCategories")?.arr("nodes"))
         val comments = discussionObj.obj("comments")?.arr("nodes").orEmpty().mapNotNull { el ->
             val obj = el as? JsonObject ?: return@mapNotNull null
@@ -1014,7 +1014,7 @@ class GitHubGraphQlService(
             )
         )
         val created = data.obj("createDiscussion")?.obj("discussion")
-            ?: throw GitHubApiException(422, "Failed to create discussion")
+            ?: throw GitHubApiException(422, "Failed to create discussion", isSyntheticStatus = true)
         return parseDiscussionSummary(created)
     }
 
@@ -1064,7 +1064,7 @@ class GitHubGraphQlService(
         }
         val data = execute(mutation, vars)
         val cObj = data.obj("addDiscussionComment")?.obj("comment")
-            ?: throw GitHubApiException(422, "Failed to add discussion comment")
+            ?: throw GitHubApiException(422, "Failed to add discussion comment", isSyntheticStatus = true)
         val author = cObj.obj("author")
         return DiscussionComment(
             id = cObj.str("id") ?: "",

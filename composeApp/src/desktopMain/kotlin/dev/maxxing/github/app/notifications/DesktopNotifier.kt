@@ -1,21 +1,30 @@
 package dev.maxxing.github.app.notifications
 
 import dev.maxxing.github.model.AppBranding
-import dev.maxxing.github.model.NotificationReason
+import dev.maxxing.github.model.AppLanguage
 import dev.maxxing.github.model.NotificationThread
 import dev.maxxing.github.network.NotificationMonitor
+import dev.maxxing.github.ui.i18n.stringsFor
 
 actual object PlatformNotifier {
+    @Volatile
+    private var currentLanguage: AppLanguage = AppLanguage.DEFAULT
+
     actual fun ensureInitialized() {
         // No-op on Linux Desktop; notifications use notify-send / D-Bus on demand.
     }
 
+    actual fun updateLanguage(language: AppLanguage) {
+        currentLanguage = language
+    }
+
     actual fun showGitHubNotifications(threads: List<NotificationThread>) {
         if (threads.isEmpty()) return
+        val strings = stringsFor(currentLanguage)
         if (threads.size <= 3) {
             threads.forEach { thread ->
                 val urgency = if (thread.reason in NotificationMonitor.URGENT_REASONS) "critical" else "normal"
-                val reasonLabel = formatReason(thread.reason)
+                val reasonLabel = strings.notificationReasonLabel(thread.reason)
                 sendLinuxNotification(
                     title = "${thread.repoFullName} ($reasonLabel)",
                     body = thread.subjectTitle,
@@ -25,7 +34,7 @@ actual object PlatformNotifier {
         } else {
             val preview = threads.take(3).joinToString("\n") { "• ${it.repoFullName}: ${it.subjectTitle}" }
             sendLinuxNotification(
-                title = "${threads.size} new GitHub notifications",
+                title = strings.osNotifBatchTitle(threads.size),
                 body = preview,
                 urgency = "normal"
             )
@@ -33,9 +42,10 @@ actual object PlatformNotifier {
     }
 
     actual fun showTestNotification(): Boolean {
+        val strings = stringsFor(currentLanguage)
         return sendLinuxNotification(
-            title = "${AppBranding.APP_NAME} Test Notification",
-            body = "Desktop notifications are active and working!",
+            title = strings.osNotifDesktopTestTitle(AppBranding.APP_NAME),
+            body = strings.osNotifDesktopTestBody,
             urgency = "normal"
         )
     }
@@ -63,7 +73,4 @@ actual object PlatformNotifier {
             true
         }.getOrDefault(false)
     }
-
-    private fun formatReason(reason: NotificationReason): String =
-        reason.name.lowercase().replace('_', ' ')
 }

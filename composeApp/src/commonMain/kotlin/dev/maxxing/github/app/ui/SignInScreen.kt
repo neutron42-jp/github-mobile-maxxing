@@ -67,6 +67,7 @@ import dev.maxxing.github.model.DeviceCodeState
 import dev.maxxing.github.ui.components.MaxxingLoadingState
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.expressiveAnimateContentSize
+import dev.maxxing.github.ui.i18n.appStrings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -84,6 +85,7 @@ fun SignInScreen(
     var clientIdInput by remember(effectiveDefaultId) { mutableStateOf(effectiveDefaultId) }
     var showCustomClientId by remember { mutableStateOf(false) }
     var deviceState by remember { mutableStateOf<DeviceCodeState>(DeviceCodeState.Idle) }
+    val strings = appStrings()
 
     val scope = rememberCoroutineScope()
     var pollingJob by remember { mutableStateOf<Job?>(null) }
@@ -134,7 +136,7 @@ fun SignInScreen(
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        text = "Fast, Material 3 Expressive GitHub client for Android & Linux.",
+                        text = strings.signInSubtitle,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -156,7 +158,7 @@ fun SignInScreen(
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Text(
-                                            text = state.message,
+                                            text = strings.deviceFlowErrorText(state),
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onErrorContainer,
                                             modifier = Modifier.padding(12.dp)
@@ -182,13 +184,13 @@ fun SignInScreen(
                                     enabled = clientIdInput.isNotBlank(),
                                     modifier = Modifier.fillMaxWidth().height(52.dp)
                                 ) {
-                                    Text("Sign in with GitHub")
+                                    Text(strings.signInWithGitHubButton)
                                 }
 
                                 Spacer(Modifier.height(10.dp))
 
                                 TextButton(onClick = { showCustomClientId = !showCustomClientId }) {
-                                    Text(if (showCustomClientId) "Hide custom OAuth Client ID" else "Use custom OAuth Client ID")
+                                    Text(if (showCustomClientId) strings.signInHideCustomClientId else strings.signInUseCustomClientId)
                                 }
 
                                 AnimatedVisibility(visible = showCustomClientId) {
@@ -199,14 +201,14 @@ fun SignInScreen(
                                         OutlinedTextField(
                                             value = clientIdInput,
                                             onValueChange = { clientIdInput = it },
-                                            label = { Text("GitHub OAuth App Client ID") },
+                                            label = { Text(strings.signInClientIdLabel) },
                                             placeholder = { Text(AppBranding.DEFAULT_OAUTH_CLIENT_ID) },
                                             singleLine = true,
                                             leadingIcon = {
                                                 Icon(Lucide.ShieldCheck, contentDescription = null)
                                             },
                                             supportingText = {
-                                                Text("Defaults to ${AppBranding.DEFAULT_OAUTH_CLIENT_ID}. Enable Device Flow if overriding.")
+                                                Text(strings.signInClientIdDefaultSupporting(AppBranding.DEFAULT_OAUTH_CLIENT_ID))
                                             },
                                             modifier = Modifier.fillMaxWidth()
                                         )
@@ -215,7 +217,7 @@ fun SignInScreen(
                                                 onClick = { clientIdInput = AppBranding.DEFAULT_OAUTH_CLIENT_ID },
                                                 modifier = Modifier.align(Alignment.End)
                                             ) {
-                                                Text("Reset to default")
+                                                Text(strings.signInResetClientId)
                                             }
                                         }
                                     }
@@ -223,12 +225,12 @@ fun SignInScreen(
                             }
 
                             is DeviceCodeState.RequestingCode -> {
-                                MaxxingLoadingState(message = "Requesting device code from GitHub...")
+                                MaxxingLoadingState(message = strings.signInRequestingCode)
                             }
 
                             is DeviceCodeState.AwaitingUser -> {
                                 Text(
-                                    text = "Enter this code on GitHub",
+                                    text = strings.signInEnterCode,
                                     style = MaterialTheme.typography.titleMedium
                                 )
                                 Spacer(Modifier.height(12.dp))
@@ -281,14 +283,14 @@ fun SignInScreen(
                                                     clipboard.setText(AnnotatedString(state.verificationUri))
                                                 }
                                                 scope.launch {
-                                                    snackbarHostState.showSnackbar("Copied ${state.verificationUri}")
+                                                    snackbarHostState.showSnackbar(strings.signInCopiedValue(state.verificationUri))
                                                 }
                                             },
                                             modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
                                         ) {
                                             Icon(
                                                 Lucide.Copy,
-                                                contentDescription = "Copy URL",
+                                                contentDescription = strings.copyUrl,
                                                 modifier = Modifier.size(16.dp)
                                             )
                                         }
@@ -300,7 +302,7 @@ fun SignInScreen(
                                 Spacer(Modifier.height(10.dp))
 
                                 Text(
-                                    text = state.statusMessage ?: "Waiting for authorization...",
+                                    text = strings.deviceFlowWaitingText(state),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center
@@ -318,7 +320,7 @@ fun SignInScreen(
                                                 clipboard.setText(AnnotatedString(state.userCode))
                                             }
                                             scope.launch {
-                                                snackbarHostState.showSnackbar("Copied ${state.userCode}")
+                                                snackbarHostState.showSnackbar(strings.signInCopiedValue(state.userCode))
                                             }
                                         },
                                         modifier = Modifier
@@ -327,7 +329,7 @@ fun SignInScreen(
                                     ) {
                                         Icon(Lucide.Copy, contentDescription = null, modifier = Modifier.size(16.dp))
                                         Spacer(Modifier.width(6.dp))
-                                        Text("Copy Code", maxLines = 1, softWrap = false)
+                                        Text(strings.signInCopyCode, maxLines = 1, softWrap = false)
                                     }
 
                                     Button(
@@ -349,9 +351,9 @@ fun SignInScreen(
                                                 }
                                                 snackbarHostState.showSnackbar(
                                                     if (opened) {
-                                                        "Code ${state.userCode} copied. Opening GitHub..."
+                                                        strings.signInCodeCopiedOpening(state.userCode)
                                                     } else {
-                                                        "Code ${state.userCode} copied. Open ${state.verificationUri} in your browser."
+                                                        strings.signInCodeCopiedManual(state.userCode, state.verificationUri)
                                                     }
                                                 )
                                             }
@@ -362,7 +364,7 @@ fun SignInScreen(
                                     ) {
                                         Icon(Lucide.ExternalLink, contentDescription = null, modifier = Modifier.size(16.dp))
                                         Spacer(Modifier.width(6.dp))
-                                        Text("Open GitHub", maxLines = 1, softWrap = false)
+                                        Text(strings.signInOpenGitHub, maxLines = 1, softWrap = false)
                                     }
                                 }
 
@@ -376,16 +378,16 @@ fun SignInScreen(
                                         .fillMaxWidth()
                                         .pointerHoverIcon(PointerIcon.Hand)
                                 ) {
-                                    Text("Cancel")
+                                    Text(strings.cancel)
                                 }
                             }
 
                             is DeviceCodeState.Verifying -> {
-                                MaxxingLoadingState(message = state.message)
+                                MaxxingLoadingState(message = strings.deviceFlowVerifyingText(state))
                             }
 
                             is DeviceCodeState.Authenticated -> {
-                                MaxxingLoadingState(message = "Welcome, @${state.session.userLogin ?: "developer"}!")
+                                MaxxingLoadingState(message = strings.signInWelcome(state.session.userLogin ?: "developer"))
                             }
                         }
                     }

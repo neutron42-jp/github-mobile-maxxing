@@ -3,6 +3,7 @@ package dev.maxxing.github.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -45,6 +46,7 @@ import dev.maxxing.github.model.RepoInsightsData
 import dev.maxxing.github.ui.components.MaxxingLoadingState
 import dev.maxxing.github.ui.components.UserAvatar
 import dev.maxxing.github.ui.components.parseHexColor
+import dev.maxxing.github.ui.i18n.appStrings
 
 @Composable
 internal fun RepoInsightsTabContent(
@@ -54,10 +56,11 @@ internal fun RepoInsightsTabContent(
     onRefresh: () -> Unit,
     onOpenUser: (String) -> Unit
 ) {
+    val strings = appStrings()
     when {
         isLoading && insights == null -> {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                MaxxingLoadingState(message = "Loading repository insights...")
+                MaxxingLoadingState(message = strings.insightsLoading)
             }
         }
 
@@ -69,7 +72,7 @@ internal fun RepoInsightsTabContent(
             ) {
                 Text(errorMsg, color = MaterialTheme.colorScheme.error)
                 Spacer(Modifier.height(10.dp))
-                FilledTonalButton(onClick = onRefresh) { Text("Retry") }
+                FilledTonalButton(onClick = onRefresh) { Text(strings.retry) }
             }
         }
 
@@ -91,7 +94,7 @@ internal fun RepoInsightsTabContent(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Pulse & Languages",
+                            text = strings.insightsHeader,
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.weight(1f)
                         )
@@ -101,7 +104,7 @@ internal fun RepoInsightsTabContent(
                         ) {
                             Icon(Lucide.RefreshCw, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-                            Text("Refresh", maxLines = 1, softWrap = false)
+                            Text(strings.refresh, maxLines = 1, softWrap = false)
                         }
                     }
                 }
@@ -124,7 +127,7 @@ internal fun RepoInsightsTabContent(
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Text(
-                                    text = "GitHub is generating commit & contributor analytics. Tap Refresh shortly.",
+                                    text = strings.insightsComputingNotice,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                                     modifier = Modifier.weight(1f)
@@ -136,23 +139,23 @@ internal fun RepoInsightsTabContent(
 
                 item(key = "insights_kpi") {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         InsightKpiTile(
-                            label = "Last 4w commits",
+                            label = strings.insightsLast4wCommits,
                             value = commitsLast4w.toString(),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f).fillMaxHeight()
                         )
                         InsightKpiTile(
-                            label = "52w commits",
+                            label = strings.insights52wCommits,
                             value = commitsLastYear.toString(),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f).fillMaxHeight()
                         )
                         InsightKpiTile(
-                            label = "Languages",
+                            label = strings.insightsLanguages,
                             value = data.languages.size.toString(),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f).fillMaxHeight()
                         )
                     }
                 }
@@ -179,7 +182,7 @@ internal fun RepoInsightsTabContent(
                                     modifier = Modifier.size(18.dp),
                                     tint = MaterialTheme.colorScheme.primary
                                 )
-                                Text("Languages", style = MaterialTheme.typography.titleMedium)
+                                Text(strings.insightsLanguages, style = MaterialTheme.typography.titleMedium)
                                 if (data.totalLanguageBytes > 0L) {
                                     Spacer(Modifier.weight(1f))
                                     Text(
@@ -192,7 +195,7 @@ internal fun RepoInsightsTabContent(
 
                             if (data.languages.isEmpty()) {
                                 Text(
-                                    text = "No language breakdown available for this repository.",
+                                    text = strings.insightsNoLanguages,
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -275,15 +278,15 @@ internal fun RepoInsightsTabContent(
                                     modifier = Modifier.size(18.dp),
                                     tint = MaterialTheme.colorScheme.primary
                                 )
-                                Text("Weekly Commit Pulse (16w)", style = MaterialTheme.typography.titleMedium)
+                                Text(strings.insightsWeeklyPulse, style = MaterialTheme.typography.titleMedium)
                             }
 
                             if (recentWeeks.isEmpty()) {
                                 Text(
                                     text = if (data.statsComputing) {
-                                        "Commit frequency is currently being computed by GitHub."
+                                        strings.insightsComputingPulse
                                     } else {
-                                        "No recent weekly commit activity recorded."
+                                        strings.insightsNoWeeklyPulse
                                     },
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -321,7 +324,7 @@ internal fun RepoInsightsTabContent(
                                     }
                                 }
                                 Text(
-                                    text = "Peak week: $maxWeekCommits commits • Total (16w): ${recentWeeks.sumOf { it.total }} commits",
+                                    text = strings.insightsPulseSummary(maxWeekCommits, recentWeeks.sumOf { it.total }),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -352,12 +355,12 @@ internal fun RepoInsightsTabContent(
                                     modifier = Modifier.size(18.dp),
                                     tint = MaterialTheme.colorScheme.primary
                                 )
-                                Text("Top Contributors", style = MaterialTheme.typography.titleMedium)
+                                Text(strings.insightsTopContributors, style = MaterialTheme.typography.titleMedium)
                             }
 
                             if (data.contributors.isEmpty()) {
                                 Text(
-                                    text = "No contributor statistics available.",
+                                    text = strings.insightsNoContributors,
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -395,7 +398,7 @@ internal fun RepoInsightsTabContent(
                                         }
                                         if (contributor.totalCommits > 0) {
                                             Text(
-                                                text = "${contributor.totalCommits} commits",
+                                                text = strings.insightsCommitCount(contributor.totalCommits),
                                                 style = MaterialTheme.typography.labelMedium,
                                                 color = MaterialTheme.colorScheme.primary
                                             )
@@ -423,7 +426,13 @@ private fun InsightKpiTile(
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(value, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

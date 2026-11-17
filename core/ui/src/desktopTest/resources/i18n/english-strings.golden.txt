@@ -1,0 +1,647 @@
+actionsAllRuns	All runs
+actionsBranchOrTagLabel	Branch or tag ref (e.g. zqa1)
+actionsCancelFailedError	Cancel failed
+actionsCancelRun	Cancel Run
+actionsDispatchFailed	Workflow dispatch failed
+actionsDispatchedMessage	Dispatched workflow on zqa1
+actionsInputsLabel	Inputs (optional, key=value per line)
+actionsJobsBack	Jobs
+actionsLoadingJobs	Loading jobs...
+actionsLoadingLogs	Loading logs...
+actionsLoadingRuns	Loading workflow runs...
+actionsLogsButton	Logs
+actionsLogsUnavailable	Logs unavailable (check repo scope / expiration)
+actionsNoLogs	No logs returned for this job.
+actionsNoRuns	No workflow runs yet
+actionsRefreshJobs	Refresh jobs
+actionsRefreshRuns	Refresh runs
+actionsRerunAll	Re-run All
+actionsRerunFailed	Re-run Failed
+actionsRerunFailedError	Re-run failed
+actionsRunButton	Run
+actionsRunWorkflowTitle	Run Workflow
+actionsRunsBack	Runs
+actionsSelectWorkflow	Select workflow
+actionsStarting	Starting...
+activityFeed	Activity Feed
+addReactionDesc	Add reaction
+addReviewerDesc	Add reviewer
+addedInlineDiffComment	Added inline diff comment
+allNotificationsMarkedRead	All notifications marked read
+apiRateLimit	GitHub API Rate Limit
+appearanceDark	Dark
+appearanceLabel	Appearance
+appearanceLight	Light
+appearanceSystem	System
+apply	Apply
+authMethodDeviceFlow	OAuth device flow
+authMethodPat	Personal access token
+back	Back
+backToDiscussionsDesc	Back to discussions
+cancel	Cancel
+cancelReplyDesc	Cancel reply
+clear	Clear
+closeAction	Close
+closeDiffViewer	Close diff viewer
+closeEditor	Close editor
+codeSearchFailed	Code search failed
+collapseDetails	Collapse details
+commentOnFile	Comment on file
+commentOnIssueSubtitle	@zqa1 on #7301
+commitDetailsUnavailable	Commit details unavailable.
+commitFilesChangedSummary	+7301 / -7302 (7303 files)
+commitLoading	Loading commit zqa1...
+commitParentLabel	Parent zqa1
+commitVerifiedBadge	Verified
+commitVerifiedDesc	Verified commit
+compareAheadBehind	Ahead 7301 · Behind 7302
+compareChangedFilesHeader	Changed Files (7301)
+compareCommitsHeader	Commits (7301)
+compareFailed	Compare failed
+compareLoading	Comparing zqa1...zqb2...
+compareSelectRefs	Select two refs to compare.
+compareSummaryCounts	7301 commits · 7302 changed files
+contributionsInLastYear	7301 in the last year
+contributionsLess	Less
+contributionsMore	More
+contributionsTitle	Contributions
+copiedGistLink	Copied gist link
+copyGistLinkDesc	Copy gist link
+copyUrl	Copy URL
+create	Create
+createLabelAction	Create label
+createRepoTitle	Create repository
+createdLabelMessage	Created label zqa1
+createdRepoMessage	Created zqa1
+creating	Creating...
+customAccentColorTitle	Custom Accent Color
+customColorLabel	Custom
+deleteAction	Delete
+deleteCommentDesc	Delete comment
+deleteImportedFontDesc	Delete imported font
+deleteImportedFontTitle	Delete imported font?
+deleteSelectedFontInUseDesc	This font is currently selected. Text will use System Default instead.
+deletingAction	Deleting...
+diffBinaryOrLarge	Binary file or diff too large to display inline.
+diffCommentBodyLabel	Comment (Markdown)
+diffEmptyPatch	Empty patch.
+diffNextFile	Next file
+diffPrevFile	Prev file
+diffScrollMode	Scroll
+diffTapLineHint	Tap any diff line to add a review comment.
+diffWrapMode	Wrap
+discussionAddComment	Add a comment...
+discussionAnswer	Answer
+discussionAnswered	Answered
+discussionAuthorInCategory	@zqa1 in zqb2
+discussionBodyLabel	Body (Markdown)
+discussionCategoryAll	All
+discussionCategoryLabel	Category
+discussionLoading	Loading discussion...
+discussionNewTitle	New Discussion
+discussionRepliesCount	7301 replies
+discussionReplyAction	Reply
+discussionReplyingTo	Replying to @zqa1
+discussionUpvoteDesc	Upvote
+discussionWriteReply	Write a reply...
+discussionsCount	7301 discussions
+discussionsDisabledOrEmpty	Discussions disabled or empty
+discussionsEmpty	No discussions yet
+discussionsHeader	Discussions
+discussionsHint	Start a Q&A, idea, or announcement thread with the community.
+discussionsLoading	Loading discussions...
+done	Done
+doneAction	Done
+downloadAssetDesc	Download asset
+dynamicColorDesc	Uses Material You system palette on Android 12+, falls back to seed on Linux.
+dynamicColorTitle	Android Wallpaper Dynamic Color
+editCommentBodyLabel	Comment body (Markdown)
+editCommentDesc	Edit comment
+enableGitHubLinks	Enable github.com Links
+enableOsAlerts	Enable OS Alerts
+enableOsAlertsDesc	Android notifications with Mark Read / Done actions & Linux notify-send.
+expandDetails	Expand details
+exploreTitle	Explore
+failedCancelRun	Failed to cancel run
+failedCreateDiscussion	Failed to create discussion
+failedCreateLabel	Failed to create label
+failedCreatePr	Failed to create pull request
+failedCreateRelease	Failed to create release
+failedCreateRepo	Failed to create repository
+failedDeleteComment	Failed to delete comment
+failedDeleteFontFile	Failed to delete font file
+failedImportFont	Failed to import font file
+failedLoadActions	Failed to load Actions runs
+failedLoadActivity	Failed to load activity feed
+failedLoadAssignees	Failed to load assignees
+failedLoadCiChecks	Failed to load CI checks
+failedLoadCommit	Failed to load commit
+failedLoadCommitDiff	Failed to load commit diff
+failedLoadCommits	Failed to load commits
+failedLoadContributors	Failed to load contributors
+failedLoadDetails	Failed to load details
+failedLoadDirectory	Failed to load directory
+failedLoadDiscussion	Failed to load discussion
+failedLoadDiscussions	Failed to load discussions
+failedLoadFile	Failed to load file
+failedLoadForks	Failed to load forks
+failedLoadGistDetails	Failed to load gist details
+failedLoadGists	Failed to load gists
+failedLoadInsights	Failed to load insights
+failedLoadIssues	Failed to load issues
+failedLoadIssuesAndPrs	Failed to load issues and PRs
+failedLoadJobs	Failed to load jobs
+failedLoadLabels	Failed to load labels
+failedLoadLogs	Failed to load logs
+failedLoadMilestones	Failed to load milestones
+failedLoadNotifications	Failed to load notifications
+failedLoadProfile	Failed to load profile
+failedLoadPulls	Failed to load pull requests
+failedLoadReleases	Failed to load releases
+failedLoadRepos	Failed to load repositories
+failedLoadSecurity	Failed to load security overview
+failedLoadStargazers	Failed to load stargazers
+failedLoadStarredRepos	Failed to load starred repositories
+failedLoadTrending	Failed to load trending repositories
+failedLoadWorkflowRuns	Failed to load workflow runs
+failedOpenAppLinkSettings	Could not open app link settings
+failedOpenGitHubMobileLinkSettings	Could not open GitHub Mobile app link settings
+failedPostComment	Failed to post comment
+failedPostDiffComment	Failed to post diff comment
+failedRequestReviewers	Failed to request reviewers
+failedRerunWorkflow	Failed to re-run workflow
+failedUpdateAssignees	Failed to update assignees
+failedUpdateComment	Failed to update comment
+failedUpdateDraftState	Failed to update draft state
+failedUpdateLabels	Failed to update labels
+failedUpdateMilestone	Failed to update milestone
+fallbackFontDesc	Used for Japanese / CJK and glyphs missing in primary
+fallbackFontLabel	Fallback Font
+fallbackFontRequiresAndroid10	Requires Android 10 or later
+feedTabFollowing	Following
+feedTabMyActivity	My Activity
+fetchingIssuesAndPrs	Fetching your issues & PRs...
+fileBranchLabel	Branch
+fileCommentTitle	File Comment: zqa1
+fileCommitButton	Commit
+fileCommitFailed	Failed to commit file
+fileCommitMessageLabel	Commit message
+fileCommittedMessage	Committed zqa1 (zqb2)
+fileCommitting	Committing...
+fileContentsLabel	File contents
+fileCreateTitle	Create File
+fileDefaultCreateCommitMsg	Create zqa1
+fileDefaultUpdateCommitMsg	Update zqa1
+fileDeleteConfirm	Delete zqa1 on branch zqb2? This creates a new commit removing the file.
+fileDeleteFailed	Failed to delete file
+fileDeleteTitle	Delete File
+fileDeletedMessage	Deleted zqa1 (zqb2)
+fileEditTitle	Edit File
+fileMetadataSummary	zqa1 · branch: zqb2 · zqc3
+filePathLabel	Path (e.g. docs/notes.md)
+fileUntitledName	file
+filterNotificationsPlaceholder	Filter by repo or title...
+follow	Follow
+followScopeErrorHint	Your token may lack the 'user:follow' scope — sign out and sign in again (or add 'user:follow' scope).
+followUpdateFailed	Follow update failed
+followedUser	Following @zqa1
+followingLabel	Following
+fontFileChooserTitle	Select Font File (.ttf / .otf / .ttc)
+fontFileFilterLabel	Font files (*.ttf, *.otf, *.ttc)
+fontGenericMonospace	Monospace
+fontGenericSans	Sans-serif
+fontGenericSerif	Serif
+fontPreviewPrimarySample	The quick brown fox jumps over the lazy dog 0123456789
+fontPreviewSecondarySample	素早い茶色の狐が怠け者の犬を飛び越える — GitHub Pull Request #42
+fontPreviewTitle	Preview
+fontSectionTitle	Typography & Fonts
+foregroundSyncInterval	Foreground Sync Interval
+fork	Fork
+genericFontFamiliesHeader	Generic Families
+gistContentsLabel	Contents
+gistCreatedMessage	Created gist
+gistDeleteAction	Delete gist
+gistDeleteConfirm	Permanently delete this gist (zqa1)?
+gistDeleteFailed	Failed to delete gist
+gistDeleteTitle	Delete Gist
+gistDeletedMessage	Deleted gist
+gistEditAction	Edit gist
+gistEditTitle	Edit Gist
+gistFileCount	7301 files
+gistFilenameLabel	Filename (e.g. notes.md)
+gistNewTitle	New Gist
+gistPublicBadge	Public
+gistPublicDesc	Visible to everyone
+gistPublicToggle	Public Gist
+gistSaveFailed	Failed to save gist
+gistScopeErrorHint	Your token may lack the 'gist' scope — sign out and sign in again (or add 'gist' scope).
+gistSecretBadge	Secret
+gistSecretDesc	Secret (link only)
+gistStarUpdateFailed	Failed to update star
+gistUpdatedMessage	Updated gist
+gistsAction	Gists
+gistsTabMine	My Gists
+gistsTabStarred	Starred
+gistsTitle	Gists
+githubUserFallback	GitHub User
+hexColorLabel	Hex (#RRGGBB)
+importFontFileButton	Import font file (.ttf / .otf / .ttc)
+importedFontFilesHeader	Imported Font Files
+importedFontMessage	Imported font: zqa1
+inboxFilterAll	All
+inboxFilterParticipating	Participating
+inboxFilterUnread	Unread
+inboxTitle	Inbox
+inboxUpToDate	Inbox is up to date (0 unread)
+inboxZeroFilteredHint	No notifications matching 'zqa1'.
+inboxZeroTitle	Inbox Zero!
+inboxZeroUnreadHint	No unread notifications. Check 'All' for already-read threads or tap Refresh.
+initWithReadme	Initialize with README
+insights52wCommits	52w commits
+insightsCommitCount	7301 commits
+insightsComputingNotice	GitHub is generating commit & contributor analytics. Tap Refresh shortly.
+insightsComputingPulse	Commit frequency is currently being computed by GitHub.
+insightsHeader	Pulse & Languages
+insightsLanguages	Languages
+insightsLast4wCommits	Last 4w commits
+insightsLoading	Loading repository insights...
+insightsNoContributors	No contributor statistics available.
+insightsNoLanguages	No language breakdown available for this repository.
+insightsNoWeeklyPulse	No recent weekly commit activity recorded.
+insightsPulseSummary	Peak week: 7301 commits • Total (16w): 7302 commits
+insightsTopContributors	Top Contributors
+insightsWeeklyPulse	Weekly Commit Pulse (16w)
+issueAssigneesCount	Assignees (7301)
+issueAssigneesUpdated	Updated assignees
+issueCloseAction	Close
+issueCloseConfirmTitle	Close #7301?
+issueClosedMessage	Closed #7301
+issueCommentDeleted	Deleted comment
+issueCommentLabel	Markdown comment
+issueCommentPost	Post
+issueCommentPostFailed	Failed to post comment
+issueCommentPosted	Comment posted
+issueCommentTitle	Comment on #7301
+issueCommentUpdated	Updated comment
+issueConvertToDraft	Convert to draft
+issueDecisionLabel	Decision
+issueDeleteCommentConfirm	Are you sure you want to delete this comment by @zqa1?
+issueDeleteCommentTitle	Delete Comment?
+issueDetailTabChat	Chat
+issueDetailTabChecks	Checks
+issueDetailTabFiles	Files
+issueEditCommentTitle	Edit Comment
+issueLabelsCount	Labels (7301)
+issueLabelsUpdated	Updated labels
+issueLoadingChecks	Loading CI check runs...
+issueLoadingNumber	Loading #7301...
+issueManageAssigneesTitle	Manage Assignees
+issueManageLabelsTitle	Manage Labels
+issueMergeAction	Merge
+issueMergeConfirmTitle	Merge #7301?
+issueMergeFailed	Merge failed
+issueMilestoneCleared	Cleared milestone
+issueMilestoneFallback	Milestone
+issueMilestoneUpdated	Updated milestone
+issueNewLabel	New label
+issueNoAssignees	No assignable users returned.
+issueNoChecks	No CI check runs reported
+issueNoLabels	No labels found in repository.
+issueNoMilestone	No milestone
+issueReactAction	React
+issueReadyForReview	Ready for review
+issueRefreshChecks	Refresh Checks
+issueReopenAction	Reopen
+issueReopenConfirmTitle	Reopen #7301?
+issueReopenedMessage	Reopened #7301
+issueRequestAction	Request
+issueRequestReviewersTitle	Request Reviewers
+issueReviewAction	Review
+issueReviewFailed	Review submission failed
+issueReviewSubmitted	Review submitted (zqa1)
+issueReviewSummaryLabel	Review summary (optional for Approve)
+issueReviewersCount	Reviewers (7301)
+issueSearchFailed	Issue search failed
+issueSelectMilestoneTitle	Select Milestone
+issueStateUpdateFailed	Failed to update state
+issueSubmitAction	Submit
+issueSubmitReviewTitle	Submit PR Review
+issueUsernameLabel	GitHub username
+issuesAndPrsTitle	Issues & PRs
+labelsTitle	Labels
+languageDesc	Switch the UI display language immediately.
+languageLabel	Display language
+languageSectionTitle	Language
+linkHandlingDefaultDesc	Enable github.com under Open by default so web links launch directly in this app.
+linkHandlingEnabledDesc	github.com links are set to open in github-mobile-maxxing.
+linkHandlingOfficialClaimsDesc	Official GitHub Mobile currently claims github.com links. Disable "Open supported links" there first, then enable github.com here.
+linkHandlingOfficialInstalledDesc	Official GitHub Mobile is installed. Unlink it if it intercepts github.com links, then enable github.com for this app.
+linkHandlingTitle	GitHub Link Handling
+loading	Loading...
+loadingGists	Loading gists...
+loadingHome	Loading GitHub home...
+loadingLabels	Loading labels...
+loadingResults	Loading results...
+loadingSystemFonts	Loading system fonts...
+loadingTrending	Loading trending repositories...
+loadingUser	Loading @zqa1...
+manageAppLinks	Manage App Links
+markAllReadAction	Mark all read
+markAllReadFailed	Failed
+markDoneAction	Mark done
+markdownSupportedHint	Markdown supported
+markedDone	Marked done
+mergeCommitLabel	Create a merge commit
+mergeRebaseLabel	Rebase and merge
+mergeSquashLabel	Squash and merge
+milestoneDue	Due zqa1
+missingGistScopeNotice	Your current sign-in token lacks 'gist' scope. Sign out in Settings and sign in again to create, edit, star, or view secret Gists.
+monospaceCodeHint	Monospace code
+navHome	Home
+navInbox	Inbox
+navIssues	Issues
+navRepos	Repos
+navSettings	Settings
+newAction	New
+noFileDiffs	No file diffs returned for this pull request.
+noFollowersYet	No followers yet.
+noGistsFound	No gists found.
+noMatchingSystemFonts	No matching system fonts
+noPublicRepos	No public repositories.
+noRecentActivity	No recent activity events yet.
+noRecentPublicActivity	No recent public activity.
+noReposFound	No repositories found.
+noSearchMatches	No zqa1 matched "zqb2".
+noStarredRepos	No starred repositories found.
+noStarredReposProfile	No starred repositories.
+noTrendingFound	No trending repositories found.
+notFollowingAnyoneYet	Not following anyone yet.
+notStarred	Not starred
+nothingToPreview	Nothing to preview yet.
+notifCancelRequested	Cancellation requested
+notifCheckRunsTitle	Check Runs
+notifLoadingDetails	Loading zqa1 details...
+notifOpenOnGitHub	Open on GitHub
+notifRerunningFailed	Re-running failed jobs
+notifRerunningWorkflow	Re-running workflow
+notifUpdatedAt	Updated: zqa1
+notifWorkflowRunsTitle	Recent Workflow Runs
+oauthClientIdLabel	GitHub OAuth Client ID
+oauthConfigTitle	OAuth Client Configuration
+openDetails	Open details
+openFullScreenDiff	Open full-screen diff
+openInBrowser	Open in browser
+openReleaseInBrowserDesc	Open release in browser
+orgBadge	Org
+organizationsTitle	Organizations
+osNotifActivityChannelDesc	General GitHub repository updates and subscribed threads.
+osNotifActivityChannelName	Repository Activity
+osNotifBatchTitle	7301 new GitHub notifications
+osNotifDesktopTestBody	Desktop notifications are active and working!
+osNotifDesktopTestTitle	zqa1 Test Notification
+osNotifMarkReadAction	Mark Read
+osNotifTestReadyBody	New mentions & review requests will appear here with Mark Read / Done actions.
+osNotifTestReadyTitle	zqa1 Notifications Ready
+osNotifUrgentChannelDesc	High-priority GitHub mentions, review requests, and assignments.
+osNotifUrgentChannelName	Mentions & Review Requests
+osNotificationsTitle	GitHub OS Notifications
+pickCustomColorDesc	Pick custom color
+pinnedBookmarks	Pinned Bookmarks
+pollIntervalMinutes	7301 min
+prConvertedToDraftMessage	Converted PR to draft
+prMarkedReadyMessage	Marked PR ready for review
+presetAssigned	Assigned
+presetCreated	Created
+presetMentioned	Mentioned
+presetReviews	Reviews
+previewMode	Preview
+primaryFontDesc	Used first for Latin text, numbers, and symbols
+primaryFontLabel	Primary Font
+privateBadge	Private
+privateRepo	Private repository
+profileTabActivity	Activity
+profileTabFollowers	Followers
+profileTabFollowing	Following
+profileTabRepos	Repos
+profileTabStarred	Starred
+publicRepo	Public repository
+reactedDesc	Reacted
+reactionFailed	Reaction failed
+reasonAll	All Reasons
+reasonAssigned	Assigned
+reasonCi	CI
+reasonMentions	Mentions
+reasonReviews	Review Req
+recentRepositories	Recent Repositories
+refresh	Refresh
+refreshCommitsDesc	Refresh Commits
+refreshCompareDesc	Refresh Compare
+refreshDiscussionDesc	Refresh discussion
+refreshDiscussionsDesc	Refresh discussions
+refreshReleasesDesc	Refresh releases
+refreshSecurityDesc	Refresh security alerts
+releaseAssetsCount	Assets (7301)
+releaseAutoNotes	Auto-generate release notes
+releaseCreateTitle	Create Release
+releaseDownloadArchiveDesc	Download archive
+releaseDownloadsCount	zqa1 downloads
+releaseDraftToggle	Save as draft
+releaseHideNotes	Hide release notes
+releaseLatest	Latest
+releaseNotesLabel	Release notes (Markdown)
+releasePrerelease	Pre-release
+releasePublish	Publish
+releasePublishing	Publishing...
+releaseSaveDraft	Save Draft
+releaseShowNotes	Show release notes
+releaseSourceTarGz	Source code (tar.gz)
+releaseSourceZip	Source code (zip)
+releaseTagLabel	Tag name (e.g. v1.2.0)
+releaseTargetBranchSubtitle	Target: zqa1
+releaseTargetLabel	Target branch or SHA
+releaseTitleLabel	Release title (optional)
+releasesCount	7301 releases
+releasesHeader	Releases
+releasesLoading	Loading releases...
+releasesNew	New release
+releasesNoneEmpty	Create a release to package binaries and release notes.
+releasesNoneTitle	No releases published yet
+releasesNoneWithTags	7301 tags found. Draft or publish a release from any tag.
+repoAheadBehind	7301 ahead · 7302 behind zqa1
+repoAllCommits	All commits
+repoBaseLabel	Base
+repoBinaryFile	Binary file (9301 bytes)
+repoBranchOrTag	Branch or tag
+repoCheckingDivergence	Checking divergence against zqa1...
+repoCommitsButton	Commits
+repoCompare	Compare
+repoCompareUpstream	Compare upstream
+repoCreateIssueFailed	Failed to create issue
+repoCreatePrButton	Create PR
+repoCreatedIssueMessage	Created Issue #7301
+repoCreatedPrMessage	Created PR #7301
+repoDeleteFile	Delete file
+repoDescLabel	Description (optional)
+repoDescriptionMarkdown	Description (Markdown)
+repoDetailTabActions	Actions
+repoDetailTabCode	Code
+repoDetailTabDiscussions	Discussions
+repoDetailTabInsights	Insights
+repoDetailTabIssues	Issues
+repoDetailTabPulls	PRs
+repoDetailTabReleases	Releases
+repoDetailTabSecurity	Security
+repoDraftPrToggle	Create as draft PR
+repoEditFile	Edit file
+repoEvenWithUpstream	Even with zqa1 (no unique fork commits on zqb2)
+repoForkFailed	Fork failed
+repoForkLabel	Fork repository
+repoForkOnlyCommits	Fork only (7301)
+repoForkSortNewest	Newest
+repoForkSortStarred	Most starred
+repoForkedFrom	Forked from zqa1
+repoForkedMessage	Forked to zqa1
+repoForking	Forking...
+repoHeadLabel	Head
+repoIssueTitleLabel	Title
+repoLoadingCommits	Loading commits...
+repoLoadingIssues	Loading Issues...
+repoLoadingPulls	Loading Pull Requests...
+repoMetadataNotReady	Repository metadata not ready yet
+repoNameLabel	Repository name
+repoNetwork	Network
+repoNetworkTitle	zqa1 Network
+repoNewFileButton	File
+repoNewIssueTitle	New Issue
+repoNewPrTitle	New Pull Request
+repoNoCommitsFound	No commits found for zqa1
+repoNoContributors	No contributors listed.
+repoNoForks	No forks yet.
+repoNoStargazers	No stargazers yet.
+repoPeopleTabContributors	Contributors
+repoPeopleTabForks	Forks
+repoPeopleTabStars	Stars
+repoPinAction	Pin repository
+repoPinnedMessage	Pinned zqa1 to Home
+repoPrTitleLabel	PR Title
+repoRefreshIssues	Refresh Issues
+repoRefreshPulls	Refresh Pull Requests
+repoSearchFailed	Repository search failed
+repoStarredMessage	Starred zqa1
+repoSwitchBranchOrTag	Switch branch or tag
+repoTabExplore	Explore
+repoTabMine	My Repos
+repoTabStarred	Starred
+repoUnpinAction	Unpin repository
+repoUnpinnedMessage	Unpinned zqa1
+repoUnstarredMessage	Unstarred zqa1
+repoUnwatchedMessage	Unwatched zqa1
+repoUpdatedDate	updated zqa1
+repoWatch	Watch
+repoWatchUpdateFailed	Watch update failed
+repoWatching	Watching
+repoWatchingMessage	Watching zqa1
+repoZeroAheadBehind	0 commits ahead · 7301 behind zqa1 (shares ancestor history)
+repositoriesTitle	Repositories
+requestedReviewersMessage	Requested reviewers: zqa1
+resetFontsToSystemDefault	Reset to System Default
+retry	Retry
+reviewApproveLabel	Approve
+reviewCommentLabel	Comment
+reviewCommentLineTitle	Review Comment: zqa1:7301
+reviewRequestChangesLabel	Request changes
+reviewersHeader	Reviewers:
+save	Save
+savedClientId	Saved Client ID
+savingAction	Saving...
+searchAction	Search
+searchCodePlaceholder	Search code (e.g. remember repo:foo/bar)...
+searchInLabel	Search in
+searchIssuesPlaceholder	Search issues & PRs...
+searchKindCode	Code
+searchKindIssuesPrs	Issues/PRs
+searchKindRepos	Repos
+searchKindUsers	Users
+searchReposPlaceholder	Search repositories...
+searchSystemFontsPlaceholder	Search system fonts...
+searchUsersPlaceholder	Search GitHub users & orgs...
+securityAdvisoriesCount	Security Advisories (7301)
+securityAffected	Affected: zqa1
+securityAllClearDesc	Dependencies and advisories appear clean for this repository.
+securityAllClearTitle	No open Dependabot alerts or advisories
+securityChecking	Checking security alerts...
+securityDependabotCount	Dependabot Alerts (7301)
+securityFix	Fix: zqa1
+securityHeader	Security & Dependabot
+seedAccentLabel	Expressive Seed Accent (SPEC_2025)
+selectFallbackFontTitle	Select Fallback Font
+selectIssueOrPr	Select an Issue or Pull Request
+selectLabelsTitle	Select Labels
+selectNotificationToTriage	Select a notification to triage
+selectOption	Select option
+selectPrimaryFontTitle	Select Primary Font
+selectedOption	Selected
+sendCommentDesc	Send comment
+sendTestNotification	Send Test Notification
+settingsTitle	Settings & Appearance
+share	Share
+shareEllipsis	Share...
+shareRepository	Share repository
+signInClientIdDefaultSupporting	Defaults to zqa1. Enable Device Flow if overriding.
+signInClientIdLabel	GitHub OAuth App Client ID
+signInCodeCopiedManual	Code zqa1 copied. Open zqb2 in your browser.
+signInCodeCopiedOpening	Code zqa1 copied. Opening GitHub...
+signInCopiedValue	Copied zqa1
+signInCopyCode	Copy Code
+signInEnterCode	Enter this code on GitHub
+signInHideCustomClientId	Hide custom OAuth Client ID
+signInOpenGitHub	Open GitHub
+signInRequestingCode	Requesting device code from GitHub...
+signInResetClientId	Reset to default
+signInSubtitle	Fast, Material 3 Expressive GitHub client for Android & Linux.
+signInUseCustomClientId	Use custom OAuth Client ID
+signInWaitingAuth	Waiting for authorization...
+signInWelcome	Welcome, @zqa1!
+signInWithGitHubButton	Sign in with GitHub
+signOut	Sign Out
+star	Star
+starred	Starred
+starredGist	Starred gist
+stars	Stars
+startingApp	Starting zqa1...
+stateAll	All
+stateClosed	Closed
+stateOpen	Open
+statusClosed	Closed
+statusDraft	Draft
+statusMerged	Merged
+statusOpen	Open
+subjectCheckSuite	CI / Check Suite
+subjectCommit	Commit
+subjectDiscussion	Discussion
+subjectIssue	Issue
+subjectNotification	Notification
+subjectPullRequest	Pull Request
+subjectRelease	Release
+swapBaseHeadDesc	Swap base and head
+syncedCount	Synced 7301 notifications
+syncedUnreadCount	Synced 7301 unread notifications
+syncingNotifications	Syncing notifications...
+systemActorFallback	system
+systemDefaultLabel	System Default
+systemFontsHeader	System Fonts
+testNotificationBlocked	Notifications blocked or notify-send unavailable — check OS permissions
+testNotificationSent	Test notification dispatched
+themeTitle	Material 3 Expressive Theme
+trendingAll	Trending All
+unfollowedUser	Unfollowed @zqa1
+unknownError	Unknown error
+unknownUser	unknown
+unlinkGitHubMobile	Unlink GitHub Mobile
+unstarredGist	Unstarred gist
+urgentOnly	Urgent Only
+urgentOnlyDesc	Only alert for Review Requests, Mentions, Assignments, and Security.
+userGistsTitle	@zqa1 Gists
+userSearchFailed	User search failed
+windowTitle	zqa1 — GitHub Client
+writeMode	Write

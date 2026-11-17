@@ -49,6 +49,7 @@ import dev.maxxing.github.model.CustomFontFile
 import dev.maxxing.github.model.FontSelection
 import dev.maxxing.github.model.FontSourceKind
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
+import dev.maxxing.github.ui.i18n.appStrings
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -66,6 +67,7 @@ internal fun FontPickerDialog(
     onImported: (CustomFontFile?) -> Unit,
     onDeletedImported: (String) -> Unit
 ) {
+    val strings = appStrings()
     var searchQuery by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     // Font enumeration can be slow (AWT on desktop, directory scans on Android), so it runs off the UI thread.
@@ -82,7 +84,7 @@ internal fun FontPickerDialog(
     var pendingDelete by remember { mutableStateOf<CustomFontFile?>(null) }
     val launchImport = rememberFontFileImporter { imported ->
         importedFontsVersion++
-        errorMessage = if (imported == null) "Failed to import font file" else null
+        errorMessage = if (imported == null) strings.failedImportFont else null
         onImported(imported)
     }
 
@@ -106,7 +108,7 @@ internal fun FontPickerDialog(
                 ) {
                     Icon(Lucide.Plus, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Import font file (.ttf / .otf / .ttc)")
+                    Text(strings.importFontFileButton)
                 }
 
                 errorMessage?.let { message ->
@@ -121,12 +123,12 @@ internal fun FontPickerDialog(
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        placeholder = { Text("Search system fonts...") },
+                        placeholder = { Text(strings.searchSystemFontsPlaceholder) },
                         leadingIcon = { Icon(Lucide.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
                         trailingIcon = if (searchQuery.isNotEmpty()) {
                             {
                                 IconButton(onClick = { searchQuery = "" }) {
-                                    Icon(Lucide.X, contentDescription = "Clear", modifier = Modifier.size(15.dp))
+                                    Icon(Lucide.X, contentDescription = strings.clear, modifier = Modifier.size(15.dp))
                                 }
                             }
                         } else null,
@@ -141,7 +143,7 @@ internal fun FontPickerDialog(
                 ) {
                     item(key = "sys_default") {
                         FontChoiceRow(
-                            label = "System Default",
+                            label = strings.systemDefaultLabel,
                             selected = current.kind == FontSourceKind.SYSTEM_DEFAULT,
                             onClick = { onSelect(FontSelection.SystemDefault) }
                         )
@@ -149,7 +151,7 @@ internal fun FontPickerDialog(
 
                     if (importedFonts.isNotEmpty()) {
                         item(key = "hdr_imported") {
-                            FontGroupHeader("Imported Font Files")
+                            FontGroupHeader(strings.importedFontFilesHeader)
                         }
                         items(importedFonts, key = { "imp_${it.filePath}" }) { custom ->
                             val selection = FontSelection(
@@ -167,25 +169,25 @@ internal fun FontPickerDialog(
                     }
 
                     item(key = "hdr_generic") {
-                        FontGroupHeader("Generic Families")
+                        FontGroupHeader(strings.genericFontFamiliesHeader)
                     }
                     item(key = "generic_sans") {
                         FontChoiceRow(
-                            label = "Sans-serif",
+                            label = strings.fontGenericSans,
                             selected = current.kind == FontSourceKind.GENERIC_SANS,
                             onClick = { onSelect(FontSelection.SansSerif) }
                         )
                     }
                     item(key = "generic_serif") {
                         FontChoiceRow(
-                            label = "Serif",
+                            label = strings.fontGenericSerif,
                             selected = current.kind == FontSourceKind.GENERIC_SERIF,
                             onClick = { onSelect(FontSelection.Serif) }
                         )
                     }
                     item(key = "generic_mono") {
                         FontChoiceRow(
-                            label = "Monospace",
+                            label = strings.fontGenericMonospace,
                             selected = current.kind == FontSourceKind.GENERIC_MONOSPACE,
                             onClick = { onSelect(FontSelection.Monospace) }
                         )
@@ -198,7 +200,7 @@ internal fun FontPickerDialog(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text(
-                                    text = "Loading system fonts...",
+                                    text = strings.loadingSystemFonts,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -207,12 +209,12 @@ internal fun FontPickerDialog(
                         }
                     } else if (systemFonts.isNotEmpty()) {
                         item(key = "hdr_system") {
-                            FontGroupHeader("System Fonts")
+                            FontGroupHeader(strings.systemFontsHeader)
                         }
                         if (filteredSystemFonts.isEmpty()) {
                             item(key = "no_sys_match") {
                                 Text(
-                                    text = "No matching system fonts",
+                                    text = strings.noMatchingSystemFonts,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
@@ -238,7 +240,7 @@ internal fun FontPickerDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Close")
+                Text(strings.closeAction)
             }
         }
     )
@@ -246,7 +248,7 @@ internal fun FontPickerDialog(
     pendingDelete?.let { font ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("Delete imported font?") },
+            title = { Text(strings.deleteImportedFontTitle) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
@@ -256,7 +258,7 @@ internal fun FontPickerDialog(
                     )
                     if (font.filePath in inUseFilePaths) {
                         Text(
-                            text = "This font is currently selected. Text will use System Default instead.",
+                            text = strings.deleteSelectedFontInUseDesc,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -278,19 +280,19 @@ internal fun FontPickerDialog(
                                     errorMessage = null
                                     onDeletedImported(font.filePath)
                                 } else {
-                                    errorMessage = "Failed to delete font file"
+                                    errorMessage = strings.failedDeleteFontFile
                                 }
                             }
                         }
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Delete")
+                    Text(strings.deleteAction)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) {
-                    Text("Cancel")
+                    Text(strings.cancel)
                 }
             }
         )
@@ -318,6 +320,7 @@ private fun FontChoiceRow(
     onClick: () -> Unit,
     onDelete: (() -> Unit)? = null
 ) {
+    val strings = appStrings()
     Surface(
         shape = MaterialTheme.shapes.small,
         color = if (selected) {
@@ -348,7 +351,7 @@ private fun FontChoiceRow(
                 ) {
                     Icon(
                         Lucide.Trash2,
-                        contentDescription = "Delete imported font",
+                        contentDescription = strings.deleteImportedFontDesc,
                         tint = MaterialTheme.colorScheme.error,
                         modifier = Modifier.size(15.dp)
                     )
@@ -357,7 +360,7 @@ private fun FontChoiceRow(
             if (selected) {
                 Icon(
                     Lucide.Check,
-                    contentDescription = "Selected",
+                    contentDescription = strings.selectedOption,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(16.dp)
                 )

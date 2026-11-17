@@ -70,6 +70,7 @@ import dev.maxxing.github.model.DiffLine
 import dev.maxxing.github.model.DiffLineKind
 import dev.maxxing.github.model.FileChangeStatus
 import dev.maxxing.github.model.PullFileChange
+import dev.maxxing.github.ui.i18n.appStrings
 
 /**
  * Emits flat, virtualized LazyColumn items for a PR file diff so large diffs scroll at 120fps.
@@ -102,8 +103,9 @@ fun LazyListScope.diffFileLazyItems(
                     .fillMaxWidth()
                     .let { if (onOpenFullScreen != null) it.clickable(onClick = onOpenFullScreen) else it }
             ) {
+                val strings = appStrings()
                 Text(
-                    text = if (file.patch == null) "Binary file or diff too large to display inline." else "Empty patch.",
+                    text = if (file.patch == null) strings.diffBinaryOrLarge else strings.diffEmptyPatch,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(14.dp)
@@ -161,6 +163,7 @@ private fun DiffFileHeaderRow(
     onCommentFile: (() -> Unit)? = null,
     onOpenFullScreen: (() -> Unit)? = null
 ) {
+    val strings = appStrings()
     val statusColor = when (file.status) {
         FileChangeStatus.ADDED -> Color(0xFF16A34A)
         FileChangeStatus.REMOVED -> MaterialTheme.colorScheme.error
@@ -221,7 +224,7 @@ private fun DiffFileHeaderRow(
             )
             Spacer(Modifier.width(8.dp))
             ExpressiveStatusPill(
-                label = file.status.name.take(3),
+                label = strings.fileStatusBadge(file.status),
                 containerColor = statusColor.copy(alpha = 0.2f),
                 contentColor = MaterialTheme.colorScheme.onSurface
             )
@@ -229,7 +232,7 @@ private fun DiffFileHeaderRow(
                 IconButton(onClick = onOpenFullScreen, modifier = Modifier.size(30.dp)) {
                     Icon(
                         imageVector = Lucide.Maximize2,
-                        contentDescription = "Open full-screen diff",
+                        contentDescription = strings.openFullScreenDiff,
                         modifier = Modifier.size(15.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -239,7 +242,7 @@ private fun DiffFileHeaderRow(
                 IconButton(onClick = onCommentFile, modifier = Modifier.size(30.dp)) {
                     Icon(
                         imageVector = Lucide.MessageSquarePlus,
-                        contentDescription = "Comment on file",
+                        contentDescription = strings.commentOnFile,
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.primary
                     )
@@ -414,6 +417,7 @@ fun MaxxingFullScreenDiffViewer(
         maxOf(lineRowTotalDp, hunkRowTotalDp)
     }
 
+    val strings = appStrings()
     val statusColor = when (file.status) {
         FileChangeStatus.ADDED -> Color(0xFF16A34A)
         FileChangeStatus.REMOVED -> MaterialTheme.colorScheme.error
@@ -440,7 +444,7 @@ fun MaxxingFullScreenDiffViewer(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             IconButton(onClick = onDismiss) {
-                                Icon(Lucide.X, contentDescription = "Close diff viewer")
+                                Icon(Lucide.X, contentDescription = strings.closeDiffViewer)
                             }
                             Column(modifier = Modifier.weight(1f).padding(horizontal = 4.dp)) {
                                 Text(
@@ -458,18 +462,18 @@ fun MaxxingFullScreenDiffViewer(
                                 )
                             }
                             ExpressiveStatusPill(
-                                label = file.status.name.take(3),
+                                label = strings.fileStatusBadge(file.status),
                                 containerColor = statusColor.copy(alpha = 0.2f),
                                 contentColor = MaterialTheme.colorScheme.onSurface
                             )
                             TextButton(onClick = { wrapLines = !wrapLines }) {
-                                Text(if (wrapLines) "Scroll" else "Wrap", maxLines = 1, softWrap = false)
+                                Text(if (wrapLines) strings.diffScrollMode else strings.diffWrapMode, maxLines = 1, softWrap = false)
                             }
                             if (onCommentFile != null) {
                                 IconButton(onClick = onCommentFile) {
                                     Icon(
                                         imageVector = Lucide.MessageSquarePlus,
-                                        contentDescription = "Comment on file",
+                                        contentDescription = strings.commentOnFile,
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(18.dp)
                                     )
@@ -505,9 +509,9 @@ fun MaxxingFullScreenDiffViewer(
                                     ) {
                                         Text(
                                             text = if (file.patch == null) {
-                                                "Binary file or diff too large to display inline."
+                                                strings.diffBinaryOrLarge
                                             } else {
-                                                "Empty patch."
+                                                strings.diffEmptyPatch
                                             },
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -580,7 +584,7 @@ fun MaxxingFullScreenDiffViewer(
                                     ) {
                                         Icon(Lucide.ArrowLeft, contentDescription = null, modifier = Modifier.size(15.dp))
                                         Spacer(Modifier.width(4.dp))
-                                        Text("Prev file", maxLines = 1, softWrap = false)
+                                        Text(strings.diffPrevFile, maxLines = 1, softWrap = false)
                                     }
                                     Text(
                                         text = "${currentIndex + 1} / ${files.size}",
@@ -592,14 +596,14 @@ fun MaxxingFullScreenDiffViewer(
                                         onClick = { if (hasNext) onSelectFile(files[currentIndex + 1]) },
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                     ) {
-                                        Text("Next file", maxLines = 1, softWrap = false)
+                                        Text(strings.diffNextFile, maxLines = 1, softWrap = false)
                                         Spacer(Modifier.width(4.dp))
                                         Icon(Lucide.ArrowRight, contentDescription = null, modifier = Modifier.size(15.dp))
                                     }
                                 }
                             } else if (onCommentLine != null) {
                                 Text(
-                                    text = "Tap any diff line to add a review comment.",
+                                    text = strings.diffTapLineHint,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

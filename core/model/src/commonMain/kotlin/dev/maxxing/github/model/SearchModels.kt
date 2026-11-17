@@ -3,11 +3,11 @@ package dev.maxxing.github.model
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class GlobalSearchKind(val label: String) {
-    REPOSITORIES("Repos"),
-    ISSUES_PRS("Issues/PRs"),
-    CODE("Code"),
-    USERS("Users")
+enum class GlobalSearchKind {
+    REPOSITORIES,
+    ISSUES_PRS,
+    CODE,
+    USERS
 }
 
 @Serializable

@@ -58,7 +58,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryScrollableTabRow
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
@@ -169,6 +168,7 @@ import dev.maxxing.github.model.WorkflowJobSummary
 import dev.maxxing.github.model.WorkflowRunSummary
 import dev.maxxing.github.model.WorkflowSummary
 import dev.maxxing.github.ui.components.CodeViewer
+import dev.maxxing.github.ui.components.MaxxingIconLabelTab
 import dev.maxxing.github.ui.components.ExpressiveStatusPill
 import dev.maxxing.github.ui.components.GitHubLabelChip
 import dev.maxxing.github.ui.components.GitHubMarkdown
@@ -182,6 +182,8 @@ import dev.maxxing.github.ui.components.MaxxingPredictiveBackContainer
 import dev.maxxing.github.ui.components.MaxxingPredictiveOverlayHost
 import dev.maxxing.github.ui.components.MaxxingStarAmber
 import dev.maxxing.github.ui.components.RepoLabelsPickerDialog
+import dev.maxxing.github.ui.i18n.AppStrings
+import dev.maxxing.github.ui.i18n.appStrings
 import dev.maxxing.github.ui.components.MaxxingTopHeaderDefaults
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.StarActionButton
@@ -195,31 +197,46 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
-private enum class RepoListTab(val label: String) {
-    MINE("My Repos"),
-    STARRED("Starred"),
-    SEARCH("Search")
+private enum class RepoListTab {
+    MINE,
+    STARRED,
+    SEARCH
 }
 
-internal enum class RepoDetailTab(val label: String) {
-    CODE("Code"),
-    ISSUES("Issues"),
-    PULLS("PRs"),
-    ACTIONS("Actions"),
-    RELEASES("Releases"),
-    DISCUSSIONS("Discussions"),
-    SECURITY("Security"),
-    INSIGHTS("Insights")
+internal enum class RepoDetailTab {
+    CODE,
+    ISSUES,
+    PULLS,
+    ACTIONS,
+    RELEASES,
+    DISCUSSIONS,
+    SECURITY,
+    INSIGHTS;
+
+    fun localizedLabel(strings: AppStrings): String = when (this) {
+        CODE -> strings.repoDetailTabCode
+        ISSUES -> strings.repoDetailTabIssues
+        PULLS -> strings.repoDetailTabPulls
+        ACTIONS -> strings.repoDetailTabActions
+        RELEASES -> strings.repoDetailTabReleases
+        DISCUSSIONS -> strings.repoDetailTabDiscussions
+        SECURITY -> strings.repoDetailTabSecurity
+        INSIGHTS -> strings.repoDetailTabInsights
+    }
 }
 
-internal fun formatRepoDetailTabLabel(
+internal fun formatLocalizedRepoDetailTabLabel(
     tab: RepoDetailTab,
     openIssuesCount: Int?,
-    openPullRequestsCount: Int?
-): String = when (tab) {
-    RepoDetailTab.ISSUES -> openIssuesCount?.let { "${tab.label} ($it)" } ?: tab.label
-    RepoDetailTab.PULLS -> openPullRequestsCount?.let { "${tab.label} ($it)" } ?: tab.label
-    else -> tab.label
+    openPullRequestsCount: Int?,
+    strings: AppStrings
+): String {
+    val base = tab.localizedLabel(strings)
+    return when (tab) {
+        RepoDetailTab.ISSUES -> openIssuesCount?.let { "$base ($it)" } ?: base
+        RepoDetailTab.PULLS -> openPullRequestsCount?.let { "$base ($it)" } ?: base
+        else -> base
+    }
 }
 
 private val TRENDING_LANGUAGES = listOf("All", "Kotlin", "TypeScript", "Python", "Rust", "Go", "Swift")
@@ -331,6 +348,7 @@ private fun RepoListPane(
     var newRepoAutoInit by remember { mutableStateOf(true) }
     var createRepoBusy by remember { mutableStateOf(false) }
     var isSearchFocused by remember { mutableStateOf(false) }
+    val strings = appStrings()
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val headerTracker = remember { RepoHeaderCollapseTracker() }
@@ -370,7 +388,7 @@ private fun RepoListPane(
                 isLoading = false
                 isRefreshing = false
             }.onFailure {
-                errorMsg = it.message ?: "Failed to load trending repositories"
+                errorMsg = strings.errorMessage(it, strings.failedLoadTrending)
                 isLoading = false
                 isRefreshing = false
             }
@@ -428,28 +446,28 @@ private fun RepoListPane(
                 RepoListTab.MINE -> container.repository.getViewerRepositories(forceRefresh = forceRefresh)
                     .also { if (requestSeq != currentSeq || activeTab != targetTab) return@launch }
                     .onSuccess { repos = it; isLoading = false; isRefreshing = false }
-                    .onFailure { errorMsg = it.message ?: "Failed to load repositories"; isLoading = false; isRefreshing = false }
+                    .onFailure { errorMsg = strings.errorMessage(it, strings.failedLoadRepos); isLoading = false; isRefreshing = false }
                 RepoListTab.STARRED -> container.repository.getStarredRepositories(forceRefresh = forceRefresh)
                     .also { if (requestSeq != currentSeq || activeTab != targetTab) return@launch }
                     .onSuccess { repos = it; isLoading = false; isRefreshing = false }
-                    .onFailure { errorMsg = it.message ?: "Failed to load starred repositories"; isLoading = false; isRefreshing = false }
+                    .onFailure { errorMsg = strings.errorMessage(it, strings.failedLoadStarredRepos); isLoading = false; isRefreshing = false }
                 RepoListTab.SEARCH -> when (targetSearchKind) {
                     GlobalSearchKind.REPOSITORIES -> container.repository.searchRepositories(trimmedQuery, forceRefresh = forceRefresh)
                         .also { if (requestSeq != currentSeq || activeTab != targetTab || searchKind != targetSearchKind) return@launch }
                         .onSuccess { repos = it; isLoading = false; isRefreshing = false }
-                        .onFailure { errorMsg = it.message ?: "Repository search failed"; isLoading = false; isRefreshing = false }
+                        .onFailure { errorMsg = strings.errorMessage(it, strings.repoSearchFailed); isLoading = false; isRefreshing = false }
                     GlobalSearchKind.ISSUES_PRS -> container.repository.searchIssuesAndPullsGlobal(trimmedQuery, forceRefresh = forceRefresh)
                         .also { if (requestSeq != currentSeq || activeTab != targetTab || searchKind != targetSearchKind) return@launch }
                         .onSuccess { issueHits = it; isLoading = false; isRefreshing = false }
-                        .onFailure { errorMsg = it.message ?: "Issue search failed"; isLoading = false; isRefreshing = false }
+                        .onFailure { errorMsg = strings.errorMessage(it, strings.issueSearchFailed); isLoading = false; isRefreshing = false }
                     GlobalSearchKind.CODE -> container.repository.searchCode(trimmedQuery, forceRefresh = forceRefresh)
                         .also { if (requestSeq != currentSeq || activeTab != targetTab || searchKind != targetSearchKind) return@launch }
                         .onSuccess { codeHits = it; isLoading = false; isRefreshing = false }
-                        .onFailure { errorMsg = it.message ?: "Code search failed"; isLoading = false; isRefreshing = false }
+                        .onFailure { errorMsg = strings.errorMessage(it, strings.codeSearchFailed); isLoading = false; isRefreshing = false }
                     GlobalSearchKind.USERS -> container.repository.searchUsers(trimmedQuery, forceRefresh = forceRefresh)
                         .also { if (requestSeq != currentSeq || activeTab != targetTab || searchKind != targetSearchKind) return@launch }
                         .onSuccess { userHits = it; isLoading = false; isRefreshing = false }
-                        .onFailure { errorMsg = it.message ?: "User search failed"; isLoading = false; isRefreshing = false }
+                        .onFailure { errorMsg = strings.errorMessage(it, strings.userSearchFailed); isLoading = false; isRefreshing = false }
                 }
             }
         }
@@ -483,7 +501,7 @@ private fun RepoListPane(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (activeTab == RepoListTab.SEARCH && submittedSearchQuery.isBlank()) "Explore" else "Repositories",
+                    text = if (activeTab == RepoListTab.SEARCH && submittedSearchQuery.isBlank()) strings.exploreTitle else strings.repositoriesTitle,
                     style = if (showExpandedHeader) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleLarge,
                     maxLines = 1,
                     modifier = Modifier.weight(1f)
@@ -494,38 +512,37 @@ private fun RepoListPane(
                 ) {
                     Icon(Lucide.Plus, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("New")
+                    Text(strings.newAction)
                 }
                 IconButton(onClick = { loadRepos(forceRefresh = true) }) {
-                    Icon(Lucide.RefreshCw, contentDescription = "Refresh", modifier = Modifier.size(18.dp))
+                    Icon(Lucide.RefreshCw, contentDescription = strings.refresh, modifier = Modifier.size(18.dp))
                 }
             }
             MaxxingCollapsibleSection(visible = showExpandedHeader) {
                 Column {
                     Spacer(Modifier.height(MaxxingTopHeaderDefaults.TabBarTopSpacing))
-                    PrimaryTabRow(
+                    // Scrollable so that no label is ever clipped, whatever the language, font or screen width.
+                    PrimaryScrollableTabRow(
                         selectedTabIndex = RepoListTab.entries.indexOf(activeTab).coerceAtLeast(0),
-                        containerColor = androidx.compose.ui.graphics.Color.Transparent
+                        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                        edgePadding = 0.dp
                     ) {
                         RepoListTab.entries.forEach { tab ->
-                            val label = if (tab == RepoListTab.SEARCH) "Explore" else tab.label
+                            val label = when (tab) {
+                                RepoListTab.MINE -> strings.repoTabMine
+                                RepoListTab.STARRED -> strings.repoTabStarred
+                                RepoListTab.SEARCH -> strings.repoTabExplore
+                            }
                             val icon = when (tab) {
                                 RepoListTab.MINE -> Lucide.FolderGit2
                                 RepoListTab.STARRED -> MaxxingFilledIcons.Star
                                 RepoListTab.SEARCH -> Lucide.Compass
                             }
-                            Tab(
+                            MaxxingIconLabelTab(
                                 selected = activeTab == tab,
                                 onClick = { activeTab = tab },
-                                text = {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
-                                        Text(label, maxLines = 1, softWrap = false)
-                                    }
-                                }
+                                icon = icon,
+                                label = label
                             )
                         }
                     }
@@ -537,7 +554,7 @@ private fun RepoListPane(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Search in",
+                                text = strings.searchInLabel,
                                 style = MaterialTheme.typography.labelLarge,
                                 modifier = Modifier.weight(1f)
                             )
@@ -545,7 +562,7 @@ private fun RepoListPane(
                                 options = GlobalSearchKind.entries,
                                 selected = searchKind,
                                 onSelect = { searchKind = it },
-                                labelProvider = { it.label },
+                                labelProvider = { strings.searchKindLabel(it) },
                                 iconProvider = {
                                     when (it) {
                                         GlobalSearchKind.REPOSITORIES -> Lucide.Folder
@@ -567,10 +584,10 @@ private fun RepoListPane(
                                 placeholder = {
                                     Text(
                                         when (searchKind) {
-                                            GlobalSearchKind.REPOSITORIES -> "Search repositories..."
-                                            GlobalSearchKind.ISSUES_PRS -> "Search issues & PRs..."
-                                            GlobalSearchKind.CODE -> "Search code (e.g. remember repo:foo/bar)..."
-                                            GlobalSearchKind.USERS -> "Search GitHub users & orgs..."
+                                            GlobalSearchKind.REPOSITORIES -> strings.searchReposPlaceholder
+                                            GlobalSearchKind.ISSUES_PRS -> strings.searchIssuesPlaceholder
+                                            GlobalSearchKind.CODE -> strings.searchCodePlaceholder
+                                            GlobalSearchKind.USERS -> strings.searchUsersPlaceholder
                                         }
                                     )
                                 },
@@ -585,7 +602,7 @@ private fun RepoListPane(
                                                 loadTrending(trendingLang, forceRefresh = false)
                                             }
                                         ) {
-                                            Icon(Lucide.X, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+                                            Icon(Lucide.X, contentDescription = strings.clear, modifier = Modifier.size(16.dp))
                                         }
                                     }
                                 } else null,
@@ -621,7 +638,7 @@ private fun RepoListPane(
                                 },
                                 enabled = searchQuery.isNotBlank()
                             ) {
-                                Text("Search")
+                                Text(strings.searchAction)
                             }
                         }
                         if (submittedSearchQuery.isBlank()) {
@@ -634,7 +651,7 @@ private fun RepoListPane(
                                         leadingIcon = if (lang == "All") {
                                             { Icon(Lucide.Flame, contentDescription = null, modifier = Modifier.size(14.dp)) }
                                         } else null,
-                                        label = { Text(if (lang == "All") "Trending All" else lang) }
+                                        label = { Text(if (lang == "All") strings.trendingAll else lang) }
                                     )
                                 }
                             }
@@ -658,9 +675,9 @@ private fun RepoListPane(
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         MaxxingLoadingState(
                             message = if (activeTab == RepoListTab.SEARCH && submittedSearchQuery.isBlank()) {
-                                "Loading trending repositories..."
+                                strings.loadingTrending
                             } else {
-                                "Loading results..."
+                                strings.loadingResults
                             }
                         )
                     }
@@ -675,7 +692,7 @@ private fun RepoListPane(
                         Text(errorMsg!!, color = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.height(10.dp))
                         Button(onClick = { loadRepos(forceRefresh = true) }) {
-                            Text("Retry")
+                            Text(strings.retry)
                         }
                     }
                 }
@@ -685,12 +702,12 @@ private fun RepoListPane(
                         Text(
                             text = when (activeTab) {
                                 RepoListTab.SEARCH -> if (submittedSearchQuery.isBlank()) {
-                                    "No trending repositories found."
+                                    strings.noTrendingFound
                                 } else {
-                                    "No ${searchKind.label} matched \"$submittedSearchQuery\"."
+                                    strings.noSearchMatches(strings.searchKindLabel(searchKind), submittedSearchQuery)
                                 }
-                                RepoListTab.STARRED -> "No starred repositories found."
-                                RepoListTab.MINE -> "No repositories found."
+                                RepoListTab.STARRED -> strings.noStarredRepos
+                                RepoListTab.MINE -> strings.noReposFound
                             },
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -796,20 +813,20 @@ private fun RepoListPane(
     if (showCreateRepoDialog) {
         AlertDialog(
             onDismissRequest = { if (!createRepoBusy) showCreateRepoDialog = false },
-            title = { Text("Create repository") },
+            title = { Text(strings.createRepoTitle) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(
                         value = newRepoName,
                         onValueChange = { newRepoName = it },
-                        label = { Text("Repository name") },
+                        label = { Text(strings.repoNameLabel) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = newRepoDesc,
                         onValueChange = { newRepoDesc = it },
-                        label = { Text("Description (optional)") },
+                        label = { Text(strings.repoDescLabel) },
                         maxLines = 3,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -819,7 +836,7 @@ private fun RepoListPane(
                     ) {
                         Icon(Lucide.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Private repository", modifier = Modifier.weight(1f))
+                        Text(strings.privateRepo, modifier = Modifier.weight(1f))
                         Switch(checked = newRepoPrivate, onCheckedChange = { newRepoPrivate = it })
                     }
                     Row(
@@ -828,7 +845,7 @@ private fun RepoListPane(
                     ) {
                         Icon(Lucide.File, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Initialize with README", modifier = Modifier.weight(1f))
+                        Text(strings.initWithReadme, modifier = Modifier.weight(1f))
                         Switch(checked = newRepoAutoInit, onCheckedChange = { newRepoAutoInit = it })
                     }
                 }
@@ -847,22 +864,22 @@ private fun RepoListPane(
                                     showCreateRepoDialog = false
                                     newRepoName = ""
                                     newRepoDesc = ""
-                                    onMessage("Created ${created.fullName}")
+                                    onMessage(strings.createdRepoMessage(created.fullName))
                                     onSelectRepo(created)
                                 }
                                 .onFailure {
                                     createRepoBusy = false
-                                    onMessage(it.message ?: "Failed to create repository")
+                                    onMessage(strings.errorMessage(it, strings.failedCreateRepo))
                                 }
                         }
                     }
                 ) {
-                    Text(if (createRepoBusy) "Creating..." else "Create")
+                    Text(if (createRepoBusy) strings.creating else strings.create)
                 }
             },
             dismissButton = {
                 TextButton(enabled = !createRepoBusy, onClick = { showCreateRepoDialog = false }) {
-                    Text("Cancel")
+                    Text(strings.cancel)
                 }
             }
         )
@@ -875,6 +892,7 @@ private fun SearchIssuePullCard(
     onOpenUser: (String) -> Unit,
     onClick: () -> Unit
 ) {
+    val strings = appStrings()
     Card(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
@@ -900,10 +918,10 @@ private fun SearchIssuePullCard(
                 )
                 ExpressiveStatusPill(
                     label = when {
-                        item.isDraft -> "Draft"
-                        item.state == IssueOrPullState.OPEN -> "Open"
-                        item.state == IssueOrPullState.MERGED -> "Merged"
-                        else -> "Closed"
+                        item.isDraft -> strings.statusDraft
+                        item.state == IssueOrPullState.OPEN -> strings.statusOpen
+                        item.state == IssueOrPullState.MERGED -> strings.statusMerged
+                        else -> strings.statusClosed
                     },
                     icon = when {
                         item.isDraft -> Lucide.Pencil
@@ -1036,6 +1054,7 @@ fun RepoSummaryCard(
     repo: RepoSummary,
     onClick: () -> Unit
 ) {
+    val strings = appStrings()
     Card(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
@@ -1058,7 +1077,7 @@ fun RepoSummaryCard(
                 )
                 if (repo.isPrivate) {
                     ExpressiveStatusPill(
-                        label = "Private",
+                        label = strings.privateBadge,
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,
                         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                         icon = Lucide.Lock
@@ -1095,7 +1114,7 @@ fun RepoSummaryCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = if (repo.viewerHasStarred) MaxxingFilledIcons.Star else Lucide.Star,
-                        contentDescription = if (repo.viewerHasStarred) "Starred" else "Stars",
+                        contentDescription = if (repo.viewerHasStarred) strings.starred else strings.stars,
                         tint = if (repo.viewerHasStarred) MaxxingStarAmber else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(14.dp)
                     )
@@ -1117,10 +1136,16 @@ fun RepoSummaryCard(
     }
 }
 
-private enum class RepoPeopleTab(val label: String) {
-    STARGAZERS("Stars"),
-    FORKS("Forks"),
-    CONTRIBUTORS("Contributors")
+private enum class RepoPeopleTab {
+    STARGAZERS,
+    FORKS,
+    CONTRIBUTORS;
+
+    fun localizedLabel(strings: AppStrings): String = when (this) {
+        STARGAZERS -> strings.repoPeopleTabStars
+        FORKS -> strings.repoPeopleTabForks
+        CONTRIBUTORS -> strings.repoPeopleTabContributors
+    }
 }
 
 @OptIn(
@@ -1138,6 +1163,7 @@ fun RepoDetailScreen(
     onOpenUser: (String) -> Unit = {},
     onMessage: (String) -> Unit
 ) {
+    val strings = appStrings()
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
     val viewerProfile by container.viewerProfile.collectAsState()
@@ -1308,7 +1334,7 @@ fun RepoDetailScreen(
                 }
                 .onFailure {
                     if (reqSeq == discussionsRequestSeq) {
-                        discussionsError = it.message ?: "Failed to load discussions"
+                        discussionsError = strings.errorMessage(it, strings.failedLoadDiscussions)
                         discussionsLoading = false
                     }
                 }
@@ -1335,7 +1361,7 @@ fun RepoDetailScreen(
                 }
                 .onFailure {
                     if (openedDiscussionNumber == number) {
-                        discussionDetailError = it.message ?: "Failed to load discussion"
+                        discussionDetailError = strings.errorMessage(it, strings.failedLoadDiscussion)
                         discussionDetailLoading = false
                     }
                 }
@@ -1358,7 +1384,7 @@ fun RepoDetailScreen(
                     securityLoading = false
                 }
                 .onFailure {
-                    securityError = it.message ?: "Failed to load security overview"
+                    securityError = strings.errorMessage(it, strings.failedLoadSecurity)
                     securityLoading = false
                 }
         }
@@ -1384,7 +1410,7 @@ fun RepoDetailScreen(
                     insightsLoading = false
                 }
                 .onFailure {
-                    insightsError = it.message ?: "Failed to load insights"
+                    insightsError = strings.errorMessage(it, strings.failedLoadInsights)
                     insightsLoading = false
                 }
         }
@@ -1406,7 +1432,7 @@ fun RepoDetailScreen(
                     releasesLoading = false
                 }
                 .onFailure {
-                    releasesError = it.message ?: "Failed to load releases"
+                    releasesError = strings.errorMessage(it, strings.failedLoadReleases)
                     releasesLoading = false
                 }
         }
@@ -1430,7 +1456,7 @@ fun RepoDetailScreen(
                     actionsLoading = false
                 }
                 .onFailure {
-                    actionsError = it.message ?: "Failed to load Actions runs"
+                    actionsError = strings.errorMessage(it, strings.failedLoadActions)
                     actionsLoading = false
                 }
         }
@@ -1444,7 +1470,7 @@ fun RepoDetailScreen(
             jobsLoading = true
             container.repository.getWorkflowRunJobs(repo.owner, repo.name, run.id, forceRefresh = forceRefresh)
                 .onSuccess { runJobs = it }
-                .onFailure { onMessage(it.message ?: "Failed to load jobs") }
+                .onFailure { onMessage(strings.errorMessage(it, strings.failedLoadJobs)) }
             jobsLoading = false
         }
     }
@@ -1456,7 +1482,7 @@ fun RepoDetailScreen(
             jobLogsLoading = true
             container.repository.getJobLogs(repo.owner, repo.name, job.id)
                 .onSuccess { jobLogsText = it }
-                .onFailure { onMessage(it.message ?: "Logs unavailable (check repo scope / expiration)") }
+                .onFailure { onMessage(strings.jobLogsErrorText(it)) }
             jobLogsLoading = false
         }
     }
@@ -1485,7 +1511,7 @@ fun RepoDetailScreen(
                 }
                 .onFailure { err ->
                     if (reqSeq == commitsRequestSeq && ref == currentRef) {
-                        commitsError = err.message ?: "Failed to load commits"
+                        commitsError = strings.errorMessage(err, strings.failedLoadCommits)
                         commitsLoading = false
                     }
                 }
@@ -1533,7 +1559,7 @@ fun RepoDetailScreen(
             }
             container.repository.getCommitDetail(repo.owner, repo.name, sha, forceRefresh = false)
                 .onSuccess { if (openedCommitSha == sha) openedCommitDetail = it }
-                .onFailure { onMessage(it.message ?: "Failed to load commit diff") }
+                .onFailure { onMessage(strings.errorMessage(it, strings.failedLoadCommitDiff)) }
             commitDetailLoading = false
         }
     }
@@ -1547,7 +1573,7 @@ fun RepoDetailScreen(
             compareError = null
             container.repository.compareRefs(repo.owner, repo.name, base, head, forceRefresh = forceRefresh)
                 .onSuccess { if (reqSeq == compareRequestSeq) compareResult = it }
-                .onFailure { if (reqSeq == compareRequestSeq) compareError = it.message ?: "Compare failed" }
+                .onFailure { if (reqSeq == compareRequestSeq) compareError = strings.errorMessage(it, strings.compareFailed) }
             if (reqSeq == compareRequestSeq) compareLoading = false
         }
     }
@@ -1569,21 +1595,21 @@ fun RepoDetailScreen(
                 RepoPeopleTab.STARGAZERS -> container.repository.getRepoStargazers(targetOwner, targetRepo)
                     .onSuccess { stargazersList = it }
                     .onFailure { err ->
-                        val msg = err.message ?: "Failed to load stargazers"
+                        val msg = strings.errorMessage(err, strings.failedLoadStargazers)
                         peopleError = msg
                         onMessage(msg)
                     }
                 RepoPeopleTab.FORKS -> container.repository.getRepoForks(targetOwner, targetRepo, sort = forkSortOverride)
                     .onSuccess { forksList = it }
                     .onFailure { err ->
-                        val msg = err.message ?: "Failed to load forks"
+                        val msg = strings.errorMessage(err, strings.failedLoadForks)
                         peopleError = msg
                         onMessage(msg)
                     }
                 RepoPeopleTab.CONTRIBUTORS -> container.repository.getRepoContributors(targetOwner, targetRepo)
                     .onSuccess { contributorsList = it }
                     .onFailure { err ->
-                        val msg = err.message ?: "Failed to load contributors"
+                        val msg = strings.errorMessage(err, strings.failedLoadContributors)
                         peopleError = msg
                         onMessage(msg)
                     }
@@ -1610,7 +1636,7 @@ fun RepoDetailScreen(
                         entries = loaded
                     }
                 }
-                .onFailure { if (reqSeq == dirRequestSeq) onMessage(it.message ?: "Failed to load directory") }
+                .onFailure { if (reqSeq == dirRequestSeq) onMessage(strings.errorMessage(it, strings.failedLoadDirectory)) }
             if (reqSeq == dirRequestSeq) isLoading = false
         }
     }
@@ -1631,7 +1657,7 @@ fun RepoDetailScreen(
                         openedFile = loaded
                     }
                 }
-                .onFailure { if (reqSeq == fileRequestSeq) onMessage(it.message ?: "Failed to load file") }
+                .onFailure { if (reqSeq == fileRequestSeq) onMessage(strings.errorMessage(it, strings.failedLoadFile)) }
             if (reqSeq == fileRequestSeq) isLoading = false
         }
     }
@@ -1663,7 +1689,7 @@ fun RepoDetailScreen(
                     )
                 }
                 .onFailure {
-                    issuesError = it.message ?: "Failed to load issues"
+                    issuesError = strings.errorMessage(it, strings.failedLoadIssues)
                     issuesLoading = false
                 }
         }
@@ -1689,7 +1715,7 @@ fun RepoDetailScreen(
                     )
                 }
                 .onFailure {
-                    pullsError = it.message ?: "Failed to load pull requests"
+                    pullsError = strings.errorMessage(it, strings.failedLoadPulls)
                     pullsLoading = false
                 }
         }
@@ -1820,7 +1846,7 @@ fun RepoDetailScreen(
                 .onSuccess { availableIssueLabels = it }
                 .onFailure {
                     if (availableIssueLabels.isEmpty()) {
-                        onMessage(it.message ?: "Failed to load labels")
+                        onMessage(strings.errorMessage(it, strings.failedLoadLabels))
                     }
                 }
             issueLabelsLoading = false
@@ -1893,7 +1919,7 @@ fun RepoDetailScreen(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onBack) {
-                        Icon(Lucide.ArrowLeft, contentDescription = "Back")
+                        Icon(Lucide.ArrowLeft, contentDescription = strings.back)
                     }
                     Text(
                         text = repo.fullName,
@@ -1908,13 +1934,13 @@ fun RepoDetailScreen(
                         onClick = {
                             scope.launch {
                                 val nowPinned = container.sessionManager.togglePinnedRepo(repo.fullName)
-                                onMessage(if (nowPinned) "Pinned ${repo.fullName} to Home" else "Unpinned ${repo.fullName}")
+                                onMessage(if (nowPinned) strings.repoPinnedMessage(repo.fullName) else strings.repoUnpinnedMessage(repo.fullName))
                             }
                         }
                     ) {
                         Icon(
                             imageVector = if (isPinned) MaxxingFilledIcons.Bookmark else Lucide.Bookmark,
-                            contentDescription = if (isPinned) "Unpin repository" else "Pin repository",
+                            contentDescription = if (isPinned) strings.repoUnpinAction else strings.repoPinAction,
                             tint = if (isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp)
                         )
@@ -1926,7 +1952,7 @@ fun RepoDetailScreen(
                         ) {
                             Icon(Lucide.Plus, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Issue", maxLines = 1, softWrap = false)
+                            Text(strings.subjectIssue, maxLines = 1, softWrap = false)
                         }
                     }
                 }
@@ -1959,12 +1985,12 @@ fun RepoDetailScreen(
                     ) {
                         Icon(
                             Lucide.GitFork,
-                            contentDescription = "Fork",
+                            contentDescription = strings.fork,
                             tint = if (parentTarget != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(13.dp)
                         )
                         Text(
-                            text = if (parentTarget != null) "Forked from ${parentTarget.fullName}" else "Fork repository",
+                            text = if (parentTarget != null) strings.repoForkedFrom(parentTarget.fullName) else strings.repoForkLabel,
                             style = MaterialTheme.typography.labelMedium,
                             color = if (parentTarget != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -2004,7 +2030,7 @@ fun RepoDetailScreen(
                                     isStarred = next
                                     scope.launch {
                                         container.repository.setStarred(repo.owner, repo.name, next)
-                                            .onSuccess { onMessage(if (next) "Starred ${repo.fullName}" else "Unstarred ${repo.fullName}") }
+                                            .onSuccess { onMessage(if (next) strings.repoStarredMessage(repo.fullName) else strings.repoUnstarredMessage(repo.fullName)) }
                                             .onFailure { isStarred = !next }
                                     }
                                 },
@@ -2017,13 +2043,13 @@ fun RepoDetailScreen(
                             ) {
                                 Icon(
                                     imageVector = if (isStarred) MaxxingFilledIcons.Star else Lucide.Star,
-                                    contentDescription = if (isStarred) "Starred" else "Star",
+                                    contentDescription = if (isStarred) strings.starred else strings.star,
                                     tint = if (isStarred) starIconTint else MaterialTheme.colorScheme.onSecondaryContainer,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(Modifier.width(4.dp))
                                 Text(
-                                    text = if (isStarred) "Starred ${formatCompactCount(starCount)}" else "Star ${formatCompactCount(starCount)}",
+                                    text = if (isStarred) "${strings.starred} ${formatCompactCount(starCount)}" else "${strings.star} ${formatCompactCount(starCount)}",
                                     fontWeight = if (isStarred) FontWeight.SemiBold else FontWeight.Medium,
                                     maxLines = 1,
                                     softWrap = false
@@ -2037,10 +2063,10 @@ fun RepoDetailScreen(
                                     isWatching = next
                                     scope.launch {
                                         container.repository.setRepoSubscription(repo.owner, repo.name, next)
-                                            .onSuccess { onMessage(if (next) "Watching ${repo.fullName}" else "Unwatched ${repo.fullName}") }
+                                            .onSuccess { onMessage(if (next) strings.repoWatchingMessage(repo.fullName) else strings.repoUnwatchedMessage(repo.fullName)) }
                                             .onFailure {
                                                 isWatching = !next
-                                                onMessage(it.message ?: "Watch update failed")
+                                                onMessage(strings.errorMessage(it, strings.repoWatchUpdateFailed))
                                             }
                                     }
                                 },
@@ -2053,12 +2079,12 @@ fun RepoDetailScreen(
                             ) {
                                 Icon(
                                     imageVector = if (isWatching) Lucide.Eye else Lucide.EyeOff,
-                                    contentDescription = if (isWatching) "Watching" else "Watch",
+                                    contentDescription = if (isWatching) strings.repoWatching else strings.repoWatch,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(Modifier.width(4.dp))
                                 Text(
-                                    text = if (isWatching) "Watching" else "Watch",
+                                    text = if (isWatching) strings.repoWatching else strings.repoWatch,
                                     maxLines = 1,
                                     softWrap = false
                                 )
@@ -2073,12 +2099,12 @@ fun RepoDetailScreen(
                                         container.repository.forkRepository(repo.owner, repo.name)
                                             .onSuccess { forked ->
                                                 forkBusy = false
-                                                onMessage("Forked to ${forked.fullName}")
+                                                onMessage(strings.repoForkedMessage(forked.fullName))
                                                 onOpenRepo(forked)
                                             }
                                             .onFailure {
                                                 forkBusy = false
-                                                onMessage(it.message ?: "Fork failed")
+                                                onMessage(strings.errorMessage(it, strings.repoForkFailed))
                                             }
                                     }
                                 },
@@ -2086,10 +2112,10 @@ fun RepoDetailScreen(
                                 contentPadding = actionPad,
                                 colors = FilledTonalToggleButtonDefaults.colors()
                             ) {
-                                Icon(Lucide.GitFork, contentDescription = "Fork", modifier = Modifier.size(16.dp))
+                                Icon(Lucide.GitFork, contentDescription = strings.fork, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
                                 Text(
-                                    text = if (forkBusy) "Forking..." else "Fork ${formatCompactCount(forksNum)}",
+                                    text = if (forkBusy) strings.repoForking else "${strings.fork} ${formatCompactCount(forksNum)}",
                                     maxLines = 1,
                                     softWrap = false
                                 )
@@ -2102,9 +2128,9 @@ fun RepoDetailScreen(
                                 contentPadding = actionPad,
                                 colors = FilledTonalToggleButtonDefaults.colors()
                             ) {
-                                Icon(Lucide.Users, contentDescription = "Network", modifier = Modifier.size(16.dp))
+                                Icon(Lucide.Users, contentDescription = strings.repoNetwork, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text("Network", maxLines = 1, softWrap = false)
+                                Text(strings.repoNetwork, maxLines = 1, softWrap = false)
                             }
 
                             Box {
@@ -2115,9 +2141,9 @@ fun RepoDetailScreen(
                                     contentPadding = actionPad,
                                     colors = FilledTonalToggleButtonDefaults.colors()
                                 ) {
-                                    Icon(Lucide.Share2, contentDescription = "Share repository", modifier = Modifier.size(16.dp))
+                                    Icon(Lucide.Share2, contentDescription = strings.shareRepository, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(4.dp))
-                                    Text("Share", maxLines = 1, softWrap = false)
+                                    Text(strings.share, maxLines = 1, softWrap = false)
                                 }
                                 val repoUrl = resolveRepoWebUrl(repo.owner, repo.name)
                                 DropdownMenu(
@@ -2126,32 +2152,32 @@ fun RepoDetailScreen(
                                 ) {
                                     DropdownMenuItem(
                                         leadingIcon = { Icon(Lucide.Copy, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                        text = { Text("Copy URL") },
+                                        text = { Text(strings.copyUrl) },
                                         onClick = {
                                             showShareMenu = false
                                             clipboard.setText(AnnotatedString(repoUrl))
-                                            onMessage("Copied $repoUrl")
+                                            onMessage(strings.signInCopiedValue(repoUrl))
                                         }
                                     )
                                     DropdownMenuItem(
                                         leadingIcon = { Icon(Lucide.Share2, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                        text = { Text("Share...") },
+                                        text = { Text(strings.shareEllipsis) },
                                         onClick = {
                                             showShareMenu = false
                                             if (!shareText(repoUrl, title = repo.fullName)) {
                                                 clipboard.setText(AnnotatedString(repoUrl))
-                                                onMessage("Copied $repoUrl")
+                                                onMessage(strings.signInCopiedValue(repoUrl))
                                             }
                                         }
                                     )
                                     DropdownMenuItem(
                                         leadingIcon = { Icon(Lucide.ExternalLink, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                        text = { Text("Open in browser") },
+                                        text = { Text(strings.openInBrowser) },
                                         onClick = {
                                             showShareMenu = false
                                             if (!openUrlInBrowser(repoUrl)) {
                                                 clipboard.setText(AnnotatedString(repoUrl))
-                                                onMessage("Copied $repoUrl")
+                                                onMessage(strings.signInCopiedValue(repoUrl))
                                             }
                                         }
                                     )
@@ -2182,7 +2208,7 @@ fun RepoDetailScreen(
                                     ) {
                                         Icon(
                                             Lucide.GitBranch,
-                                            contentDescription = "Branch or tag",
+                                            contentDescription = strings.repoBranchOrTag,
                                             tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(15.dp)
                                         )
@@ -2195,7 +2221,7 @@ fun RepoDetailScreen(
                                         )
                                         Icon(
                                             Lucide.ChevronDown,
-                                            contentDescription = "Switch branch or tag",
+                                            contentDescription = strings.repoSwitchBranchOrTag,
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.size(15.dp)
                                         )
@@ -2277,7 +2303,7 @@ fun RepoDetailScreen(
                             ) {
                                 Icon(Lucide.ArrowLeftRight, contentDescription = null, modifier = Modifier.size(15.dp))
                                 Spacer(Modifier.width(5.dp))
-                                Text("Compare", maxLines = 1, softWrap = false)
+                                Text(strings.repoCompare, maxLines = 1, softWrap = false)
                             }
                         }
                     }
@@ -2345,7 +2371,7 @@ fun RepoDetailScreen(
                                 ) {
                                     Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
                                     Text(
-                                        text = formatRepoDetailTabLabel(tab, resolvedOpenIssuesCount, resolvedOpenPullsCount),
+                                        text = formatLocalizedRepoDetailTabLabel(tab, resolvedOpenIssuesCount, resolvedOpenPullsCount, strings),
                                         maxLines = 1,
                                         softWrap = false
                                     )
@@ -2488,7 +2514,7 @@ fun RepoDetailScreen(
                             ) {
                                 Icon(Lucide.ArrowLeft, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text("Back")
+                                Text(strings.back)
                             }
                             Text(
                                 text = file.path,
@@ -2505,7 +2531,7 @@ fun RepoDetailScreen(
                                         showFileEditorDialog = true
                                     }
                                 ) {
-                                    Icon(Lucide.Pencil, contentDescription = "Edit file", modifier = Modifier.size(18.dp))
+                                    Icon(Lucide.Pencil, contentDescription = strings.repoEditFile, modifier = Modifier.size(18.dp))
                                 }
                             }
                             if (file.sha.isNotBlank() && capabilities.canPush) {
@@ -2517,7 +2543,7 @@ fun RepoDetailScreen(
                                 ) {
                                     Icon(
                                         Lucide.Trash2,
-                                        contentDescription = "Delete file",
+                                        contentDescription = strings.repoDeleteFile,
                                         tint = MaterialTheme.colorScheme.error,
                                         modifier = Modifier.size(18.dp)
                                     )
@@ -2525,7 +2551,7 @@ fun RepoDetailScreen(
                             }
                         }
                         when {
-                            file.isBinary -> Text("Binary file (${file.size} bytes)")
+                            file.isBinary -> Text(strings.repoBinaryFile(file.size))
                             file.name.endsWith(".md", ignoreCase = true) -> {
                                 val fileSections = rememberNormalizedMarkdownSections(
                                     content = file.content,
@@ -2615,7 +2641,7 @@ fun RepoDetailScreen(
                                     ) {
                                         Icon(Lucide.GitCommitHorizontal, contentDescription = null, modifier = Modifier.size(15.dp))
                                         Spacer(Modifier.width(4.dp))
-                                        Text("Commits", maxLines = 1, softWrap = false)
+                                        Text(strings.repoCommitsButton, maxLines = 1, softWrap = false)
                                     }
                                     if (capabilities.canPush) {
                                         FilledTonalButton(
@@ -2628,7 +2654,7 @@ fun RepoDetailScreen(
                                         ) {
                                             Icon(Lucide.Plus, contentDescription = null, modifier = Modifier.size(15.dp))
                                             Spacer(Modifier.width(4.dp))
-                                            Text("File", maxLines = 1, softWrap = false)
+                                            Text(strings.repoNewFileButton, maxLines = 1, softWrap = false)
                                         }
                                     }
                                 }
@@ -2745,11 +2771,11 @@ fun RepoDetailScreen(
                                 scope.launch {
                                     container.repository.rerunWorkflow(repo.owner, repo.name, openedRun!!.id, failedOnly)
                                         .onSuccess {
-                                            onMessage(if (failedOnly) "Re-running failed jobs" else "Re-running workflow")
+                                            onMessage(if (failedOnly) strings.notifRerunningFailed else strings.notifRerunningWorkflow)
                                             loadActions(selectedWorkflowId, forceRefresh = true)
                                             openRun(openedRun!!, forceRefresh = true)
                                         }
-                                        .onFailure { onMessage(it.message ?: "Re-run failed") }
+                                        .onFailure { onMessage(strings.errorMessage(it, strings.actionsRerunFailedError)) }
                                     actionsBusy = false
                                 }
                             },
@@ -2758,11 +2784,11 @@ fun RepoDetailScreen(
                                 scope.launch {
                                     container.repository.cancelWorkflowRun(repo.owner, repo.name, openedRun!!.id)
                                         .onSuccess {
-                                            onMessage("Cancellation requested")
+                                            onMessage(strings.notifCancelRequested)
                                             loadActions(selectedWorkflowId, forceRefresh = true)
                                             openRun(openedRun!!, forceRefresh = true)
                                         }
-                                        .onFailure { onMessage(it.message ?: "Cancel failed") }
+                                        .onFailure { onMessage(strings.errorMessage(it, strings.actionsCancelFailedError)) }
                                     actionsBusy = false
                                 }
                             },
@@ -2866,7 +2892,7 @@ fun RepoDetailScreen(
                                     openDiscussion(activeNum, forceRefresh = true)
                                 }.onFailure { err ->
                                     discussionCommentBusy = false
-                                    discussionDetailError = err.message ?: "Failed to post comment"
+                                    discussionDetailError = strings.errorMessage(err, strings.failedPostComment)
                                 }
                             }
                         }
@@ -2932,7 +2958,7 @@ fun RepoDetailScreen(
 
             RepoDetailTab.ISSUES -> {
                 RepoIssuesOrPullsTabContent(
-                    kindLabel = "Issues",
+                    isPullRequests = false,
                     stateFilter = issueStateFilter,
                     onSelectFilter = { issueStateFilter = it },
                     items = repoIssues,
@@ -2952,7 +2978,7 @@ fun RepoDetailScreen(
 
             RepoDetailTab.PULLS -> {
                 RepoIssuesOrPullsTabContent(
-                    kindLabel = "Pull Requests",
+                    isPullRequests = true,
                     stateFilter = pullStateFilter,
                     onSelectFilter = { pullStateFilter = it },
                     items = repoPulls,
@@ -3005,7 +3031,7 @@ fun RepoDetailScreen(
                             .onSuccess { repoTags = it }
                     }.onFailure { err ->
                         creatingRelease = false
-                        createReleaseError = err.message ?: "Failed to create release"
+                        createReleaseError = strings.errorMessage(err, strings.failedCreateRelease)
                     }
                 }
             }
@@ -3022,7 +3048,7 @@ fun RepoDetailScreen(
             onCreate = { categoryId, title, body ->
                 val repoId = discData?.repositoryId
                 if (repoId.isNullOrBlank()) {
-                    createDiscussionError = "Repository metadata not ready yet"
+                    createDiscussionError = strings.repoMetadataNotReady
                     return@CreateDiscussionDialog
                 }
                 scope.launch {
@@ -3042,7 +3068,7 @@ fun RepoDetailScreen(
                         openDiscussion(created.number, forceRefresh = true)
                     }.onFailure { err ->
                         creatingDiscussion = false
-                        createDiscussionError = err.message ?: "Failed to create discussion"
+                        createDiscussionError = strings.errorMessage(err, strings.failedCreateDiscussion)
                     }
                 }
             }
@@ -3051,15 +3077,15 @@ fun RepoDetailScreen(
 
     if (showCreateIssueDialog) {
         MaxxingFullScreenEditorScaffold(
-            title = "New Issue",
+            title = strings.repoNewIssueTitle,
             subtitle = repo.fullName,
-            saveLabel = if (creatingIssue) "Creating..." else "Create",
+            saveLabel = if (creatingIssue) strings.creating else strings.create,
             canSave = newIssueTitle.isNotBlank() && !creatingIssue,
             isSubmitting = creatingIssue,
             errorMsg = createIssueError,
             bodyValue = newIssueBody,
             onBodyChange = { newIssueBody = it },
-            bodyLabel = "Description (Markdown)",
+            bodyLabel = strings.repoDescriptionMarkdown,
             supportsMarkdownPreview = true,
             onDismiss = {
                 if (!creatingIssue) {
@@ -3081,12 +3107,12 @@ fun RepoDetailScreen(
                             newIssueTitle = ""
                             newIssueBody = ""
                             selectedNewIssueLabels = emptySet()
-                            onMessage("Created Issue #$createdNumber")
+                            onMessage(strings.repoCreatedIssueMessage(createdNumber))
                             onOpenIssueOrPull(IssuePullTarget(repo.owner, repo.name, createdNumber, title))
                         }
                         .onFailure { err ->
                             creatingIssue = false
-                            createIssueError = err.message ?: "Failed to create issue"
+                            createIssueError = strings.errorMessage(err, strings.repoCreateIssueFailed)
                         }
                 }
             },
@@ -3095,7 +3121,7 @@ fun RepoDetailScreen(
                     value = newIssueTitle,
                     onValueChange = { newIssueTitle = it },
                     enabled = !creatingIssue,
-                    label = { Text("Title") },
+                    label = { Text(strings.repoIssueTitleLabel) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -3116,7 +3142,8 @@ fun RepoDetailScreen(
                             leadingIcon = { Icon(Lucide.Tag, contentDescription = null, modifier = Modifier.size(14.dp)) },
                             label = {
                                 Text(
-                                    if (selectedNewIssueLabels.isEmpty()) "Labels" else "Labels (${selectedNewIssueLabels.size})"
+                                    if (selectedNewIssueLabels.isEmpty()) strings.labelsTitle
+                                    else strings.issueLabelsCount(selectedNewIssueLabels.size)
                                 )
                             }
                         )
@@ -3136,7 +3163,7 @@ fun RepoDetailScreen(
 
         if (showIssueLabelPicker) {
             RepoLabelsPickerDialog(
-                title = "Select Labels",
+                title = strings.selectLabelsTitle,
                 availableLabels = availableIssueLabels,
                 selectedLabelNames = selectedNewIssueLabels,
                 onToggleLabel = { labelName, isChecked ->
@@ -3148,7 +3175,7 @@ fun RepoDetailScreen(
                 },
                 onDismiss = { showIssueLabelPicker = false },
                 onConfirm = { showIssueLabelPicker = false },
-                confirmLabel = "Done",
+                confirmLabel = strings.done,
                 isLoading = issueLabelsLoading,
                 isBusy = issueLabelActionBusy,
                 canCreateLabel = capabilities.canPush,
@@ -3162,9 +3189,9 @@ fun RepoDetailScreen(
                                 availableIssueLabels = (availableIssueLabels + created).distinctBy { it.name }
                                 selectedNewIssueLabels = selectedNewIssueLabels + created.name
                                 newIssueLabelName = ""
-                                onMessage("Created label ${created.name}")
+                                onMessage(strings.createdLabelMessage(created.name))
                             }
-                            .onFailure { onMessage(it.message ?: "Failed to create label") }
+                            .onFailure { onMessage(strings.errorMessage(it, strings.failedCreateLabel)) }
                         issueLabelActionBusy = false
                     }
                 }
@@ -3192,7 +3219,7 @@ fun RepoDetailScreen(
     if (showPeopleDialog) {
         AlertDialog(
             onDismissRequest = { showPeopleDialog = false },
-            title = { Text("${repo.name} Network") },
+            title = { Text(strings.repoNetworkTitle(repo.name)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     PrimaryScrollableTabRow(
@@ -3204,7 +3231,7 @@ fun RepoDetailScreen(
                             Tab(
                                 selected = peopleTab == tab,
                                 onClick = { openPeopleTab(tab) },
-                                text = { Text(tab.label, maxLines = 1, softWrap = false) }
+                                text = { Text(tab.localizedLabel(strings), maxLines = 1, softWrap = false) }
                             )
                         }
                     }
@@ -3224,7 +3251,7 @@ fun RepoDetailScreen(
                                 modifier = Modifier.weight(1f)
                             )
                             TextButton(onClick = { openPeopleTab(peopleTab) }) {
-                                Text("Retry")
+                                Text(strings.retry)
                             }
                         }
                     }
@@ -3236,7 +3263,7 @@ fun RepoDetailScreen(
                             RepoPeopleTab.STARGAZERS -> {
                                 val list = stargazersList.orEmpty()
                                 if (!peopleLoading && peopleError == null && list.isEmpty()) {
-                                    Text("No stargazers yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(strings.repoNoStargazers, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 list.forEach { user ->
                                     Row(
@@ -3260,17 +3287,17 @@ fun RepoDetailScreen(
                                     FilterChip(
                                         selected = forksSort == "stargazers",
                                         onClick = { openPeopleTab(RepoPeopleTab.FORKS, forkSortOverride = "stargazers") },
-                                        label = { Text("Most starred") }
+                                        label = { Text(strings.repoForkSortStarred) }
                                     )
                                     FilterChip(
                                         selected = forksSort == "newest",
                                         onClick = { openPeopleTab(RepoPeopleTab.FORKS, forkSortOverride = "newest") },
-                                        label = { Text("Newest") }
+                                        label = { Text(strings.repoForkSortNewest) }
                                     )
                                 }
                                 val list = forksList.orEmpty()
                                 if (!peopleLoading && peopleError == null && list.isEmpty()) {
-                                    Text("No forks yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(strings.repoNoForks, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 list.forEach { fork ->
                                     Row(
@@ -3290,7 +3317,7 @@ fun RepoDetailScreen(
                                             val meta = buildString {
                                                 append(fork.defaultBranch)
                                                 if (fork.updatedAt.length >= 10) {
-                                                    append(" · updated ${fork.updatedAt.take(10)}")
+                                                    append(" · ${strings.repoUpdatedDate(fork.updatedAt.take(10))}")
                                                 }
                                             }
                                             Text(meta, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -3303,7 +3330,7 @@ fun RepoDetailScreen(
                             RepoPeopleTab.CONTRIBUTORS -> {
                                 val list = contributorsList.orEmpty()
                                 if (!peopleLoading && peopleError == null && list.isEmpty()) {
-                                    Text("No contributors listed.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(strings.repoNoContributors, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 list.forEach { user ->
                                     Row(
@@ -3327,7 +3354,7 @@ fun RepoDetailScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showPeopleDialog = false }) { Text("Close") }
+                TextButton(onClick = { showPeopleDialog = false }) { Text(strings.closeAction) }
             }
         )
     }
@@ -3358,12 +3385,12 @@ fun RepoDetailScreen(
                     ).onSuccess { createdNumber ->
                         creatingPr = false
                         showCreatePrDialog = false
-                        onMessage("Created PR #$createdNumber")
+                        onMessage(strings.repoCreatedPrMessage(createdNumber))
                         loadRepoPulls(pullStateFilter, forceRefresh = true)
                         onOpenIssueOrPull(IssuePullTarget(repo.owner, repo.name, createdNumber, title))
                     }.onFailure { err ->
                         creatingPr = false
-                        createPrError = err.message ?: "Failed to create pull request"
+                        createPrError = strings.errorMessage(err, strings.failedCreatePr)
                     }
                 }
             }
@@ -3407,7 +3434,7 @@ fun RepoDetailScreen(
                         }
                         val targetRef = branchName.ifBlank { currentRef }
                         val short = commitSha.take(7)
-                        onMessage(if (short.isNotBlank()) "Committed $targetPath ($short)" else "Committed $targetPath")
+                        onMessage(strings.fileCommittedMessage(targetPath, short))
                         if (editing != null) {
                             loadFile(targetPath, targetRef)
                         } else {
@@ -3415,7 +3442,7 @@ fun RepoDetailScreen(
                         }
                     }.onFailure { err ->
                         fileMutationBusy = false
-                        fileMutationError = err.message ?: "Failed to commit file"
+                        fileMutationError = strings.errorMessage(err, strings.fileCommitFailed)
                     }
                 }
             }
@@ -3448,11 +3475,11 @@ fun RepoDetailScreen(
                         val targetRef = branchName.ifBlank { currentRef }
                         if (targetRef != currentRef) currentRef = targetRef
                         val short = commitSha.take(7)
-                        onMessage(if (short.isNotBlank()) "Deleted ${fileToDelete.name} ($short)" else "Deleted ${fileToDelete.name}")
+                        onMessage(strings.fileDeletedMessage(fileToDelete.name, short))
                         loadDirectory(currentPath, targetRef, forceRefresh = true)
                     }.onFailure { err ->
                         fileMutationBusy = false
-                        fileMutationError = err.message ?: "Failed to delete file"
+                        fileMutationError = strings.errorMessage(err, strings.fileDeleteFailed)
                     }
                 }
             }
@@ -3472,10 +3499,10 @@ fun RepoDetailScreen(
                     container.repository.dispatchWorkflow(repo.owner, repo.name, workflowId, ref, inputs)
                         .onSuccess {
                             showDispatchDialog = false
-                            onMessage("Dispatched workflow on $ref")
+                            onMessage(strings.actionsDispatchedMessage(ref))
                             loadActions(selectedWorkflowId, forceRefresh = true)
                         }
-                        .onFailure { onMessage(it.message ?: "Workflow dispatch failed") }
+                        .onFailure { onMessage(strings.errorMessage(it, strings.actionsDispatchFailed)) }
                     actionsBusy = false
                 }
             }
@@ -3495,6 +3522,7 @@ private fun CreatePullRequestDialog(
     onDismiss: () -> Unit,
     onCreate: (title: String, body: String, head: String, base: String, draft: Boolean) -> Unit
 ) {
+    val strings = appStrings()
     var title by remember { mutableStateOf("") }
     var body by remember { mutableStateOf("") }
     var head by remember(initialHead) { mutableStateOf(initialHead) }
@@ -3502,29 +3530,29 @@ private fun CreatePullRequestDialog(
     var isDraft by remember { mutableStateOf(false) }
 
     MaxxingFullScreenEditorScaffold(
-        title = "New Pull Request",
+        title = strings.repoNewPrTitle,
         subtitle = "${head.ifBlank { "head" }} → ${base.ifBlank { "base" }}",
-        saveLabel = if (isSubmitting) "Creating..." else "Create PR",
+        saveLabel = if (isSubmitting) strings.creating else strings.repoCreatePrButton,
         canSave = title.trim().isNotBlank() && head.isNotBlank() && base.isNotBlank(),
         isSubmitting = isSubmitting,
         errorMsg = errorMsg,
         bodyValue = body,
         onBodyChange = { body = it },
-        bodyLabel = "Description (Markdown)",
+        bodyLabel = strings.repoDescriptionMarkdown,
         supportsMarkdownPreview = true,
         onDismiss = onDismiss,
         onSave = { onCreate(title.trim(), body.trim(), head.trim(), base.trim(), isDraft) },
         headerContent = {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 RefSelectorDropdown(
-                    label = "Head",
+                    label = strings.repoHeadLabel,
                     selectedRef = head,
                     options = branches,
                     onSelect = { head = it },
                     modifier = Modifier.weight(1f)
                 )
                 RefSelectorDropdown(
-                    label = "Base",
+                    label = strings.repoBaseLabel,
                     selectedRef = base,
                     options = branches,
                     onSelect = { base = it },
@@ -3535,12 +3563,12 @@ private fun CreatePullRequestDialog(
                 value = title,
                 onValueChange = { title = it },
                 enabled = !isSubmitting,
-                label = { Text("PR Title") },
+                label = { Text(strings.repoPrTitleLabel) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text("Create as draft PR", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                Text(strings.repoDraftPrToggle, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                 Switch(checked = isDraft, onCheckedChange = { isDraft = it }, enabled = !isSubmitting)
             }
         }
@@ -3550,7 +3578,7 @@ private fun CreatePullRequestDialog(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RepoIssuesOrPullsTabContent(
-    kindLabel: String,
+    isPullRequests: Boolean,
     stateFilter: IssueStateFilter,
     onSelectFilter: (IssueStateFilter) -> Unit,
     items: List<IssueOrPullSummary>?,
@@ -3560,6 +3588,8 @@ private fun RepoIssuesOrPullsTabContent(
     onCreateNew: (() -> Unit)? = null,
     onOpenItem: (IssueOrPullSummary) -> Unit
 ) {
+    val strings = appStrings()
+
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
@@ -3572,7 +3602,7 @@ private fun RepoIssuesOrPullsTabContent(
                 FilterChip(
                     selected = stateFilter == sf,
                     onClick = { onSelectFilter(sf) },
-                    label = { Text(sf.label) }
+                    label = { Text(strings.issueStateFilterLabel(sf)) }
                 )
             }
             Spacer(Modifier.weight(1f))
@@ -3583,11 +3613,15 @@ private fun RepoIssuesOrPullsTabContent(
                 ) {
                     Icon(Lucide.Plus, contentDescription = null, modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("New", maxLines = 1, softWrap = false)
+                    Text(strings.newAction, maxLines = 1, softWrap = false)
                 }
             }
             IconButton(onClick = onRefresh) {
-                Icon(Lucide.RefreshCw, contentDescription = "Refresh $kindLabel", modifier = Modifier.size(18.dp))
+                Icon(
+                    Lucide.RefreshCw,
+                    contentDescription = if (isPullRequests) strings.repoRefreshPulls else strings.repoRefreshIssues,
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
 
@@ -3603,7 +3637,9 @@ private fun RepoIssuesOrPullsTabContent(
             when {
                 isLoading && items == null -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        MaxxingLoadingState(message = "Loading $kindLabel...")
+                        MaxxingLoadingState(
+                            message = if (isPullRequests) strings.repoLoadingPulls else strings.repoLoadingIssues
+                        )
                     }
                 }
 
@@ -3616,7 +3652,7 @@ private fun RepoIssuesOrPullsTabContent(
                         Text(errorMsg, color = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.height(10.dp))
                         FilledTonalButton(onClick = onRefresh) {
-                            Text("Retry")
+                            Text(strings.retry)
                         }
                     }
                 }
@@ -3628,19 +3664,19 @@ private fun RepoIssuesOrPullsTabContent(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Icon(
-                            imageVector = if (kindLabel == "Issues") Lucide.CircleDot else Lucide.GitPullRequest,
+                            imageVector = if (!isPullRequests) Lucide.CircleDot else Lucide.GitPullRequest,
                             contentDescription = null,
                             modifier = Modifier.size(48.dp),
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Spacer(Modifier.height(12.dp))
                         Text(
-                            text = "No ${stateFilter.label} $kindLabel",
+                            text = strings.repoItemsEmptyTitle(isPullRequests, stateFilter),
                             style = MaterialTheme.typography.titleLarge
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            text = "There are no ${stateFilter.label.lowercase()} ${kindLabel.lowercase()} in this repository.",
+                            text = strings.repoItemsEmptyBody(isPullRequests, stateFilter),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -3688,6 +3724,7 @@ private fun RepoCommitsTabContent(
     onOpenCommit: (CommitSummary) -> Unit,
     onOpenUser: (String) -> Unit
 ) {
+    val strings = appStrings()
     val displayedCommits = if (forkOnlyCommits && upstreamCompare != null && upstreamCompare.aheadBy > 0) {
         upstreamCompare.commits.asReversed()
     } else {
@@ -3708,7 +3745,7 @@ private fun RepoCommitsTabContent(
             ) {
                 Icon(Lucide.ArrowLeft, contentDescription = null, modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("Code", maxLines = 1, softWrap = false)
+                Text(strings.repoDetailTabCode, maxLines = 1, softWrap = false)
             }
             ExpressiveStatusPill(
                 label = currentRef,
@@ -3722,11 +3759,11 @@ private fun RepoCommitsTabContent(
             ) {
                 Icon(Lucide.ArrowLeftRight, contentDescription = null, modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(5.dp))
-                Text(if (parentRepo != null) "Compare upstream" else "Compare", maxLines = 1, softWrap = false)
+                Text(if (parentRepo != null) strings.repoCompareUpstream else strings.repoCompare, maxLines = 1, softWrap = false)
             }
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onRefresh) {
-                Icon(Lucide.RefreshCw, contentDescription = "Refresh Commits", modifier = Modifier.size(18.dp))
+                Icon(Lucide.RefreshCw, contentDescription = strings.refreshCommitsDesc, modifier = Modifier.size(18.dp))
             }
         }
 
@@ -3745,15 +3782,15 @@ private fun RepoCommitsTabContent(
                     val upstreamLabel = "${parentRepo.owner}:${parentRepo.defaultBranch}"
                     val statusLine = when {
                         upstreamCompareLoading && upstreamCompare == null ->
-                            "Checking divergence against $upstreamLabel..."
+                            strings.repoCheckingDivergence(upstreamLabel)
                         upstreamCompare == null ->
-                            "Forked from ${parentRepo.fullName}"
+                            strings.repoForkedFrom(parentRepo.fullName)
                         upstreamCompare.aheadBy == 0 && upstreamCompare.behindBy == 0 ->
-                            "Even with $upstreamLabel (no unique fork commits on $currentRef)"
+                            strings.repoEvenWithUpstream(upstreamLabel, currentRef)
                         upstreamCompare.aheadBy == 0 ->
-                            "0 commits ahead · ${upstreamCompare.behindBy} behind $upstreamLabel (shares ancestor history)"
+                            strings.repoZeroAheadBehind(upstreamCompare.behindBy, upstreamLabel)
                         else ->
-                            "${upstreamCompare.aheadBy} ahead · ${upstreamCompare.behindBy} behind $upstreamLabel"
+                            strings.repoAheadBehind(upstreamCompare.aheadBy, upstreamCompare.behindBy, upstreamLabel)
                     }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -3772,12 +3809,12 @@ private fun RepoCommitsTabContent(
                             FilterChip(
                                 selected = !forkOnlyCommits,
                                 onClick = { onToggleForkOnly(false) },
-                                label = { Text("All commits") }
+                                label = { Text(strings.repoAllCommits) }
                             )
                             FilterChip(
                                 selected = forkOnlyCommits,
                                 onClick = { onToggleForkOnly(true) },
-                                label = { Text("Fork only (${upstreamCompare.aheadBy})") }
+                                label = { Text(strings.repoForkOnlyCommits(upstreamCompare.aheadBy)) }
                             )
                         }
                     }
@@ -3797,7 +3834,7 @@ private fun RepoCommitsTabContent(
             when {
                 isLoading && displayedCommits == null -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        MaxxingLoadingState(message = "Loading commits...")
+                        MaxxingLoadingState(message = strings.repoLoadingCommits)
                     }
                 }
                 errorMsg != null && displayedCommits.isNullOrEmpty() -> {
@@ -3808,12 +3845,12 @@ private fun RepoCommitsTabContent(
                     ) {
                         Text(errorMsg, color = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.height(10.dp))
-                        FilledTonalButton(onClick = onRefresh) { Text("Retry") }
+                        FilledTonalButton(onClick = onRefresh) { Text(strings.retry) }
                     }
                 }
                 displayedCommits.isNullOrEmpty() -> {
                     Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                        Text("No commits found for $currentRef", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(strings.repoNoCommitsFound(currentRef), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 else -> {
@@ -3916,7 +3953,7 @@ private fun CommitSummaryCard(
                     if (commit.isVerified) {
                         Icon(
                             Lucide.ShieldCheck,
-                            contentDescription = "Verified commit",
+                            contentDescription = appStrings().commitVerifiedDesc,
                             tint = Color(0xFF16A34A),
                             modifier = Modifier.size(14.dp)
                         )
@@ -3954,6 +3991,7 @@ private fun RepoCommitDetailView(
     onOpenUser: (String) -> Unit,
     onOpenFullScreenDiff: (PullFileChange, List<PullFileChange>) -> Unit = { _, _ -> }
 ) {
+    val strings = appStrings()
     val expandedFiles = remember(sha) { mutableStateMapOf<String, Boolean>() }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -3965,7 +4003,7 @@ private fun RepoCommitDetailView(
             FilledTonalButton(onClick = onBack) {
                 Icon(Lucide.ArrowLeft, contentDescription = null, modifier = Modifier.size(15.dp))
                 Spacer(Modifier.width(5.dp))
-                Text("Commits")
+                Text(strings.repoCommitsButton)
             }
             Text(
                 text = sha.take(7),
@@ -3975,7 +4013,7 @@ private fun RepoCommitDetailView(
             detail?.let { d ->
                 Spacer(Modifier.weight(1f))
                 Text(
-                    text = "+${d.additions} / -${d.deletions} (${d.changedFilesCount} files)",
+                    text = strings.commitFilesChangedSummary(d.additions, d.deletions, d.changedFilesCount),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -3985,12 +4023,12 @@ private fun RepoCommitDetailView(
         when {
             isLoading && detail == null -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    MaxxingLoadingState(message = "Loading commit ${sha.take(7)}...")
+                    MaxxingLoadingState(message = strings.commitLoading(sha.take(7)))
                 }
             }
             detail == null -> {
                 Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-                    Text("Commit details unavailable.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(strings.commitDetailsUnavailable, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             else -> {
@@ -4032,7 +4070,7 @@ private fun RepoCommitDetailView(
                                     )
                                     if (detail.summary.isVerified) {
                                         ExpressiveStatusPill(
-                                            label = "Verified",
+                                            label = strings.commitVerifiedBadge,
                                             containerColor = Color(0xFF16A34A).copy(alpha = 0.16f),
                                             contentColor = Color(0xFF16A34A),
                                             icon = Lucide.ShieldCheck
@@ -4056,7 +4094,7 @@ private fun RepoCommitDetailView(
                                             AssistChip(
                                                 onClick = { onOpenParent(parent) },
                                                 leadingIcon = { Icon(Lucide.GitCommitHorizontal, contentDescription = null, modifier = Modifier.size(14.dp)) },
-                                                label = { Text("Parent ${parent.take(7)}", fontFamily = FontFamily.Monospace) }
+                                                label = { Text(strings.commitParentLabel(parent.take(7)), fontFamily = FontFamily.Monospace) }
                                             )
                                         }
                                     }
@@ -4098,6 +4136,7 @@ private fun RepoBranchCompareView(
     commitAvatarResolver: (CommitSummary) -> String = { it.authorAvatarUrl },
     onOpenFullScreenDiff: (PullFileChange, List<PullFileChange>) -> Unit = { _, _ -> }
 ) {
+    val strings = appStrings()
     val expandedFiles = remember(baseRef, headRef) { mutableStateMapOf<String, Boolean>() }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -4109,11 +4148,11 @@ private fun RepoBranchCompareView(
                 FilledTonalButton(onClick = onBackToCommits) {
                     Icon(Lucide.ArrowLeft, contentDescription = null, modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Commits")
+                    Text(strings.repoCommitsButton)
                 }
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onRefresh) {
-                    Icon(Lucide.RefreshCw, contentDescription = "Refresh Compare", modifier = Modifier.size(18.dp))
+                    Icon(Lucide.RefreshCw, contentDescription = strings.refreshCompareDesc, modifier = Modifier.size(18.dp))
                 }
             }
             Spacer(Modifier.height(6.dp))
@@ -4123,17 +4162,17 @@ private fun RepoBranchCompareView(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 RefSelectorDropdown(
-                    label = "Base",
+                    label = strings.repoBaseLabel,
                     selectedRef = baseRef,
                     options = availableRefs,
                     onSelect = onSelectBase,
                     modifier = Modifier.weight(1f)
                 )
                 IconButton(onClick = onSwapRefs) {
-                    Icon(Lucide.ArrowLeftRight, contentDescription = "Swap base and head", modifier = Modifier.size(16.dp))
+                    Icon(Lucide.ArrowLeftRight, contentDescription = strings.swapBaseHeadDesc, modifier = Modifier.size(16.dp))
                 }
                 RefSelectorDropdown(
-                    label = "Head",
+                    label = strings.repoHeadLabel,
                     selectedRef = headRef,
                     options = availableRefs,
                     onSelect = onSelectHead,
@@ -4145,7 +4184,7 @@ private fun RepoBranchCompareView(
         when {
             isLoading -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    MaxxingLoadingState(message = "Comparing $baseRef...$headRef...")
+                    MaxxingLoadingState(message = strings.compareLoading(baseRef, headRef))
                 }
             }
             errorMsg != null -> {
@@ -4156,12 +4195,12 @@ private fun RepoBranchCompareView(
                 ) {
                     Text(errorMsg, color = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.height(10.dp))
-                    FilledTonalButton(onClick = onRefresh) { Text("Retry") }
+                    FilledTonalButton(onClick = onRefresh) { Text(strings.retry) }
                 }
             }
             result == null -> {
                 Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-                    Text("Select two refs to compare.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(strings.compareSelectRefs, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             else -> {
@@ -4182,18 +4221,18 @@ private fun RepoBranchCompareView(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     ExpressiveStatusPill(
-                                        label = result.status.uppercase(),
+                                        label = strings.formatCompareStatusLabel(result.status),
                                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                                         icon = Lucide.ArrowLeftRight
                                     )
                                     Text(
-                                        text = "Ahead ${result.aheadBy} · Behind ${result.behindBy}",
+                                        text = strings.compareAheadBehind(result.aheadBy, result.behindBy),
                                         style = MaterialTheme.typography.labelLarge
                                     )
                                 }
                                 Text(
-                                    text = "${result.totalCommits} commits · ${result.files.size} changed files",
+                                    text = strings.compareSummaryCounts(result.totalCommits, result.files.size),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -4203,7 +4242,7 @@ private fun RepoBranchCompareView(
 
                     if (result.commits.isNotEmpty()) {
                         item(key = "compare_commits_title") {
-                            Text("Commits (${result.commits.size})", style = MaterialTheme.typography.titleSmall)
+                            Text(strings.compareCommitsHeader(result.commits.size), style = MaterialTheme.typography.titleSmall)
                         }
                         items(items = result.commits, key = { "cmp_${it.sha}" }, contentType = { "commit_summary" }) { commit ->
                             CommitSummaryCard(
@@ -4217,7 +4256,7 @@ private fun RepoBranchCompareView(
 
                     if (result.files.isNotEmpty()) {
                         item(key = "compare_files_title") {
-                            Text("Changed Files (${result.files.size})", style = MaterialTheme.typography.titleSmall)
+                            Text(strings.compareChangedFilesHeader(result.files.size), style = MaterialTheme.typography.titleSmall)
                         }
                         result.files.forEach { file ->
                             val isExpanded = expandedFiles[file.filename] ?: (result.files.size <= 3)
@@ -4291,6 +4330,7 @@ private fun RepoActionsTabContent(
     onOpenDispatch: () -> Unit,
     onOpenRun: (WorkflowRunSummary) -> Unit
 ) {
+    val strings = appStrings()
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -4305,7 +4345,7 @@ private fun RepoActionsTabContent(
                     FilterChip(
                         selected = selectedWorkflowId == null,
                         onClick = { onSelectWorkflow(null) },
-                        label = { Text("All runs") }
+                        label = { Text(strings.actionsAllRuns) }
                     )
                 }
                 items(items = workflows, key = { it.id }) { wf ->
@@ -4323,11 +4363,11 @@ private fun RepoActionsTabContent(
                 ) {
                     Icon(Lucide.Play, contentDescription = null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Run", maxLines = 1, softWrap = false)
+                    Text(strings.actionsRunButton, maxLines = 1, softWrap = false)
                 }
             }
             IconButton(onClick = onRefresh) {
-                Icon(Lucide.RefreshCw, contentDescription = "Refresh runs", modifier = Modifier.size(18.dp))
+                Icon(Lucide.RefreshCw, contentDescription = strings.actionsRefreshRuns, modifier = Modifier.size(18.dp))
             }
         }
 
@@ -4343,7 +4383,7 @@ private fun RepoActionsTabContent(
             when {
                 isLoading && runs == null -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        MaxxingLoadingState(message = "Loading workflow runs...")
+                        MaxxingLoadingState(message = strings.actionsLoadingRuns)
                     }
                 }
                 errorMsg != null && runs.isNullOrEmpty() -> {
@@ -4354,7 +4394,7 @@ private fun RepoActionsTabContent(
                     ) {
                         Text(errorMsg, color = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.height(10.dp))
-                        FilledTonalButton(onClick = onRefresh) { Text("Retry") }
+                        FilledTonalButton(onClick = onRefresh) { Text(strings.retry) }
                     }
                 }
                 runs.isNullOrEmpty() -> {
@@ -4365,7 +4405,7 @@ private fun RepoActionsTabContent(
                     ) {
                         Icon(Lucide.Play, contentDescription = null, modifier = Modifier.size(44.dp), tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.height(10.dp))
-                        Text("No workflow runs yet", style = MaterialTheme.typography.titleMedium)
+                        Text(strings.actionsNoRuns, style = MaterialTheme.typography.titleMedium)
                     }
                 }
                 else -> {
@@ -4389,6 +4429,7 @@ internal fun WorkflowRunSummaryCard(
     run: WorkflowRunSummary,
     onClick: () -> Unit
 ) {
+    val strings = appStrings()
     val (statusIcon, statusTint) = actionStatusVisual(run.status, run.conclusion)
     ElevatedCard(
         shape = MaterialTheme.shapes.large,
@@ -4400,7 +4441,12 @@ internal fun WorkflowRunSummaryCard(
             verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Icon(statusIcon, contentDescription = run.conclusion ?: run.status, tint = statusTint, modifier = Modifier.size(20.dp))
+            Icon(
+                statusIcon,
+                contentDescription = strings.formatCheckStatusText(run.conclusion ?: run.status),
+                tint = statusTint,
+                modifier = Modifier.size(20.dp)
+            )
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     text = run.displayTitle.ifBlank { run.name },
@@ -4455,6 +4501,7 @@ internal fun WorkflowRunDetailView(
     onCancel: () -> Unit,
     onOpenLogs: (WorkflowJobSummary) -> Unit
 ) {
+    val strings = appStrings()
     val (statusIcon, statusTint) = actionStatusVisual(run.status, run.conclusion)
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -4465,22 +4512,22 @@ internal fun WorkflowRunDetailView(
             FilledTonalButton(onClick = onBack) {
                 Icon(Lucide.ArrowLeft, contentDescription = null, modifier = Modifier.size(15.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("Runs")
+                Text(strings.actionsRunsBack)
             }
             Text("#${run.runNumber}", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
             if (run.htmlUrl.isNotBlank()) {
                 IconButton(onClick = { openUrlInBrowser(run.htmlUrl) }) {
-                    Icon(Lucide.ExternalLink, contentDescription = "Open in browser", modifier = Modifier.size(16.dp))
+                    Icon(Lucide.ExternalLink, contentDescription = strings.openInBrowser, modifier = Modifier.size(16.dp))
                 }
             }
             IconButton(onClick = onRefresh) {
-                Icon(Lucide.RefreshCw, contentDescription = "Refresh jobs", modifier = Modifier.size(18.dp))
+                Icon(Lucide.RefreshCw, contentDescription = strings.actionsRefreshJobs, modifier = Modifier.size(18.dp))
             }
         }
 
         if (isLoading && jobs == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                MaxxingLoadingState(message = "Loading jobs...")
+                MaxxingLoadingState(message = strings.actionsLoadingJobs)
             }
         } else {
             LazyColumn(
@@ -4511,17 +4558,17 @@ internal fun WorkflowRunDetailView(
                                         FilledTonalButton(enabled = !actionBusy, onClick = onCancel) {
                                             Icon(Lucide.X, contentDescription = null, modifier = Modifier.size(14.dp))
                                             Spacer(Modifier.width(4.dp))
-                                            Text("Cancel Run")
+                                            Text(strings.actionsCancelRun)
                                         }
                                     } else {
                                         FilledTonalButton(enabled = !actionBusy, onClick = { onRerun(false) }) {
                                             Icon(Lucide.RefreshCw, contentDescription = null, modifier = Modifier.size(14.dp))
                                             Spacer(Modifier.width(4.dp))
-                                            Text("Re-run All")
+                                            Text(strings.actionsRerunAll)
                                         }
                                         if (run.conclusion == "failure") {
                                             OutlinedButton(enabled = !actionBusy, onClick = { onRerun(true) }) {
-                                                Text("Re-run Failed")
+                                                Text(strings.actionsRerunFailed)
                                             }
                                         }
                                     }
@@ -4551,7 +4598,7 @@ internal fun WorkflowRunDetailView(
                                 ) {
                                     Icon(Lucide.FileCode, contentDescription = null, modifier = Modifier.size(14.dp))
                                     Spacer(Modifier.width(4.dp))
-                                    Text("Logs")
+                                    Text(strings.actionsLogsButton)
                                 }
                             }
                             job.steps.forEach { step ->
@@ -4586,21 +4633,22 @@ internal fun WorkflowLogViewer(
     isLoading: Boolean,
     onBack: () -> Unit
 ) {
+    val strings = appStrings()
     Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             FilledTonalButton(onClick = onBack) {
                 Icon(Lucide.ArrowLeft, contentDescription = null, modifier = Modifier.size(15.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("Jobs")
+                Text(strings.actionsJobsBack)
             }
             Text(job.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         when {
             isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                MaxxingLoadingState(message = "Loading logs...")
+                MaxxingLoadingState(message = strings.actionsLoadingLogs)
             }
             logs.isNullOrBlank() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No logs returned for this job.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(strings.actionsNoLogs, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             else -> CodeViewer(
                 code = logs,
@@ -4620,6 +4668,7 @@ private fun DispatchWorkflowDialog(
     onDismiss: () -> Unit,
     onDispatch: (workflowId: Long, ref: String, inputs: Map<String, String>) -> Unit
 ) {
+    val strings = appStrings()
     var selectedWf by remember(workflows) { mutableStateOf(workflows.firstOrNull()) }
     var ref by remember(defaultBranch) { mutableStateOf(defaultBranch) }
     var inputsRaw by remember { mutableStateOf("") }
@@ -4627,7 +4676,7 @@ private fun DispatchWorkflowDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Run Workflow") },
+        title = { Text(strings.actionsRunWorkflowTitle) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box {
@@ -4635,7 +4684,7 @@ private fun DispatchWorkflowDialog(
                         onClick = { showWfMenu = true },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(selectedWf?.name ?: "Select workflow", modifier = Modifier.weight(1f))
+                        Text(selectedWf?.name ?: strings.actionsSelectWorkflow, modifier = Modifier.weight(1f))
                         Icon(Lucide.ChevronDown, contentDescription = null, modifier = Modifier.size(16.dp))
                     }
                     DropdownMenu(expanded = showWfMenu, onDismissRequest = { showWfMenu = false }) {
@@ -4653,14 +4702,14 @@ private fun DispatchWorkflowDialog(
                 OutlinedTextField(
                     value = ref,
                     onValueChange = { ref = it },
-                    label = { Text("Branch or tag ref (e.g. ${branches.firstOrNull() ?: "main"})") },
+                    label = { Text(strings.actionsBranchOrTagLabel(branches.firstOrNull() ?: "main")) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = inputsRaw,
                     onValueChange = { inputsRaw = it },
-                    label = { Text("Inputs (optional, key=value per line)") },
+                    label = { Text(strings.actionsInputsLabel) },
                     minLines = 2,
                     maxLines = 4,
                     modifier = Modifier.fillMaxWidth()
@@ -4681,11 +4730,11 @@ private fun DispatchWorkflowDialog(
                     selectedWf?.let { wf -> onDispatch(wf.id, ref.trim(), inputsMap) }
                 }
             ) {
-                Text(if (busy) "Starting..." else "Run Workflow")
+                Text(if (busy) strings.actionsStarting else strings.actionsRunWorkflowTitle)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(strings.cancel) }
         }
     )
 }
@@ -4701,30 +4750,38 @@ private fun RepoFileEditorDialog(
     onDismiss: () -> Unit,
     onCommit: (path: String, content: String, message: String, branch: String) -> Unit
 ) {
+    val strings = appStrings()
     var path by remember(initialPath) { mutableStateOf(initialPath) }
     var content by remember(initialContent) { mutableStateOf(initialContent) }
     var commitMessage by remember(initialPath, isCreating) {
         val fileName = initialPath.substringAfterLast('/').ifBlank { "file" }
-        mutableStateOf(if (isCreating) "Create $fileName" else "Update $fileName")
+        mutableStateOf(
+            if (isCreating) strings.fileDefaultCreateCommitMsg(fileName)
+            else strings.fileDefaultUpdateCommitMsg(fileName)
+        )
     }
     var branch by remember(initialBranch) { mutableStateOf(initialBranch) }
 
     MaxxingFullScreenEditorScaffold(
-        title = if (isCreating) "Create File" else "Edit File",
+        title = if (isCreating) strings.fileCreateTitle else strings.fileEditTitle,
         subtitle = path.ifBlank { initialBranch },
-        saveLabel = if (isSubmitting) "Committing..." else "Commit",
+        saveLabel = if (isSubmitting) strings.fileCommitting else strings.fileCommitButton,
         canSave = path.trim().trimStart('/').isNotEmpty(),
         isSubmitting = isSubmitting,
         errorMsg = errorMsg,
         bodyValue = content,
         onBodyChange = { content = it },
-        bodyLabel = "File contents",
+        bodyLabel = strings.fileContentsLabel,
         useMonospace = true,
         supportsMarkdownPreview = path.trim().endsWith(".md", ignoreCase = true),
         metadataSummary = if (isCreating) {
             null
         } else {
-            "${path.ifBlank { "file" }} · branch: ${branch.ifBlank { initialBranch }} · ${commitMessage.ifBlank { "Update file" }}"
+            strings.fileMetadataSummary(
+                path.ifBlank { strings.fileUntitledName },
+                branch.ifBlank { initialBranch },
+                commitMessage.ifBlank { strings.fileDefaultUpdateCommitMsg("file") }
+            )
         },
         initiallyMetadataExpanded = isCreating,
         onDismiss = onDismiss,
@@ -4734,7 +4791,7 @@ private fun RepoFileEditorDialog(
                 value = path,
                 onValueChange = { path = it },
                 enabled = isCreating && !isSubmitting,
-                label = { Text("Path (e.g. docs/notes.md)") },
+                label = { Text(strings.filePathLabel) },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                 modifier = Modifier.fillMaxWidth()
@@ -4743,7 +4800,7 @@ private fun RepoFileEditorDialog(
                 value = commitMessage,
                 onValueChange = { commitMessage = it },
                 enabled = !isSubmitting,
-                label = { Text("Commit message") },
+                label = { Text(strings.fileCommitMessageLabel) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -4751,7 +4808,7 @@ private fun RepoFileEditorDialog(
                 value = branch,
                 onValueChange = { branch = it },
                 enabled = !isSubmitting,
-                label = { Text("Branch") },
+                label = { Text(strings.fileBranchLabel) },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                 modifier = Modifier.fillMaxWidth()
@@ -4769,6 +4826,7 @@ private fun DeleteRepoFileDialog(
     onDismiss: () -> Unit,
     onDelete: (message: String, branch: String) -> Unit
 ) {
+    val strings = appStrings()
     var commitMessage by remember(filePath) {
         mutableStateOf("Delete ${filePath.substringAfterLast('/')}")
     }
@@ -4776,11 +4834,11 @@ private fun DeleteRepoFileDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Delete File") },
+        title = { Text(strings.fileDeleteTitle) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "Delete $filePath on branch $branch? This creates a new commit removing the file.",
+                    text = strings.fileDeleteConfirm(filePath, branch),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -4788,7 +4846,7 @@ private fun DeleteRepoFileDialog(
                     value = commitMessage,
                     onValueChange = { commitMessage = it },
                     enabled = !isSubmitting,
-                    label = { Text("Commit message") },
+                    label = { Text(strings.fileCommitMessageLabel) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -4796,7 +4854,7 @@ private fun DeleteRepoFileDialog(
                     value = branch,
                     onValueChange = { branch = it },
                     enabled = !isSubmitting,
-                    label = { Text("Branch") },
+                    label = { Text(strings.fileBranchLabel) },
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                     modifier = Modifier.fillMaxWidth()
@@ -4819,11 +4877,11 @@ private fun DeleteRepoFileDialog(
                 ),
                 onClick = { onDelete(commitMessage.trim(), branch.trim()) }
             ) {
-                Text(if (isSubmitting) "Deleting..." else "Delete")
+                Text(if (isSubmitting) strings.deletingAction else strings.deleteAction)
             }
         },
         dismissButton = {
-            TextButton(enabled = !isSubmitting, onClick = onDismiss) { Text("Cancel") }
+            TextButton(enabled = !isSubmitting, onClick = onDismiss) { Text(strings.cancel) }
         }
     )
 }

@@ -376,6 +376,7 @@ class DiscussionsAndSecurityTest {
 
         val overview = repo.getRepoSecurityOverview("octocat", "app").getOrThrow()
         assertNull(overview.alertsAccessNotice)
+        assertNull(overview.alertsAccessStatusCode)
         assertEquals(1, overview.alerts.size)
         assertEquals("io.ktor:ktor-client-core", overview.alerts[0].packageName)
         assertEquals("3.0.1", overview.alerts[0].patchedVersion)
@@ -385,7 +386,9 @@ class DiscussionsAndSecurityTest {
         forbidAlerts = true
         val fallbackOverview = repo.getRepoSecurityOverview("octocat", "app", forceRefresh = true).getOrThrow()
         assertTrue(fallbackOverview.alerts.isEmpty())
-        assertNotNull(fallbackOverview.alertsAccessNotice)
+        assertEquals("Dependabot alerts require repository admin or security_events permission.", fallbackOverview.alertsAccessNotice)
+        // The status code lets the UI localize the English notice.
+        assertEquals(403, fallbackOverview.alertsAccessStatusCode)
         assertEquals(1, fallbackOverview.advisories.size)
     }
 }

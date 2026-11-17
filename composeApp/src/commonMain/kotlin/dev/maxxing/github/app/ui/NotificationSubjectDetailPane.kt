@@ -1,5 +1,7 @@
 package dev.maxxing.github.app.ui
 
+import dev.maxxing.github.ui.i18n.appStrings
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -72,6 +74,7 @@ internal fun NotificationSubjectDetailPane(
     onMessage: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val strings = appStrings()
 
     var isLoading by remember(thread.id) { mutableStateOf(false) }
     var errorMsg by remember(thread.id) { mutableStateOf<String?>(null) }
@@ -117,7 +120,7 @@ internal fun NotificationSubjectDetailPane(
                         workflowRuns = it
                     }.onFailure { err ->
                         if (checkRuns.isEmpty() && workflowRuns.isEmpty()) {
-                            errorMsg = err.message ?: "Failed to load workflow runs"
+                            errorMsg = strings.errorMessage(err, strings.failedLoadWorkflowRuns)
                         }
                     }
                 }
@@ -130,7 +133,7 @@ internal fun NotificationSubjectDetailPane(
                             sha,
                             forceRefresh = forceRefresh
                         ).onSuccess { commitDetail = it }
-                            .onFailure { errorMsg = it.message ?: "Failed to load commit" }
+                            .onFailure { errorMsg = strings.errorMessage(it, strings.failedLoadCommit) }
                     }
                 }
                 NotificationSubjectType.RELEASE -> {
@@ -139,7 +142,7 @@ internal fun NotificationSubjectDetailPane(
                         thread.repoName,
                         forceRefresh = forceRefresh
                     ).onSuccess { releases = it }
-                        .onFailure { errorMsg = it.message ?: "Failed to load releases" }
+                        .onFailure { errorMsg = strings.errorMessage(it, strings.failedLoadReleases) }
                 }
                 else -> Unit
             }
@@ -159,7 +162,7 @@ internal fun NotificationSubjectDetailPane(
                 run.id,
                 forceRefresh = forceRefresh
             ).onSuccess { openedRunJobs = it }
-                .onFailure { onMessage(it.message ?: "Failed to load jobs") }
+                .onFailure { onMessage(strings.errorMessage(it, strings.failedLoadJobs)) }
             jobsLoading = false
         }
     }
@@ -171,7 +174,7 @@ internal fun NotificationSubjectDetailPane(
             logsLoading = true
             container.repository.getJobLogs(thread.repoOwner, thread.repoName, job.id)
                 .onSuccess { openedJobLogs = it }
-                .onFailure { onMessage(it.message ?: "Failed to load logs") }
+                .onFailure { onMessage(strings.errorMessage(it, strings.failedLoadLogs)) }
             logsLoading = false
         }
     }
@@ -198,7 +201,7 @@ internal fun NotificationSubjectDetailPane(
                         }
                     }
                 ) {
-                    Icon(Lucide.ArrowLeft, contentDescription = "Back")
+                    Icon(Lucide.ArrowLeft, contentDescription = strings.back)
                 }
             }
             Column(modifier = Modifier.weight(1f)) {
@@ -209,13 +212,13 @@ internal fun NotificationSubjectDetailPane(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = subjectTypeLabel(thread.subjectType),
+                    text = strings.notificationSubjectLabel(thread.subjectType),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             IconButton(onClick = { openUrlInBrowser(thread.htmlFallbackUrl) }) {
-                Icon(Lucide.ExternalLink, contentDescription = "Open in browser", modifier = Modifier.size(18.dp))
+                Icon(Lucide.ExternalLink, contentDescription = strings.openInBrowser, modifier = Modifier.size(18.dp))
             }
             IconButton(
                 onClick = {
@@ -223,7 +226,7 @@ internal fun NotificationSubjectDetailPane(
                     if (run != null) openRun(run, forceRefresh = true) else loadDetails(forceRefresh = true)
                 }
             ) {
-                Icon(Lucide.RefreshCw, contentDescription = "Refresh", modifier = Modifier.size(18.dp))
+                Icon(Lucide.RefreshCw, contentDescription = strings.refresh, modifier = Modifier.size(18.dp))
             }
         }
 
@@ -252,10 +255,10 @@ internal fun NotificationSubjectDetailPane(
                         runActionBusy = true
                         container.repository.rerunWorkflow(thread.repoOwner, thread.repoName, run.id, failedOnly)
                             .onSuccess {
-                                onMessage(if (failedOnly) "Re-running failed jobs" else "Re-running workflow")
+                                onMessage(if (failedOnly) strings.notifRerunningFailed else strings.notifRerunningWorkflow)
                                 openRun(run, forceRefresh = true)
                             }
-                            .onFailure { onMessage(it.message ?: "Failed to re-run workflow") }
+                            .onFailure { onMessage(strings.errorMessage(it, strings.failedRerunWorkflow)) }
                         runActionBusy = false
                     }
                 },
@@ -264,10 +267,10 @@ internal fun NotificationSubjectDetailPane(
                         runActionBusy = true
                         container.repository.cancelWorkflowRun(thread.repoOwner, thread.repoName, run.id)
                             .onSuccess {
-                                onMessage("Cancellation requested")
+                                onMessage(strings.notifCancelRequested)
                                 openRun(run, forceRefresh = true)
                             }
-                            .onFailure { onMessage(it.message ?: "Failed to cancel run") }
+                            .onFailure { onMessage(strings.errorMessage(it, strings.failedCancelRun)) }
                         runActionBusy = false
                     }
                 },
@@ -303,12 +306,12 @@ internal fun NotificationSubjectDetailPane(
                                 modifier = Modifier.size(18.dp)
                             )
                             ExpressiveStatusPill(
-                                label = subjectTypeLabel(thread.subjectType),
+                                label = strings.notificationSubjectLabel(thread.subjectType),
                                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             ExpressiveStatusPill(
-                                label = thread.reason.name.lowercase().replace('_', ' '),
+                                label = strings.notificationReasonLabel(thread.reason),
                                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
                                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer
                             )
@@ -320,7 +323,7 @@ internal fun NotificationSubjectDetailPane(
                         )
                         if (thread.updatedAt.isNotBlank()) {
                             Text(
-                                text = "Updated: ${thread.updatedAt}",
+                                text = strings.notifUpdatedAt(thread.updatedAt),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -328,7 +331,7 @@ internal fun NotificationSubjectDetailPane(
                         FilledTonalButton(onClick = { openUrlInBrowser(thread.htmlFallbackUrl) }) {
                             Icon(Lucide.ExternalLink, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Open on GitHub")
+                            Text(strings.notifOpenOnGitHub)
                         }
                     }
                 }
@@ -336,7 +339,7 @@ internal fun NotificationSubjectDetailPane(
 
             if (isLoading) {
                 item(key = "loading_inline") {
-                    MaxxingLoadingState(message = "Loading ${subjectTypeLabel(thread.subjectType)} details...")
+                    MaxxingLoadingState(message = strings.notifLoadingDetails(strings.notificationSubjectLabel(thread.subjectType)))
                 }
             } else if (errorMsg != null) {
                 item(key = "error_inline") {
@@ -348,7 +351,7 @@ internal fun NotificationSubjectDetailPane(
                         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(errorMsg!!, color = MaterialTheme.colorScheme.onErrorContainer)
                             OutlinedButton(onClick = { loadDetails(forceRefresh = true) }) {
-                                Text("Retry")
+                                Text(strings.retry)
                             }
                         }
                     }
@@ -359,7 +362,7 @@ internal fun NotificationSubjectDetailPane(
                 NotificationSubjectType.CHECK_SUITE -> {
                     if (checkRuns.isNotEmpty()) {
                         item(key = "check_runs_title") {
-                            Text("Check Runs", style = MaterialTheme.typography.titleMedium)
+                            Text(strings.notifCheckRunsTitle, style = MaterialTheme.typography.titleMedium)
                         }
                         items(items = checkRuns, key = { "cr_${it.id}" }) { cr ->
                             val (icon, tint) = actionStatusVisual(cr.status, cr.conclusion)
@@ -377,10 +380,10 @@ internal fun NotificationSubjectDetailPane(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    Icon(icon, contentDescription = cr.conclusion ?: cr.status, tint = tint, modifier = Modifier.size(18.dp))
+                                    Icon(icon, contentDescription = strings.formatCheckStatusText(cr.conclusion ?: cr.status), tint = tint, modifier = Modifier.size(18.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(cr.name, style = MaterialTheme.typography.titleSmall)
-                                        val desc = listOfNotNull(cr.appName, cr.conclusion ?: cr.status).joinToString(" • ")
+                                        val desc = listOfNotNull(cr.appName, strings.formatCheckStatusText(cr.conclusion ?: cr.status)).joinToString(" • ")
                                         if (desc.isNotBlank()) {
                                             Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
@@ -394,7 +397,7 @@ internal fun NotificationSubjectDetailPane(
                     }
                     if (workflowRuns.isNotEmpty()) {
                         item(key = "wf_runs_title") {
-                            Text("Recent Workflow Runs", style = MaterialTheme.typography.titleMedium)
+                            Text(strings.notifWorkflowRunsTitle, style = MaterialTheme.typography.titleMedium)
                         }
                         items(items = workflowRuns.take(15), key = { "wf_${it.id}" }) { run ->
                             WorkflowRunSummaryCard(run = run, onClick = { openRun(run) })
@@ -485,16 +488,6 @@ internal fun NotificationSubjectDetailPane(
             }
         }
     }
-}
-
-private fun subjectTypeLabel(type: NotificationSubjectType): String = when (type) {
-    NotificationSubjectType.ISSUE -> "Issue"
-    NotificationSubjectType.PULL_REQUEST -> "Pull Request"
-    NotificationSubjectType.COMMIT -> "Commit"
-    NotificationSubjectType.RELEASE -> "Release"
-    NotificationSubjectType.DISCUSSION -> "Discussion"
-    NotificationSubjectType.CHECK_SUITE -> "CI / Check Suite"
-    NotificationSubjectType.UNKNOWN -> "Notification"
 }
 
 private fun subjectTypeIcon(type: NotificationSubjectType) = when (type) {

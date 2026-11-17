@@ -2,6 +2,8 @@ package dev.maxxing.github.auth
 
 import dev.maxxing.github.model.AuthMethod
 import dev.maxxing.github.model.DeviceCodeState
+import dev.maxxing.github.model.DeviceFlowErrorKind
+import dev.maxxing.github.model.DeviceFlowWaitReason
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -80,6 +82,16 @@ class DeviceFlowClientTest {
         assertTrue("user:follow" in DeviceFlowClient.DEFAULT_OAUTH_SCOPE.split(' '))
         val firstAwait = assertIs<DeviceCodeState.AwaitingUser>(states[1])
         assertEquals("ABCD-EFGH", firstAwait.userCode)
+        // Typed reasons let the UI localize the English status text.
+        assertEquals(
+            listOf(
+                DeviceFlowWaitReason.CODE_ISSUED,
+                DeviceFlowWaitReason.AUTHORIZATION_PENDING,
+                DeviceFlowWaitReason.SLOW_DOWN
+            ),
+            states.filterIsInstance<DeviceCodeState.AwaitingUser>().map { it.waitReason }
+        )
+        assertEquals("Rate limited by GitHub; polling every 10s...", states.filterIsInstance<DeviceCodeState.AwaitingUser>().last().statusMessage)
         assertEquals(listOf(5000L, 5000L, 10000L), recordedDelays)
 
         val authed = assertIs<DeviceCodeState.Authenticated>(states.last())
@@ -113,6 +125,7 @@ class DeviceFlowClientTest {
         val states = client.startDeviceFlow("Ov23liTestClient").toList()
         val errorState = assertIs<DeviceCodeState.Error>(states.last())
         assertTrue(errorState.message.contains("denied", ignoreCase = true))
+        assertEquals(DeviceFlowErrorKind.DENIED, errorState.kind)
     }
 
     @Test
@@ -141,5 +154,92 @@ class DeviceFlowClientTest {
 
         val bad = client.verifyPersonalAccessToken("ghp_bad")
         assertTrue(bad.isFailure)
+        val error = bad.exceptionOrNull()
+        assertEquals("GitHub returned HTTP 401. Check token scopes.", error?.message)
+    }
+
+    private val deviceCodeJson =
+        """{"device_code":"dev_123","user_code":"1234-5678","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5}"""
+
+    /** Runs the device flow against a mock whose token endpoint answers with [tokenPayloads] in order (last one repeats). */
+    private suspend fun runFlow(
+        clientId: String = "Ov23liTestClient",
+        deviceCodeStatus: HttpStatusCode = HttpStatusCode.OK,
+        deviceCodeBody: String = deviceCodeJson,
+        failDeviceCode: Boolean = false,
+        failFirstPoll: Boolean = false,
+        tokenPayloads: List<String> = listOf("""{"error":"authorization_pending"}""")
+    ): List<DeviceCodeState> {
+        var poll = 0
+        val engine = MockEngine { request ->
+            when (request.url.encodedPath) {
+                "/login/device/code" -> {
+                    if (failDeviceCode) throw RuntimeException("Unable to resolve host github.com")
+                    respond(deviceCodeBody, deviceCodeStatus, headersOf(HttpHeaders.ContentType, "application/json"))
+                }
+                "/login/oauth/access_token" -> {
+                    poll++
+                    if (failFirstPoll && poll == 1) throw RuntimeException("Connection reset")
+                    val index = (if (failFirstPoll) poll - 2 else poll - 1).coerceIn(0, tokenPayloads.lastIndex)
+                    respond(tokenPayloads[index], HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+                }
+                "/user" -> respond("""{"login":"octocat"}""", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+                else -> error("Unexpected path: ${request.url.encodedPath}")
+            }
+        }
+        return DeviceFlowClient(httpClient = createMockClient(engine), delayMillis = {})
+            .startDeviceFlow(clientId)
+            .toList()
+    }
+
+    @Test
+    fun deviceFlowTagsEveryErrorKind() = runTest {
+        val missing = runFlow(clientId = "  ")
+        assertEquals(1, missing.size)
+        assertEquals(DeviceFlowErrorKind.MISSING_CLIENT_ID, assertIs<DeviceCodeState.Error>(missing.single()).kind)
+
+        val rejected = assertIs<DeviceCodeState.Error>(
+            runFlow(deviceCodeStatus = HttpStatusCode.NotFound, deviceCodeBody = """{"error":"Not Found"}""").last()
+        )
+        assertEquals(DeviceFlowErrorKind.CODE_REQUEST_REJECTED, rejected.kind)
+        assertEquals(404, rejected.httpStatusCode)
+        assertEquals("GitHub rejected device code request (404). Verify your Client ID.", rejected.message)
+
+        val network = assertIs<DeviceCodeState.Error>(runFlow(failDeviceCode = true).last())
+        assertEquals(DeviceFlowErrorKind.NETWORK, network.kind)
+        assertTrue(network.message.startsWith("Failed to contact GitHub: "))
+
+        val expired = assertIs<DeviceCodeState.Error>(runFlow(tokenPayloads = listOf("""{"error":"expired_token"}""")).last())
+        assertEquals(DeviceFlowErrorKind.EXPIRED, expired.kind)
+        assertEquals("The device code expired. Request a new code.", expired.message)
+
+        val timedOut = assertIs<DeviceCodeState.Error>(
+            runFlow(deviceCodeBody = """{"device_code":"d","user_code":"u","verification_uri":"https://github.com/login/device","expires_in":10,"interval":5}""").last()
+        )
+        assertEquals(DeviceFlowErrorKind.TIMED_OUT, timedOut.kind)
+        assertEquals("Device code timed out. Please try again.", timedOut.message)
+
+        val other = assertIs<DeviceCodeState.Error>(
+            runFlow(
+                tokenPayloads = listOf("""{"error":"device_flow_disabled","error_description":"Device Flow must be explicitly enabled for this App"}""")
+            ).last()
+        )
+        assertEquals(DeviceFlowErrorKind.OTHER, other.kind)
+        assertEquals("device_flow_disabled", other.oauthErrorCode)
+        assertEquals("Device Flow must be explicitly enabled for this App", other.message)
+    }
+
+    @Test
+    fun deviceFlowReportsNetworkRetryWhilePolling() = runTest {
+        val states = runFlow(
+            failFirstPoll = true,
+            tokenPayloads = listOf("""{"access_token":"gho_x","token_type":"bearer","scope":"repo"}""")
+        )
+        assertEquals(
+            listOf(DeviceFlowWaitReason.CODE_ISSUED, DeviceFlowWaitReason.NETWORK_RETRY),
+            states.filterIsInstance<DeviceCodeState.AwaitingUser>().map { it.waitReason }
+        )
+        assertEquals("Temporary network hiccup, retrying...", states.filterIsInstance<DeviceCodeState.AwaitingUser>().last().statusMessage)
+        assertIs<DeviceCodeState.Authenticated>(states.last())
     }
 }

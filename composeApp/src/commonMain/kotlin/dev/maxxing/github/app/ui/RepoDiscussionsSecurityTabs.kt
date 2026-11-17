@@ -1,5 +1,7 @@
 package dev.maxxing.github.app.ui
 
+import dev.maxxing.github.ui.i18n.appStrings
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -97,7 +99,7 @@ internal fun RepoDiscussionsTabContent(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                text = if (discussions != null) "${discussions.size} discussions" else "Discussions",
+                text = if (discussions != null) appStrings().discussionsCount(discussions.size) else appStrings().discussionsHeader,
                 style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.weight(1f)
             )
@@ -108,11 +110,11 @@ internal fun RepoDiscussionsTabContent(
                 ) {
                     Icon(Lucide.Plus, contentDescription = null, modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("New", maxLines = 1, softWrap = false)
+                    Text(appStrings().newAction, maxLines = 1, softWrap = false)
                 }
             }
             IconButton(onClick = onRefresh) {
-                Icon(Lucide.RefreshCw, contentDescription = "Refresh discussions")
+                Icon(Lucide.RefreshCw, contentDescription = appStrings().refreshDiscussionsDesc)
             }
         }
 
@@ -126,7 +128,7 @@ internal fun RepoDiscussionsTabContent(
                     FilterChip(
                         selected = selectedCategoryId == null,
                         onClick = { onSelectCategory(null) },
-                        label = { Text("All", maxLines = 1, softWrap = false) }
+                        label = { Text(appStrings().discussionCategoryAll, maxLines = 1, softWrap = false) }
                     )
                 }
                 items(categories, key = { it.id }) { cat ->
@@ -150,7 +152,7 @@ internal fun RepoDiscussionsTabContent(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.Center
                     ) {
-                        MaxxingLoadingState(message = "Loading discussions...")
+                        MaxxingLoadingState(message = appStrings().discussionsLoading)
                     }
                 }
                 errorMsg != null && discussions.isNullOrEmpty() -> {
@@ -161,7 +163,7 @@ internal fun RepoDiscussionsTabContent(
                     ) {
                         Text(errorMsg, color = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.height(10.dp))
-                        FilledTonalButton(onClick = onRefresh) { Text("Retry") }
+                        FilledTonalButton(onClick = onRefresh) { Text(appStrings().retry) }
                     }
                 }
                 discussions.isNullOrEmpty() -> {
@@ -178,12 +180,12 @@ internal fun RepoDiscussionsTabContent(
                         )
                         Spacer(Modifier.height(10.dp))
                         Text(
-                            text = if (categories.isEmpty()) "Discussions disabled or empty" else "No discussions yet",
+                            text = if (categories.isEmpty()) appStrings().discussionsDisabledOrEmpty else appStrings().discussionsEmpty,
                             style = MaterialTheme.typography.titleMedium
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            text = "Start a Q&A, idea, or announcement thread with the community.",
+                            text = appStrings().discussionsHint,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -249,7 +251,7 @@ private fun DiscussionCard(
                         }
                         if (discussion.isAnswered) {
                             ExpressiveStatusPill(
-                                label = "Answered",
+                                label = appStrings().discussionAnswered,
                                 icon = Lucide.CircleCheck,
                                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -257,7 +259,7 @@ private fun DiscussionCard(
                         }
                         if (discussion.isClosed) {
                             ExpressiveStatusPill(
-                                label = "Closed",
+                                label = appStrings().statusClosed,
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant,
                                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -268,7 +270,7 @@ private fun DiscussionCard(
                 FilterChip(
                     selected = discussion.viewerHasUpvoted,
                     onClick = onToggleUpvote,
-                    leadingIcon = { Icon(Lucide.Flame, contentDescription = "Upvote", modifier = Modifier.size(14.dp)) },
+                    leadingIcon = { Icon(Lucide.Flame, contentDescription = appStrings().discussionUpvoteDesc, modifier = Modifier.size(14.dp)) },
                     label = { Text("${discussion.upvoteCount}") }
                 )
             }
@@ -328,10 +330,10 @@ internal fun DiscussionDetailView(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             IconButton(onClick = onBack) {
-                Icon(Lucide.ArrowLeft, contentDescription = "Back to discussions")
+                Icon(Lucide.ArrowLeft, contentDescription = appStrings().backToDiscussionsDesc)
             }
             Text(
-                text = detail?.summary?.let { "#${it.number} ${it.title}" } ?: "Discussion",
+                text = detail?.summary?.let { "#${it.number} ${it.title}" } ?: appStrings().subjectDiscussion,
                 style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -339,11 +341,11 @@ internal fun DiscussionDetailView(
             )
             detail?.summary?.htmlUrl?.takeIf { it.isNotBlank() }?.let { url ->
                 IconButton(onClick = { openUrlInBrowser(url) }) {
-                    Icon(Lucide.ExternalLink, contentDescription = "Open in browser")
+                    Icon(Lucide.ExternalLink, contentDescription = appStrings().openInBrowser)
                 }
             }
             IconButton(onClick = onRefresh) {
-                Icon(Lucide.RefreshCw, contentDescription = "Refresh discussion")
+                Icon(Lucide.RefreshCw, contentDescription = appStrings().refreshDiscussionDesc)
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -351,7 +353,7 @@ internal fun DiscussionDetailView(
         when {
             isLoading && detail == null -> {
                 Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
-                    MaxxingLoadingState(message = "Loading discussion...")
+                    MaxxingLoadingState(message = appStrings().discussionLoading)
                 }
             }
             errorMsg != null && detail == null -> {
@@ -362,7 +364,7 @@ internal fun DiscussionDetailView(
                 ) {
                     Text(errorMsg, color = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.height(10.dp))
-                    FilledTonalButton(onClick = onRefresh) { Text("Retry") }
+                    FilledTonalButton(onClick = onRefresh) { Text(appStrings().retry) }
                 }
             }
             detail != null -> {
@@ -386,7 +388,7 @@ internal fun DiscussionDetailView(
                                 ) {
                                     UserAvatar(summary.authorAvatarUrl, summary.authorLogin, sizeDp = 22)
                                     Text(
-                                        text = "@${summary.authorLogin} in ${summary.category.name}",
+                                        text = appStrings().discussionAuthorInCategory(summary.authorLogin, summary.category.name),
                                         style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.weight(1f)
@@ -394,7 +396,7 @@ internal fun DiscussionDetailView(
                                     FilterChip(
                                         selected = summary.viewerHasUpvoted,
                                         onClick = { onToggleUpvote(summary) },
-                                        leadingIcon = { Icon(Lucide.Flame, contentDescription = "Upvote", modifier = Modifier.size(14.dp)) },
+                                        leadingIcon = { Icon(Lucide.Flame, contentDescription = appStrings().discussionUpvoteDesc, modifier = Modifier.size(14.dp)) },
                                         label = { Text("${summary.upvoteCount}") }
                                     )
                                 }
@@ -408,7 +410,7 @@ internal fun DiscussionDetailView(
 
                     item(key = "comments_header") {
                         Text(
-                            text = "${detail.comments.size} replies",
+                            text = appStrings().discussionRepliesCount(detail.comments.size),
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -439,7 +441,7 @@ internal fun DiscussionDetailView(
                                     )
                                     if (comment.isAnswer) {
                                         ExpressiveStatusPill(
-                                            label = "Answer",
+                                            label = appStrings().discussionAnswer,
                                             icon = Lucide.CircleCheck,
                                             containerColor = MaterialTheme.colorScheme.primaryContainer,
                                             contentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -447,7 +449,7 @@ internal fun DiscussionDetailView(
                                     }
                                     if (canParticipate) {
                                         TextButton(onClick = { replyTarget = comment }) {
-                                            Text("Reply")
+                                            Text(appStrings().discussionReplyAction)
                                         }
                                     }
                                 }
@@ -490,13 +492,13 @@ internal fun DiscussionDetailView(
                         if (replyTarget != null) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "Replying to @${replyTarget!!.authorLogin}",
+                                    text = appStrings().discussionReplyingTo(replyTarget!!.authorLogin),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.weight(1f)
                                 )
                                 IconButton(onClick = { replyTarget = null }, modifier = Modifier.size(24.dp)) {
-                                    Icon(Lucide.X, contentDescription = "Cancel reply", modifier = Modifier.size(14.dp))
+                                    Icon(Lucide.X, contentDescription = appStrings().cancelReplyDesc, modifier = Modifier.size(14.dp))
                                 }
                             }
                         }
@@ -507,7 +509,7 @@ internal fun DiscussionDetailView(
                             OutlinedTextField(
                                 value = commentText,
                                 onValueChange = { commentText = it },
-                                placeholder = { Text(if (replyTarget != null) "Write a reply..." else "Add a comment...") },
+                                placeholder = { Text(if (replyTarget != null) appStrings().discussionWriteReply else appStrings().discussionAddComment) },
                                 modifier = Modifier.weight(1f),
                                 maxLines = 4
                             )
@@ -521,7 +523,7 @@ internal fun DiscussionDetailView(
                                     onSubmitComment(textToSend, targetId)
                                 }
                             ) {
-                                Icon(Lucide.Send, contentDescription = "Send comment", modifier = Modifier.size(16.dp))
+                                Icon(Lucide.Send, contentDescription = appStrings().sendCommentDesc, modifier = Modifier.size(16.dp))
                             }
                         }
                     }
@@ -545,19 +547,19 @@ internal fun CreateDiscussionDialog(
     var body by remember { mutableStateOf("") }
 
     MaxxingFullScreenEditorScaffold(
-        title = "New Discussion",
-        saveLabel = if (isSubmitting) "Creating..." else "Create",
+        title = appStrings().discussionNewTitle,
+        saveLabel = if (isSubmitting) appStrings().creating else appStrings().create,
         canSave = selectedCategoryId.isNotBlank() && title.trim().isNotBlank(),
         isSubmitting = isSubmitting,
         errorMsg = errorMsg,
         bodyValue = body,
         onBodyChange = { body = it },
-        bodyLabel = "Body (Markdown)",
+        bodyLabel = appStrings().discussionBodyLabel,
         supportsMarkdownPreview = true,
         onDismiss = onDismiss,
         onSave = { onCreate(selectedCategoryId, title.trim(), body.trim()) },
         headerContent = {
-            Text("Category", style = MaterialTheme.typography.labelLarge)
+            Text(appStrings().discussionCategoryLabel, style = MaterialTheme.typography.labelLarge)
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -574,7 +576,7 @@ internal fun CreateDiscussionDialog(
                 value = title,
                 onValueChange = { title = it },
                 enabled = !isSubmitting,
-                label = { Text("Title") },
+                label = { Text(appStrings().repoIssueTitleLabel) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -597,12 +599,12 @@ internal fun RepoSecurityTabContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Security & Dependabot",
+                text = appStrings().securityHeader,
                 style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.weight(1f)
             )
             IconButton(onClick = onRefresh) {
-                Icon(Lucide.RefreshCw, contentDescription = "Refresh security alerts")
+                Icon(Lucide.RefreshCw, contentDescription = appStrings().refreshSecurityDesc)
             }
         }
 
@@ -614,7 +616,7 @@ internal fun RepoSecurityTabContent(
             when {
                 isLoading && overview == null -> {
                     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
-                        MaxxingLoadingState(message = "Checking security alerts...")
+                        MaxxingLoadingState(message = appStrings().securityChecking)
                     }
                 }
                 errorMsg != null && overview == null -> {
@@ -625,16 +627,17 @@ internal fun RepoSecurityTabContent(
                     ) {
                         Text(errorMsg, color = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.height(10.dp))
-                        FilledTonalButton(onClick = onRefresh) { Text("Retry") }
+                        FilledTonalButton(onClick = onRefresh) { Text(appStrings().retry) }
                     }
                 }
                 overview != null -> {
+                    val alertsNotice = appStrings().dependabotAlertsNoticeText(overview)
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        overview.alertsAccessNotice?.let { notice ->
+                        alertsNotice?.let { notice ->
                             item(key = "notice") {
                                 Surface(
                                     shape = MaterialTheme.shapes.large,
@@ -664,7 +667,7 @@ internal fun RepoSecurityTabContent(
                         if (overview.alerts.isNotEmpty()) {
                             item(key = "alerts_header") {
                                 Text(
-                                    text = "Dependabot Alerts (${overview.alerts.size})",
+                                    text = appStrings().securityDependabotCount(overview.alerts.size),
                                     style = MaterialTheme.typography.titleSmall
                                 )
                             }
@@ -676,7 +679,7 @@ internal fun RepoSecurityTabContent(
                         if (overview.advisories.isNotEmpty()) {
                             item(key = "advisories_header") {
                                 Text(
-                                    text = "Security Advisories (${overview.advisories.size})",
+                                    text = appStrings().securityAdvisoriesCount(overview.advisories.size),
                                     style = MaterialTheme.typography.titleSmall
                                 )
                             }
@@ -703,9 +706,9 @@ internal fun RepoSecurityTabContent(
                                             modifier = Modifier.size(36.dp),
                                             tint = MaterialTheme.colorScheme.primary
                                         )
-                                        Text("No open Dependabot alerts or advisories", style = MaterialTheme.typography.titleMedium)
+                                        Text(appStrings().securityAllClearTitle, style = MaterialTheme.typography.titleMedium)
                                         Text(
-                                            "Dependencies and advisories appear clean for this repository.",
+                                            appStrings().securityAllClearDesc,
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -741,7 +744,7 @@ private fun DependabotAlertCard(alert: DependabotAlertSummary) {
                     modifier = Modifier.weight(1f)
                 )
                 ExpressiveStatusPill(
-                    label = alert.severity.uppercase(),
+                    label = appStrings().formatSeverityLabel(alert.severity),
                     containerColor = bgColor,
                     contentColor = fgColor
                 )
@@ -762,14 +765,14 @@ private fun DependabotAlertCard(alert: DependabotAlertSummary) {
                 }
                 if (alert.vulnerableVersionRange.isNotBlank()) {
                     Text(
-                        text = "Affected: ${alert.vulnerableVersionRange}",
+                        text = appStrings().securityAffected(alert.vulnerableVersionRange),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                if (!alert.patchedVersion.isNullOrBlank()) {
+                alert.patchedVersion?.takeIf { it.isNotBlank() }?.let { fixed ->
                     Text(
-                        text = "Fix: ${alert.patchedVersion}",
+                        text = appStrings().securityFix(fixed),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -798,7 +801,7 @@ private fun SecurityAdvisoryCard(advisory: SecurityAdvisorySummary) {
                     modifier = Modifier.weight(1f)
                 )
                 ExpressiveStatusPill(
-                    label = advisory.severity.uppercase(),
+                    label = appStrings().formatSeverityLabel(advisory.severity),
                     containerColor = bgColor,
                     contentColor = fgColor
                 )

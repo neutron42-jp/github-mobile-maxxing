@@ -65,6 +65,7 @@ import dev.maxxing.github.ui.components.MaxxingLoadingState
 import dev.maxxing.github.ui.components.UserAvatar
 import dev.maxxing.github.ui.components.expressiveAnimateContentSize
 import dev.maxxing.github.ui.components.formatCompactCount
+import dev.maxxing.github.ui.i18n.appStrings
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -78,6 +79,7 @@ internal fun RepoReleasesTabContent(
     onOpenCreateRelease: () -> Unit,
     onSelectTag: (TagRef) -> Unit
 ) {
+    val strings = appStrings()
     val latestStableId = remember(releases) {
         releases?.firstOrNull { !it.isDraft && !it.isPrerelease }?.id
     }
@@ -91,7 +93,7 @@ internal fun RepoReleasesTabContent(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                text = if (releases != null) "${releases.size} releases" else "Releases",
+                text = if (releases != null) strings.releasesCount(releases.size) else strings.releasesHeader,
                 style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.weight(1f)
             )
@@ -102,11 +104,11 @@ internal fun RepoReleasesTabContent(
                 ) {
                     Icon(Lucide.Plus, contentDescription = null, modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("New release", maxLines = 1, softWrap = false)
+                    Text(strings.releasesNew, maxLines = 1, softWrap = false)
                 }
             }
             IconButton(onClick = onRefresh) {
-                Icon(Lucide.RefreshCw, contentDescription = "Refresh releases")
+                Icon(Lucide.RefreshCw, contentDescription = strings.refreshReleasesDesc)
             }
         }
 
@@ -144,7 +146,7 @@ internal fun RepoReleasesTabContent(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.Center
                     ) {
-                        MaxxingLoadingState(message = "Loading releases...")
+                        MaxxingLoadingState(message = strings.releasesLoading)
                     }
                 }
                 errorMsg != null && releases.isNullOrEmpty() -> {
@@ -155,7 +157,7 @@ internal fun RepoReleasesTabContent(
                     ) {
                         Text(errorMsg, color = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.height(10.dp))
-                        FilledTonalButton(onClick = onRefresh) { Text("Retry") }
+                        FilledTonalButton(onClick = onRefresh) { Text(strings.retry) }
                     }
                 }
                 releases.isNullOrEmpty() -> {
@@ -171,13 +173,13 @@ internal fun RepoReleasesTabContent(
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Spacer(Modifier.height(10.dp))
-                        Text("No releases published yet", style = MaterialTheme.typography.titleMedium)
+                        Text(strings.releasesNoneTitle, style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(6.dp))
                         Text(
                             text = if (tags.isNotEmpty()) {
-                                "${tags.size} tags found. Draft or publish a release from any tag."
+                                strings.releasesNoneWithTags(tags.size)
                             } else {
-                                "Create a release to package binaries and release notes."
+                                strings.releasesNoneEmpty
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -209,6 +211,7 @@ private fun ReleaseCard(
     release: ReleaseSummary,
     isLatest: Boolean
 ) {
+    val strings = appStrings()
     var notesExpanded by remember(release.id) { mutableStateOf(isLatest) }
     var assetsExpanded by remember(release.id) { mutableStateOf(isLatest || release.assets.size <= 3) }
 
@@ -251,21 +254,21 @@ private fun ReleaseCard(
                         }
                         if (isLatest) {
                             ExpressiveStatusPill(
-                                label = "Latest",
+                                label = strings.releaseLatest,
                                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
                         if (release.isDraft) {
                             ExpressiveStatusPill(
-                                label = "Draft",
+                                label = strings.statusDraft,
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant,
                                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                         if (release.isPrerelease) {
                             ExpressiveStatusPill(
-                                label = "Pre-release",
+                                label = strings.releasePrerelease,
                                 containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                                 contentColor = MaterialTheme.colorScheme.onTertiaryContainer
                             )
@@ -274,7 +277,7 @@ private fun ReleaseCard(
                 }
                 if (release.htmlUrl.isNotBlank()) {
                     IconButton(onClick = { openUrlInBrowser(release.htmlUrl) }) {
-                        Icon(Lucide.ExternalLink, contentDescription = "Open release in browser")
+                        Icon(Lucide.ExternalLink, contentDescription = strings.openReleaseInBrowserDesc)
                     }
                 }
             }
@@ -317,7 +320,7 @@ private fun ReleaseCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (notesExpanded) "Hide release notes" else "Show release notes",
+                        text = if (notesExpanded) strings.releaseHideNotes else strings.releaseShowNotes,
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.weight(1f)
@@ -343,7 +346,7 @@ private fun ReleaseCard(
                         (if (release.zipballUrl.isNotBlank()) 1 else 0) +
                         (if (release.tarballUrl.isNotBlank()) 1 else 0)
                     Text(
-                        text = "Assets ($totalItems)",
+                        text = strings.releaseAssetsCount(totalItems),
                         style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier.weight(1f)
                     )
@@ -356,13 +359,13 @@ private fun ReleaseCard(
                         }
                         if (release.zipballUrl.isNotBlank()) {
                             SourceArchiveRow(
-                                label = "Source code (zip)",
+                                label = strings.releaseSourceZip,
                                 onClick = { openUrlInBrowser(release.zipballUrl) }
                             )
                         }
                         if (release.tarballUrl.isNotBlank()) {
                             SourceArchiveRow(
-                                label = "Source code (tar.gz)",
+                                label = strings.releaseSourceTarGz,
                                 onClick = { openUrlInBrowser(release.tarballUrl) }
                             )
                         }
@@ -375,6 +378,7 @@ private fun ReleaseCard(
 
 @Composable
 private fun ReleaseAssetRow(asset: ReleaseAsset) {
+    val strings = appStrings()
     Surface(
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -398,14 +402,14 @@ private fun ReleaseAssetRow(asset: ReleaseAsset) {
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "${formatByteSize(asset.sizeBytes)} · ${formatCompactCount(asset.downloadCount)} downloads",
+                    text = "${formatByteSize(asset.sizeBytes)} · ${strings.releaseDownloadsCount(formatCompactCount(asset.downloadCount))}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             Icon(
                 Lucide.ExternalLink,
-                contentDescription = "Download asset",
+                contentDescription = strings.downloadAssetDesc,
                 modifier = Modifier.size(15.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -427,7 +431,7 @@ private fun SourceArchiveRow(label: String, onClick: () -> Unit) {
         ) {
             Icon(Lucide.Folder, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.secondary)
             Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-            Icon(Lucide.ExternalLink, contentDescription = "Download archive", modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Lucide.ExternalLink, contentDescription = appStrings().releaseDownloadArchiveDesc, modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -455,17 +459,18 @@ internal fun CreateReleaseDialog(
     var isDraft by remember { mutableStateOf(false) }
     var isPrerelease by remember { mutableStateOf(false) }
     var generateNotes by remember { mutableStateOf(true) }
+    val strings = appStrings()
 
     MaxxingFullScreenEditorScaffold(
-        title = "Create Release",
-        subtitle = targetBranch.takeIf { it.isNotBlank() }?.let { "Target: $it" },
-        saveLabel = if (isSubmitting) "Publishing..." else if (isDraft) "Save Draft" else "Publish",
+        title = strings.releaseCreateTitle,
+        subtitle = targetBranch.takeIf { it.isNotBlank() }?.let { strings.releaseTargetBranchSubtitle(it) },
+        saveLabel = if (isSubmitting) strings.releasePublishing else if (isDraft) strings.releaseSaveDraft else strings.releasePublish,
         canSave = tagName.trim().isNotBlank(),
         isSubmitting = isSubmitting,
         errorMsg = errorMsg,
         bodyValue = body,
         onBodyChange = { body = it },
-        bodyLabel = "Release notes (Markdown)",
+        bodyLabel = strings.releaseNotesLabel,
         supportsMarkdownPreview = true,
         onDismiss = onDismiss,
         onSave = {
@@ -484,7 +489,7 @@ internal fun CreateReleaseDialog(
                 value = tagName,
                 onValueChange = { tagName = it },
                 enabled = !isSubmitting,
-                label = { Text("Tag name (e.g. v1.2.0)") },
+                label = { Text(strings.releaseTagLabel) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -492,7 +497,7 @@ internal fun CreateReleaseDialog(
                 value = releaseTitle,
                 onValueChange = { releaseTitle = it },
                 enabled = !isSubmitting,
-                label = { Text("Release title (optional)") },
+                label = { Text(strings.releaseTitleLabel) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -500,20 +505,20 @@ internal fun CreateReleaseDialog(
                 value = targetBranch,
                 onValueChange = { targetBranch = it },
                 enabled = !isSubmitting,
-                label = { Text("Target branch or SHA") },
+                label = { Text(strings.releaseTargetLabel) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text("Auto-generate release notes", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                Text(strings.releaseAutoNotes, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                 Switch(checked = generateNotes, onCheckedChange = { generateNotes = it }, enabled = !isSubmitting)
             }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text("Pre-release", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                Text(strings.releasePrerelease, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                 Switch(checked = isPrerelease, onCheckedChange = { isPrerelease = it }, enabled = !isSubmitting)
             }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text("Save as draft", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                Text(strings.releaseDraftToggle, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                 Switch(checked = isDraft, onCheckedChange = { isDraft = it }, enabled = !isSubmitting)
             }
         }

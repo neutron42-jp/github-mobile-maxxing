@@ -77,23 +77,37 @@ import dev.maxxing.github.ui.components.FollowActionButton
 import dev.maxxing.github.ui.components.MaxxingLoadingState
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.UserAvatar
+import dev.maxxing.github.ui.i18n.AppStrings
+import dev.maxxing.github.ui.i18n.appStrings
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
-internal enum class ProfileTab(val label: String) {
-    REPOS("Repos"),
-    STARRED("Starred"),
-    ACTIVITY("Activity"),
-    FOLLOWERS("Followers"),
-    FOLLOWING("Following")
+internal enum class ProfileTab {
+    REPOS,
+    STARRED,
+    ACTIVITY,
+    FOLLOWERS,
+    FOLLOWING;
+
+    fun localizedLabel(strings: AppStrings): String = when (this) {
+        REPOS -> strings.profileTabRepos
+        STARRED -> strings.profileTabStarred
+        ACTIVITY -> strings.profileTabActivity
+        FOLLOWERS -> strings.profileTabFollowers
+        FOLLOWING -> strings.profileTabFollowing
+    }
 }
 
-internal fun formatProfileTabLabel(tab: ProfileTab, profile: UserProfile): String = when (tab) {
-    ProfileTab.REPOS -> "${tab.label} (${profile.publicReposCount})"
-    ProfileTab.FOLLOWERS -> "${tab.label} (${profile.followersCount})"
-    ProfileTab.FOLLOWING -> "${tab.label} (${profile.followingCount})"
-    ProfileTab.STARRED, ProfileTab.ACTIVITY -> tab.label
+internal fun formatLocalizedProfileTabLabel(
+    tab: ProfileTab,
+    profile: UserProfile,
+    strings: AppStrings
+): String = when (tab) {
+    ProfileTab.REPOS -> "${tab.localizedLabel(strings)} (${profile.publicReposCount})"
+    ProfileTab.FOLLOWERS -> "${tab.localizedLabel(strings)} (${profile.followersCount})"
+    ProfileTab.FOLLOWING -> "${tab.localizedLabel(strings)} (${profile.followingCount})"
+    ProfileTab.STARRED, ProfileTab.ACTIVITY -> tab.localizedLabel(strings)
 }
 
 @OptIn(
@@ -133,6 +147,7 @@ fun UserProfileScreen(
     var isRefreshing by remember(login) { mutableStateOf(false) }
     var errorMsg by remember(login) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val strings = appStrings()
 
     fun loadProfile(forceRefresh: Boolean = false) {
         scope.launch {
@@ -151,7 +166,7 @@ fun UserProfileScreen(
                         container.repository.getUserRepositories(login, isOrganization = p.isOrganization, forceRefresh = forceRefresh)
                             .onSuccess { repos = it }
                     }
-                    .onFailure { errorMsg = it.message ?: "Failed to load profile" }
+                    .onFailure { errorMsg = strings.errorMessage(it, strings.failedLoadProfile) }
 
                 orgsJob.await().onSuccess { orgs = it }
                 calJob.await().onSuccess { calendar = it }
@@ -201,7 +216,7 @@ fun UserProfileScreen(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onBack) {
-                        Icon(Lucide.ArrowLeft, contentDescription = "Back")
+                        Icon(Lucide.ArrowLeft, contentDescription = strings.back)
                     }
                     Text(
                         text = "@$login",
@@ -211,14 +226,14 @@ fun UserProfileScreen(
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(onClick = { onOpenGists(if (selfLogin.equals(login, ignoreCase = true)) "" else login) }) {
-                        Icon(Lucide.FileCode, contentDescription = "Gists", modifier = Modifier.size(18.dp))
+                        Icon(Lucide.FileCode, contentDescription = strings.gistsAction, modifier = Modifier.size(18.dp))
                     }
                     IconButton(onClick = { loadProfile(forceRefresh = true) }) {
-                        Icon(Lucide.RefreshCw, contentDescription = "Refresh", modifier = Modifier.size(18.dp))
+                        Icon(Lucide.RefreshCw, contentDescription = strings.refresh, modifier = Modifier.size(18.dp))
                     }
                     if (!profile?.htmlUrl.isNullOrBlank()) {
                         IconButton(onClick = { openUrlInBrowser(profile!!.htmlUrl) }) {
-                            Icon(Lucide.ExternalLink, contentDescription = "Open in browser", modifier = Modifier.size(18.dp))
+                            Icon(Lucide.ExternalLink, contentDescription = strings.openInBrowser, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
@@ -239,7 +254,7 @@ fun UserProfileScreen(
             when {
                 isLoading && profile == null -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        MaxxingLoadingState(message = "Loading @$login...")
+                        MaxxingLoadingState(message = strings.loadingUser(login))
                     }
                 }
 
@@ -252,7 +267,7 @@ fun UserProfileScreen(
                         Text(errorMsg!!, color = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.height(12.dp))
                         Button(onClick = { loadProfile(forceRefresh = true) }) {
-                            Text("Retry")
+                            Text(strings.retry)
                         }
                     }
                 }
@@ -285,7 +300,7 @@ fun UserProfileScreen(
                                                 )
                                                 if (p.isOrganization) {
                                                     ExpressiveStatusPill(
-                                                        label = "Org",
+                                                        label = strings.orgBadge,
                                                         containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                                                         contentColor = MaterialTheme.colorScheme.onTertiaryContainer
                                                     )
@@ -306,11 +321,11 @@ fun UserProfileScreen(
                                                     scope.launch {
                                                         container.repository.setFollowingUser(p.login, next)
                                                             .onSuccess {
-                                                                onMessage(if (next) "Following @${p.login}" else "Unfollowed @${p.login}")
+                                                                onMessage(if (next) strings.followedUser(p.login) else strings.unfollowedUser(p.login))
                                                             }
                                                             .onFailure {
                                                                 isFollowing = !next
-                                                                onMessage(it.message ?: "Follow update failed")
+                                                                onMessage(strings.errorMessage(it, strings.followUpdateFailed, strings.followScopeErrorHint))
                                                             }
                                                     }
                                                 }
@@ -353,7 +368,7 @@ fun UserProfileScreen(
                         if (orgs.isNotEmpty()) {
                             item(key = "orgs", contentType = "orgs") {
                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text("Organizations", style = MaterialTheme.typography.titleSmall)
+                                    Text(strings.organizationsTitle, style = MaterialTheme.typography.titleSmall)
                                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         items(orgs, key = { it.login }) { org ->
                                             ElevatedCard(
@@ -410,7 +425,7 @@ fun UserProfileScreen(
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
                                                 Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
-                                                Text(formatProfileTabLabel(tab, p), maxLines = 1, softWrap = false)
+                                                Text(formatLocalizedProfileTabLabel(tab, p, strings), maxLines = 1, softWrap = false)
                                             }
                                         }
                                     )
@@ -421,7 +436,7 @@ fun UserProfileScreen(
                         when (activeTab) {
                             ProfileTab.REPOS -> {
                                 if (repos.isEmpty()) {
-                                    item(key = "empty_repos") { ProfileEmptyNotice("No public repositories.") }
+                                    item(key = "empty_repos") { ProfileEmptyNotice(strings.noPublicRepos) }
                                 } else {
                                     items(repos, key = { "pr_${it.fullName}" }, contentType = { "repo" }) { repo ->
                                         RepoSummaryCard(repo = repo, onClick = { onOpenRepo(repo) })
@@ -430,7 +445,7 @@ fun UserProfileScreen(
                             }
                             ProfileTab.STARRED -> {
                                 if (starred.isEmpty()) {
-                                    item(key = "empty_starred") { ProfileEmptyNotice("No starred repositories.") }
+                                    item(key = "empty_starred") { ProfileEmptyNotice(strings.noStarredReposProfile) }
                                 } else {
                                     items(starred, key = { "ps_${it.fullName}" }, contentType = { "repo" }) { repo ->
                                         RepoSummaryCard(repo = repo, onClick = { onOpenRepo(repo) })
@@ -439,7 +454,7 @@ fun UserProfileScreen(
                             }
                             ProfileTab.ACTIVITY -> {
                                 if (events.isEmpty()) {
-                                    item(key = "empty_activity") { ProfileEmptyNotice("No recent public activity.") }
+                                    item(key = "empty_activity") { ProfileEmptyNotice(strings.noRecentPublicActivity) }
                                 } else {
                                     items(events, key = { "pe_${it.id}" }, contentType = { "event" }) { ev ->
                                         ActivityEventCard(
@@ -476,7 +491,7 @@ fun UserProfileScreen(
                             }
                             ProfileTab.FOLLOWERS -> {
                                 if (followers.isEmpty()) {
-                                    item(key = "empty_followers") { ProfileEmptyNotice("No followers yet.") }
+                                    item(key = "empty_followers") { ProfileEmptyNotice(strings.noFollowersYet) }
                                 } else {
                                     items(followers, key = { "fl_${it.login}" }, contentType = { "user" }) { user ->
                                         UserSummaryCard(user = user, onClick = { onOpenUser(user.login) })
@@ -485,7 +500,7 @@ fun UserProfileScreen(
                             }
                             ProfileTab.FOLLOWING -> {
                                 if (following.isEmpty()) {
-                                    item(key = "empty_following") { ProfileEmptyNotice("Not following anyone yet.") }
+                                    item(key = "empty_following") { ProfileEmptyNotice(strings.notFollowingAnyoneYet) }
                                 } else {
                                     items(following, key = { "fg_${it.login}" }, contentType = { "user" }) { user ->
                                         UserSummaryCard(user = user, onClick = { onOpenUser(user.login) })

@@ -4,6 +4,8 @@ import dev.maxxing.github.model.AppBranding
 import dev.maxxing.github.model.AuthMethod
 import dev.maxxing.github.model.AuthSession
 import dev.maxxing.github.model.DeviceCodeState
+import dev.maxxing.github.model.DeviceFlowErrorKind
+import dev.maxxing.github.model.DeviceFlowWaitReason
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -59,7 +61,7 @@ class DeviceFlowClient(
     ): Flow<DeviceCodeState> = flow {
         val trimmedId = clientId.trim()
         if (trimmedId.isEmpty()) {
-            emit(DeviceCodeState.Error("OAuth Client ID is required."))
+            emit(DeviceCodeState.Error("OAuth Client ID is required.", kind = DeviceFlowErrorKind.MISSING_CLIENT_ID))
             return@flow
         }
 
@@ -78,12 +80,18 @@ class DeviceFlowClient(
                 )
             }
             if (response.status != HttpStatusCode.OK) {
-                emit(DeviceCodeState.Error("GitHub rejected device code request (${response.status.value}). Verify your Client ID."))
+                emit(
+                    DeviceCodeState.Error(
+                        "GitHub rejected device code request (${response.status.value}). Verify your Client ID.",
+                        kind = DeviceFlowErrorKind.CODE_REQUEST_REJECTED,
+                        httpStatusCode = response.status.value
+                    )
+                )
                 return@flow
             }
             response.body<DeviceCodeResponse>()
         } catch (e: Exception) {
-            emit(DeviceCodeState.Error("Failed to contact GitHub: ${e.message ?: "Network error"}"))
+            emit(DeviceCodeState.Error("Failed to contact GitHub: ${e.message ?: "Network error"}", kind = DeviceFlowErrorKind.NETWORK))
             return@flow
         }
 
@@ -97,7 +105,8 @@ class DeviceFlowClient(
                 verificationUri = codeResponse.verificationUri,
                 expiresInSeconds = codeResponse.expiresIn,
                 intervalSeconds = intervalSec,
-                statusMessage = "Enter this code on GitHub to authorize ${AppBranding.APP_NAME}."
+                statusMessage = "Enter this code on GitHub to authorize ${AppBranding.APP_NAME}.",
+                waitReason = DeviceFlowWaitReason.CODE_ISSUED
             )
         )
 
@@ -126,7 +135,8 @@ class DeviceFlowClient(
                         verificationUri = codeResponse.verificationUri,
                         expiresInSeconds = (codeResponse.expiresIn - elapsedSec).coerceAtLeast(0),
                         intervalSeconds = intervalSec,
-                        statusMessage = "Temporary network hiccup, retrying..."
+                        statusMessage = "Temporary network hiccup, retrying...",
+                        waitReason = DeviceFlowWaitReason.NETWORK_RETRY
                     )
                 )
                 continue
@@ -155,7 +165,8 @@ class DeviceFlowClient(
                             verificationUri = codeResponse.verificationUri,
                             expiresInSeconds = (codeResponse.expiresIn - elapsedSec).coerceAtLeast(0),
                             intervalSeconds = intervalSec,
-                            statusMessage = "Waiting for browser authorization..."
+                            statusMessage = "Waiting for browser authorization...",
+                            waitReason = DeviceFlowWaitReason.AUTHORIZATION_PENDING
                         )
                     )
                 }
@@ -169,30 +180,31 @@ class DeviceFlowClient(
                             verificationUri = codeResponse.verificationUri,
                             expiresInSeconds = (codeResponse.expiresIn - elapsedSec).coerceAtLeast(0),
                             intervalSeconds = intervalSec,
-                            statusMessage = "Rate limited by GitHub; polling every ${intervalSec}s..."
+                            statusMessage = "Rate limited by GitHub; polling every ${intervalSec}s...",
+                            waitReason = DeviceFlowWaitReason.SLOW_DOWN
                         )
                     )
                 }
 
                 "expired_token" -> {
-                    emit(DeviceCodeState.Error("The device code expired. Request a new code."))
+                    emit(DeviceCodeState.Error("The device code expired. Request a new code.", kind = DeviceFlowErrorKind.EXPIRED))
                     return@flow
                 }
 
                 "access_denied" -> {
-                    emit(DeviceCodeState.Error("Authorization was denied in the browser."))
+                    emit(DeviceCodeState.Error("Authorization was denied in the browser.", kind = DeviceFlowErrorKind.DENIED))
                     return@flow
                 }
 
                 else -> {
                     val desc = tokenRes.errorDescription ?: tokenRes.error ?: "Unknown OAuth error"
-                    emit(DeviceCodeState.Error(desc))
+                    emit(DeviceCodeState.Error(desc, oauthErrorCode = tokenRes.error))
                     return@flow
                 }
             }
         }
 
-        emit(DeviceCodeState.Error("Device code timed out. Please try again."))
+        emit(DeviceCodeState.Error("Device code timed out. Please try again.", kind = DeviceFlowErrorKind.TIMED_OUT))
     }
 
     suspend fun verifyPersonalAccessToken(rawToken: String): Result<AuthSession> {

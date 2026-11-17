@@ -82,11 +82,18 @@ import dev.maxxing.github.ui.components.MaxxingPredictiveOverlayHost
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.StarActionButton
 import dev.maxxing.github.ui.components.UserAvatar
+import dev.maxxing.github.ui.i18n.AppStrings
+import dev.maxxing.github.ui.i18n.appStrings
 import kotlinx.coroutines.launch
 
-internal enum class GistsTab(val label: String) {
-    MINE("My Gists"),
-    STARRED("Starred")
+internal enum class GistsTab {
+    MINE,
+    STARRED;
+
+    fun localizedLabel(strings: AppStrings): String = when (this) {
+        MINE -> strings.gistsTabMine
+        STARRED -> strings.gistsTabStarred
+    }
 }
 
 @OptIn(
@@ -128,11 +135,12 @@ fun GistsScreen(
 
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
+    val strings = appStrings()
 
     fun copyGistLink(gist: GistSummary) {
         val shareUrl = resolveGistUrl(gist) ?: return
         clipboard.setText(AnnotatedString(shareUrl))
-        onMessage("Copied gist link")
+        onMessage(strings.copiedGistLink)
     }
 
     fun loadGists(forceRefresh: Boolean = false) {
@@ -151,7 +159,7 @@ fun GistsScreen(
                 if (seq == requestSeq) gists = list
             }.onFailure { err ->
                 if (seq == requestSeq) {
-                    errorMsg = err.message ?: "Failed to load gists"
+                    errorMsg = strings.errorMessage(err, strings.failedLoadGists, strings.gistScopeErrorHint)
                     if (forceRefresh) onMessage(errorMsg!!)
                 }
             }
@@ -172,7 +180,7 @@ fun GistsScreen(
                         selectedDetail = detail
                     }
                 }
-                .onFailure { err -> onMessage(err.message ?: "Failed to load gist details") }
+                .onFailure { err -> onMessage(strings.errorMessage(err, strings.failedLoadGistDetails, strings.gistScopeErrorHint)) }
         }
     }
 
@@ -199,10 +207,10 @@ fun GistsScreen(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = onBack) {
-                            Icon(Lucide.ArrowLeft, contentDescription = "Back")
+                            Icon(Lucide.ArrowLeft, contentDescription = strings.back)
                         }
                         Text(
-                            text = if (targetUser != null) "@$targetUser Gists" else "Gists",
+                            text = if (targetUser != null) strings.userGistsTitle(targetUser) else strings.gistsTitle,
                             style = MaterialTheme.typography.titleLarge,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -218,12 +226,12 @@ fun GistsScreen(
                             ) {
                                 Icon(Lucide.Plus, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text("New")
+                                Text(strings.newAction)
                             }
                             Spacer(Modifier.width(4.dp))
                         }
                         IconButton(onClick = { loadGists(forceRefresh = true) }) {
-                            Icon(Lucide.RefreshCw, contentDescription = "Refresh", modifier = Modifier.size(18.dp))
+                            Icon(Lucide.RefreshCw, contentDescription = strings.refresh, modifier = Modifier.size(18.dp))
                         }
                     }
 
@@ -235,7 +243,7 @@ fun GistsScreen(
                                     options = GistsTab.entries,
                                     selected = activeTab,
                                     onSelect = { activeTab = it },
-                                    labelProvider = { it.label },
+                                    labelProvider = { it.localizedLabel(strings) },
                                     iconProvider = { tab ->
                                         when (tab) {
                                             GistsTab.MINE -> Lucide.FileCode
@@ -271,7 +279,7 @@ fun GistsScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "Your current sign-in token lacks 'gist' scope. Sign out in Settings and sign in again to create, edit, star, or view secret Gists.",
+                        text = strings.missingGistScopeNotice,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
@@ -288,7 +296,7 @@ fun GistsScreen(
                 when {
                     isLoading && list == null -> {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            MaxxingLoadingState(message = "Loading gists...")
+                            MaxxingLoadingState(message = strings.loadingGists)
                         }
                     }
                     errorMsg != null && list.isNullOrEmpty() -> {
@@ -299,14 +307,14 @@ fun GistsScreen(
                         ) {
                             Text(errorMsg!!, color = MaterialTheme.colorScheme.error)
                             Spacer(Modifier.height(10.dp))
-                            FilledTonalButton(onClick = { loadGists(forceRefresh = true) }) { Text("Retry") }
+                            FilledTonalButton(onClick = { loadGists(forceRefresh = true) }) { Text(strings.retry) }
                         }
                     }
                     list.isNullOrEmpty() -> {
                         Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Icon(Lucide.FileCode, contentDescription = null, modifier = Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("No gists found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(strings.noGistsFound, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -344,11 +352,11 @@ fun GistsScreen(
                     scope.launch {
                         container.repository.setGistStarred(opened.summary.id, targetStar)
                             .onSuccess {
-                                onMessage(if (targetStar) "Starred gist" else "Unstarred gist")
+                                onMessage(if (targetStar) strings.starredGist else strings.unstarredGist)
                             }
                             .onFailure { err ->
                                 selectedDetail = opened
-                                onMessage(err.message ?: "Failed to update star")
+                                onMessage(strings.errorMessage(err, strings.gistStarUpdateFailed, strings.gistScopeErrorHint))
                             }
                     }
                 },
@@ -407,11 +415,11 @@ fun GistsScreen(
                             mutationBusy = false
                             showEditorDialog = false
                             selectedDetail = updated
-                            onMessage(if (editing == null) "Created gist" else "Updated gist")
+                            onMessage(if (editing == null) strings.gistCreatedMessage else strings.gistUpdatedMessage)
                             loadGists(forceRefresh = true)
                         }.onFailure { err ->
                             mutationBusy = false
-                            mutationError = err.message ?: "Failed to save gist"
+                            mutationError = strings.errorMessage(err, strings.gistSaveFailed, strings.gistScopeErrorHint)
                         }
                     }
                 }
@@ -421,10 +429,10 @@ fun GistsScreen(
         if (showDeleteConfirm && opened != null) {
             AlertDialog(
                 onDismissRequest = { if (!mutationBusy) showDeleteConfirm = false },
-                title = { Text("Delete Gist") },
+                title = { Text(strings.gistDeleteTitle) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Permanently delete this gist (${opened.files.firstOrNull()?.filename ?: opened.summary.id})?")
+                        Text(strings.gistDeleteConfirm(opened.files.firstOrNull()?.filename ?: opened.summary.id))
                         if (!mutationError.isNullOrBlank()) {
                             Text(mutationError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                         }
@@ -446,21 +454,21 @@ fun GistsScreen(
                                         mutationBusy = false
                                         showDeleteConfirm = false
                                         selectedDetail = null
-                                        onMessage("Deleted gist")
+                                        onMessage(strings.gistDeletedMessage)
                                         loadGists(forceRefresh = true)
                                     }
                                     .onFailure { err ->
                                         mutationBusy = false
-                                        mutationError = err.message ?: "Failed to delete gist"
+                                        mutationError = strings.errorMessage(err, strings.gistDeleteFailed, strings.gistScopeErrorHint)
                                     }
                             }
                         }
                     ) {
-                        Text(if (mutationBusy) "Deleting..." else "Delete")
+                        Text(if (mutationBusy) strings.deletingAction else strings.deleteAction)
                     }
                 },
                 dismissButton = {
-                    TextButton(enabled = !mutationBusy, onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+                    TextButton(enabled = !mutationBusy, onClick = { showDeleteConfirm = false }) { Text(strings.cancel) }
                 }
             )
         }
@@ -505,7 +513,7 @@ private fun GistSummaryCard(
                     modifier = Modifier.weight(1f)
                 )
                 ExpressiveStatusPill(
-                    label = if (gist.isPublic) "Public" else "Secret",
+                    label = if (gist.isPublic) appStrings().gistPublicBadge else appStrings().gistSecretBadge,
                     icon = if (gist.isPublic) Lucide.Globe else Lucide.Lock,
                     containerColor = if (gist.isPublic) {
                         MaterialTheme.colorScheme.secondaryContainer
@@ -530,7 +538,7 @@ private fun GistSummaryCard(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "${gist.files.size} file${if (gist.files.size == 1) "" else "s"}",
+                    text = appStrings().gistFileCount(gist.files.size),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -552,7 +560,7 @@ private fun GistSummaryCard(
                     ) {
                         Icon(
                             Lucide.Copy,
-                            contentDescription = "Copy gist link",
+                            contentDescription = appStrings().copyGistLinkDesc,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(15.dp)
                         )
@@ -584,7 +592,7 @@ private fun GistDetailView(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onBack) {
-                        Icon(Lucide.ArrowLeft, contentDescription = "Back")
+                        Icon(Lucide.ArrowLeft, contentDescription = appStrings().back)
                     }
                     Text(
                         text = detail.files.firstOrNull()?.filename ?: detail.summary.id,
@@ -596,12 +604,12 @@ private fun GistDetailView(
                     StarActionButton(isStarred = detail.viewerHasStarred, onClick = onToggleStar)
                     if (isOwner) {
                         IconButton(onClick = onEdit) {
-                            Icon(Lucide.Pencil, contentDescription = "Edit gist", modifier = Modifier.size(18.dp))
+                            Icon(Lucide.Pencil, contentDescription = appStrings().gistEditAction, modifier = Modifier.size(18.dp))
                         }
                         IconButton(onClick = onDelete) {
                             Icon(
                                 Lucide.Trash2,
-                                contentDescription = "Delete gist",
+                                contentDescription = appStrings().gistDeleteAction,
                                 tint = MaterialTheme.colorScheme.error,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -610,10 +618,10 @@ private fun GistDetailView(
                     val gistUrl = resolveGistUrl(detail.summary)
                     if (gistUrl != null) {
                         IconButton(onClick = onCopyLink) {
-                            Icon(Lucide.Copy, contentDescription = "Copy gist link", modifier = Modifier.size(18.dp))
+                            Icon(Lucide.Copy, contentDescription = appStrings().copyGistLinkDesc, modifier = Modifier.size(18.dp))
                         }
                         IconButton(onClick = { openUrlInBrowser(gistUrl) }) {
-                            Icon(Lucide.ExternalLink, contentDescription = "Open in browser", modifier = Modifier.size(18.dp))
+                            Icon(Lucide.ExternalLink, contentDescription = appStrings().openInBrowser, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
@@ -688,15 +696,15 @@ private fun GistFullScreenEditor(
     var isPublic by remember(initialPublic) { mutableStateOf(initialPublic) }
 
     MaxxingFullScreenEditorScaffold(
-        title = if (isCreating) "New Gist" else "Edit Gist",
+        title = if (isCreating) appStrings().gistNewTitle else appStrings().gistEditTitle,
         subtitle = filename.ifBlank { "snippet.txt" },
-        saveLabel = if (isSubmitting) "Saving..." else if (isCreating) "Create" else "Save",
+        saveLabel = if (isSubmitting) appStrings().savingAction else if (isCreating) appStrings().create else appStrings().save,
         canSave = filename.isNotBlank() && content.isNotBlank(),
         isSubmitting = isSubmitting,
         errorMsg = errorMsg,
         bodyValue = content,
         onBodyChange = { content = it },
-        bodyLabel = "Contents",
+        bodyLabel = appStrings().gistContentsLabel,
         useMonospace = true,
         supportsMarkdownPreview = filename.trim().endsWith(".md", ignoreCase = true),
         metadataSummary = if (isCreating) {
@@ -715,7 +723,7 @@ private fun GistFullScreenEditor(
                 value = filename,
                 onValueChange = { filename = it },
                 enabled = !isSubmitting,
-                label = { Text("Filename (e.g. notes.md)") },
+                label = { Text(appStrings().gistFilenameLabel) },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                 modifier = Modifier.fillMaxWidth()
@@ -724,16 +732,16 @@ private fun GistFullScreenEditor(
                 value = description,
                 onValueChange = { description = it },
                 enabled = !isSubmitting,
-                label = { Text("Description (optional)") },
+                label = { Text(appStrings().repoDescLabel) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
             if (isCreating) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Public Gist", style = MaterialTheme.typography.bodyMedium)
+                        Text(appStrings().gistPublicToggle, style = MaterialTheme.typography.bodyMedium)
                         Text(
-                            text = if (isPublic) "Visible to everyone" else "Secret (link only)",
+                            text = if (isPublic) appStrings().gistPublicDesc else appStrings().gistSecretDesc,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

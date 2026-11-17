@@ -16,6 +16,7 @@ import androidx.compose.ui.text.platform.Font as DesktopFont
 import dev.maxxing.github.model.CustomFontFile
 import dev.maxxing.github.model.FontSelection
 import dev.maxxing.github.model.FontSourceKind
+import dev.maxxing.github.ui.i18n.appStrings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
@@ -144,10 +145,10 @@ private sealed interface ChooserResult {
     data class Selected(val file: File) : ChooserResult
 }
 
-private fun showFontFileChooser(): ChooserResult = try {
+private fun showFontFileChooser(title: String, filterLabel: String): ChooserResult = try {
     val chooser = JFileChooser().apply {
-        dialogTitle = "Select Font File (.ttf / .otf / .ttc)"
-        fileFilter = FileNameExtensionFilter("Font files (*.ttf, *.otf, *.ttc)", "ttf", "otf", "ttc")
+        dialogTitle = title
+        fileFilter = FileNameExtensionFilter(filterLabel, "ttf", "otf", "ttc")
         isAcceptAllFileFilterUsed = false
         isFileHidingEnabled = false
     }
@@ -164,11 +165,14 @@ private fun showFontFileChooser(): ChooserResult = try {
 actual fun rememberFontFileImporter(onImported: (CustomFontFile?) -> Unit): () -> Unit {
     val scope = rememberCoroutineScope()
     val currentOnImported by rememberUpdatedState(onImported)
+    val strings by rememberUpdatedState(appStrings())
     return remember(scope) {
         {
             scope.launch {
                 // Swing components must be created and shown on the EDT.
-                val choice = withContext(Dispatchers.Swing) { showFontFileChooser() }
+                val choice = withContext(Dispatchers.Swing) {
+                    showFontFileChooser(strings.fontFileChooserTitle, strings.fontFileFilterLabel)
+                }
                 if (choice == ChooserResult.Cancelled) return@launch
                 // Once a file is chosen, finish the import and report it even if the dialog closes.
                 withContext(NonCancellable) {

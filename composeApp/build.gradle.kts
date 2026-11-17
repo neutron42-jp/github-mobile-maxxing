@@ -115,6 +115,15 @@ kotlin {
         commonTest.dependencies {
             implementation(libs.kotlin.test)
         }
+        val desktopTest by getting {
+            dependencies {
+                // Drives the real network-layer producers in the i18n contract tests.
+                implementation(libs.ktor.client.mock)
+                implementation(libs.ktor.client.content.negotiation)
+                implementation(libs.ktor.serialization.kotlinx.json)
+                implementation(libs.kotlinx.coroutines.test)
+            }
+        }
         val androidHostTest by getting {
             dependencies {
                 implementation(libs.kotlin.test)

@@ -59,6 +59,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.composables.icons.lucide.Bell
 import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.ExternalLink
+import com.composables.icons.lucide.Languages
 import com.composables.icons.lucide.Link2
 import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.LogOut
@@ -73,6 +74,7 @@ import dev.maxxing.github.app.notifications.PlatformNotifier
 import dev.maxxing.github.auth.inspectGitHubLinkHandling
 import dev.maxxing.github.auth.openOfficialGitHubAppLinkSettings
 import dev.maxxing.github.auth.openThisAppLinkSettings
+import dev.maxxing.github.model.AppLanguage
 import dev.maxxing.github.ui.components.MaxxingColorPickerDialog
 import dev.maxxing.github.model.FontSelection
 import dev.maxxing.github.model.FontSourceKind
@@ -80,6 +82,8 @@ import dev.maxxing.github.ui.components.MaxxingDropdownSelector
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.UserAvatar
 import dev.maxxing.github.ui.components.formatSeedColorHex
+import dev.maxxing.github.ui.i18n.AppStrings
+import dev.maxxing.github.ui.i18n.appStrings
 import dev.maxxing.github.ui.theme.MaxxingSeedPresets
 import kotlinx.coroutines.launch
 
@@ -88,16 +92,24 @@ private enum class FontPickerTarget {
     FALLBACK
 }
 
-private enum class DarkModeOption(val label: String, val value: Boolean?) {
-    SYSTEM("System", null),
-    LIGHT("Light", false),
-    DARK("Dark", true)
+private enum class DarkModeOption(val value: Boolean?) {
+    SYSTEM(null),
+    LIGHT(false),
+    DARK(true);
+
+    fun label(strings: AppStrings): String = when (this) {
+        SYSTEM -> strings.appearanceSystem
+        LIGHT -> strings.appearanceLight
+        DARK -> strings.appearanceDark
+    }
 }
 
-private enum class PollIntervalOption(val label: String, val minutes: Int) {
-    ONE("1 min", 1),
-    FIVE("5 min", 5),
-    FIFTEEN("15 min", 15)
+private enum class PollIntervalOption(val minutes: Int) {
+    ONE(1),
+    FIVE(5),
+    FIFTEEN(15);
+
+    fun label(strings: AppStrings): String = strings.pollIntervalMinutes(minutes)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -120,6 +132,7 @@ fun SettingsScreen(
     var linkHandlingState by remember { mutableStateOf(inspectGitHubLinkHandling()) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
+    val strings = appStrings()
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -144,7 +157,7 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
-                text = "Settings & Appearance",
+                text = strings.settingsTitle,
                 style = MaterialTheme.typography.headlineMedium
             )
 
@@ -156,40 +169,45 @@ fun SettingsScreen(
                 ),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
-                    modifier = Modifier
-                        .padding(20.dp)
-                        .clickable(enabled = (profile?.login ?: session?.userLogin)?.isNotBlank() == true) {
-                            val loginTarget = profile?.login ?: session?.userLogin
-                            if (!loginTarget.isNullOrBlank()) onOpenUser(loginTarget)
-                        },
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    UserAvatar(
-                        avatarUrl = profile?.avatarUrl.orEmpty(),
-                        login = profile?.login ?: session?.userLogin ?: "?",
-                        sizeDp = 56
-                    )
-                    Spacer(Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = profile?.name ?: "@${profile?.login ?: session?.userLogin ?: "GitHub User"}",
-                            style = MaterialTheme.typography.titleLarge
+                // The sign-out button sits below the profile so the name column keeps the full width
+                // (a long button label next to it squeezed names into 1–2 characters per line).
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = (profile?.login ?: session?.userLogin)?.isNotBlank() == true) {
+                                val loginTarget = profile?.login ?: session?.userLogin
+                                if (!loginTarget.isNullOrBlank()) onOpenUser(loginTarget)
+                            },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        UserAvatar(
+                            avatarUrl = profile?.avatarUrl.orEmpty(),
+                            login = profile?.login ?: session?.userLogin ?: "?",
+                            sizeDp = 56
                         )
-                        Text(
-                            text = "@${profile?.login ?: session?.userLogin ?: "unknown"} • ${session?.authMethod?.name ?: ""}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        if (!profile?.bio.isNullOrBlank()) {
-                            Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = profile?.bio.orEmpty(),
-                                style = MaterialTheme.typography.bodySmall,
+                                text = profile?.name ?: "@${profile?.login ?: session?.userLogin ?: strings.githubUserFallback}",
+                                style = MaterialTheme.typography.titleLarge
+                            )
+                            Text(
+                                text = "@${profile?.login ?: session?.userLogin ?: strings.unknownUser} • ${session?.authMethod?.let { strings.authMethodLabel(it) } ?: ""}",
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            if (!profile?.bio.isNullOrBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = profile?.bio.orEmpty(),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
+                    Spacer(Modifier.height(12.dp))
                     OutlinedButton(
                         onClick = {
                             scope.launch {
@@ -200,11 +218,12 @@ fun SettingsScreen(
                         },
                         colors = ButtonDefaults.outlinedButtonColors(
                             contentColor = MaterialTheme.colorScheme.error
-                        )
+                        ),
+                        modifier = Modifier.align(Alignment.End)
                     ) {
                         Icon(Lucide.LogOut, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Sign Out")
+                        Text(strings.signOut)
                     }
                 }
             }
@@ -223,7 +242,7 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("GitHub API Rate Limit", style = MaterialTheme.typography.titleMedium)
+                        Text(strings.apiRateLimit, style = MaterialTheme.typography.titleMedium)
                         Text(
                             text = "${rateLimit.remaining} / ${rateLimit.limit}",
                             style = MaterialTheme.typography.labelLarge,
@@ -250,7 +269,7 @@ fun SettingsScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Lucide.Bell, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(10.dp))
-                        Text("GitHub OS Notifications", style = MaterialTheme.typography.titleMedium)
+                        Text(strings.osNotificationsTitle, style = MaterialTheme.typography.titleMedium)
                     }
 
                     Row(
@@ -259,9 +278,9 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Enable OS Alerts", style = MaterialTheme.typography.bodyLarge)
+                            Text(strings.enableOsAlerts, style = MaterialTheme.typography.bodyLarge)
                             Text(
-                                "Android notifications with Mark Read / Done actions & Linux notify-send.",
+                                strings.enableOsAlertsDesc,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -284,9 +303,9 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Urgent Only", style = MaterialTheme.typography.bodyLarge)
+                            Text(strings.urgentOnly, style = MaterialTheme.typography.bodyLarge)
                             Text(
-                                "Only alert for Review Requests, Mentions, Assignments, and Security.",
+                                strings.urgentOnlyDesc,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -313,7 +332,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            "Foreground Sync Interval",
+                            strings.foregroundSyncInterval,
                             style = MaterialTheme.typography.labelLarge,
                             modifier = Modifier.weight(1f)
                         )
@@ -327,7 +346,7 @@ fun SettingsScreen(
                                     )
                                 }
                             },
-                            labelProvider = { it.label }
+                            labelProvider = { it.label(strings) }
                         )
                     }
 
@@ -335,14 +354,14 @@ fun SettingsScreen(
                         onClick = {
                             val sent = PlatformNotifier.showTestNotification()
                             onMessage(
-                                if (sent) "Test notification dispatched"
-                                else "Notifications blocked or notify-send unavailable — check OS permissions"
+                                if (sent) strings.testNotificationSent
+                                else strings.testNotificationBlocked
                             )
                         }
                     ) {
                         Icon(Lucide.Bell, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Send Test Notification")
+                        Text(strings.sendTestNotification)
                     }
                 }
             }
@@ -359,7 +378,7 @@ fun SettingsScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Lucide.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(10.dp))
-                        Text("Material 3 Expressive Theme", style = MaterialTheme.typography.titleMedium)
+                        Text(strings.themeTitle, style = MaterialTheme.typography.titleMedium)
                     }
                     Spacer(Modifier.height(16.dp))
 
@@ -370,7 +389,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            "Appearance",
+                            strings.appearanceLabel,
                             style = MaterialTheme.typography.labelLarge,
                             modifier = Modifier.weight(1f)
                         )
@@ -384,7 +403,7 @@ fun SettingsScreen(
                                     )
                                 }
                             },
-                            labelProvider = { it.label }
+                            labelProvider = { it.label(strings) }
                         )
                     }
 
@@ -397,9 +416,9 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Expressive Seed Accent (SPEC_2025)", style = MaterialTheme.typography.labelLarge)
+                            Text(strings.seedAccentLabel, style = MaterialTheme.typography.labelLarge)
                             Text(
-                                text = "${activePreset?.name ?: "Custom"} · ${formatSeedColorHex(themePrefs.seedColorHex)}",
+                                text = "${activePreset?.name ?: strings.customColorLabel} · ${formatSeedColorHex(themePrefs.seedColorHex)}",
                                 style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -407,7 +426,7 @@ fun SettingsScreen(
                         TextButton(onClick = { showCustomColorPicker = true }) {
                             Icon(Lucide.SlidersHorizontal, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Custom")
+                            Text(strings.customColorLabel)
                         }
                     }
                     Spacer(Modifier.height(10.dp))
@@ -476,7 +495,7 @@ fun SettingsScreen(
                         ) {
                             Icon(
                                 Lucide.SlidersHorizontal,
-                                contentDescription = "Pick custom color",
+                                contentDescription = strings.pickCustomColorDesc,
                                 tint = if (isCustomColorSelected) {
                                     if (customBg.luminance() > 0.45f) Color.Black else Color.White
                                 } else {
@@ -494,9 +513,9 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Android Wallpaper Dynamic Color", style = MaterialTheme.typography.bodyLarge)
+                            Text(strings.dynamicColorTitle, style = MaterialTheme.typography.bodyLarge)
                             Text(
-                                "Uses Material You system palette on Android 12+, falls back to seed on Linux.",
+                                strings.dynamicColorDesc,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -536,7 +555,7 @@ fun SettingsScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Lucide.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(10.dp))
-                        Text("Typography & Fonts", style = MaterialTheme.typography.titleMedium)
+                        Text(strings.fontSectionTitle, style = MaterialTheme.typography.titleMedium)
                     }
 
                     Row(
@@ -545,16 +564,16 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Primary Font", style = MaterialTheme.typography.bodyLarge)
+                            Text(strings.primaryFontLabel, style = MaterialTheme.typography.bodyLarge)
                             Text(
-                                "Used first for Latin text, numbers, and symbols",
+                                strings.primaryFontDesc,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                         FilledTonalButton(onClick = { fontPickerTarget = FontPickerTarget.PRIMARY }) {
                             Text(
-                                text = themePrefs.primaryFont.displayLabel(),
+                                text = strings.fontSelectionLabel(themePrefs.primaryFont),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -570,13 +589,12 @@ fun SettingsScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                "Fallback Font",
+                                strings.fallbackFontLabel,
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = if (supportsFallback) Color.Unspecified else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                if (supportsFallback) "Used for Japanese / CJK and glyphs missing in primary"
-                                else "Requires Android 10 or later",
+                                if (supportsFallback) strings.fallbackFontDesc else strings.fallbackFontRequiresAndroid10,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -586,7 +604,7 @@ fun SettingsScreen(
                             enabled = supportsFallback
                         ) {
                             Text(
-                                text = themePrefs.fallbackFont.displayLabel(),
+                                text = strings.fontSelectionLabel(themePrefs.fallbackFont),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -608,7 +626,7 @@ fun SettingsScreen(
                                 }
                             }
                         ) {
-                            Text("Reset to System Default")
+                            Text(strings.resetFontsToSystemDefault)
                         }
                     }
 
@@ -622,20 +640,63 @@ fun SettingsScreen(
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
-                                text = "Preview",
+                                text = strings.fontPreviewTitle,
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.primary
                             )
                             Text(
-                                text = "The quick brown fox jumps over the lazy dog 0123456789",
+                                text = strings.fontPreviewPrimarySample,
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             Text(
-                                text = "素早い茶色の狐が怠け者の犬を飛び越える — GitHub Pull Request #42",
+                                text = strings.fontPreviewSecondarySample,
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
                         }
+                    }
+                }
+            }
+
+            // Language selector card
+            ElevatedCard(
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Lucide.Languages, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(10.dp))
+                        Text(strings.languageSectionTitle, style = MaterialTheme.typography.titleMedium)
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(strings.languageLabel, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                strings.languageDesc,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        MaxxingDropdownSelector(
+                            options = AppLanguage.entries,
+                            selected = themePrefs.language,
+                            onSelect = { lang ->
+                                scope.launch {
+                                    container.sessionManager.updateThemePreferences(
+                                        themePrefs.copy(language = lang)
+                                    )
+                                }
+                            },
+                            labelProvider = { strings.languageOptionLabel(it) }
+                        )
                     }
                 }
             }
@@ -655,18 +716,18 @@ fun SettingsScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Lucide.Link2, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(10.dp))
-                            Text("GitHub Link Handling", style = MaterialTheme.typography.titleMedium)
+                            Text(strings.linkHandlingTitle, style = MaterialTheme.typography.titleMedium)
                         }
                         val statusSummary = when {
                             linkHandlingState.thisAppHandlesGitHubLinks ->
-                                "github.com links are set to open in github-mobile-maxxing."
+                                strings.linkHandlingEnabledDesc
                             linkHandlingState.officialGitHubInstalled &&
                                 linkHandlingState.officialGitHubHandlesLinks == true ->
-                                "Official GitHub Mobile currently claims github.com links. Disable \"Open supported links\" there first, then enable github.com here."
+                                strings.linkHandlingOfficialClaimsDesc
                             linkHandlingState.officialGitHubInstalled ->
-                                "Official GitHub Mobile is installed. Unlink it if it intercepts github.com links, then enable github.com for this app."
+                                strings.linkHandlingOfficialInstalledDesc
                             else ->
-                                "Enable github.com under Open by default so web links launch directly in this app."
+                                strings.linkHandlingDefaultDesc
                         }
                         Text(
                             text = statusSummary,
@@ -682,19 +743,19 @@ fun SettingsScreen(
                                 OutlinedButton(
                                     onClick = {
                                         if (!openOfficialGitHubAppLinkSettings()) {
-                                            onMessage("Could not open GitHub Mobile app link settings")
+                                            onMessage(strings.failedOpenGitHubMobileLinkSettings)
                                         }
                                     }
                                 ) {
                                     Icon(Lucide.ExternalLink, contentDescription = null, modifier = Modifier.size(15.dp))
                                     Spacer(Modifier.width(6.dp))
-                                    Text("Unlink GitHub Mobile")
+                                    Text(strings.unlinkGitHubMobile)
                                 }
                             }
                             FilledTonalButton(
                                 onClick = {
                                     if (!openThisAppLinkSettings()) {
-                                        onMessage("Could not open app link settings")
+                                        onMessage(strings.failedOpenAppLinkSettings)
                                     }
                                 }
                             ) {
@@ -702,9 +763,9 @@ fun SettingsScreen(
                                 Spacer(Modifier.width(6.dp))
                                 Text(
                                     if (linkHandlingState.thisAppHandlesGitHubLinks) {
-                                        "Manage App Links"
+                                        strings.manageAppLinks
                                     } else {
-                                        "Enable github.com Links"
+                                        strings.enableGitHubLinks
                                     }
                                 )
                             }
@@ -716,7 +777,7 @@ fun SettingsScreen(
             fontPickerTarget?.let { target ->
                 val isPrimary = target == FontPickerTarget.PRIMARY
                 FontPickerDialog(
-                    title = if (isPrimary) "Select Primary Font" else "Select Fallback Font",
+                    title = if (isPrimary) strings.selectPrimaryFontTitle else strings.selectFallbackFontTitle,
                     current = if (isPrimary) themePrefs.primaryFont else themePrefs.fallbackFont,
                     inUseFilePaths = listOf(themePrefs.primaryFont, themePrefs.fallbackFont)
                         .filter { it.kind == FontSourceKind.CUSTOM_FILE }
@@ -749,10 +810,10 @@ fun SettingsScreen(
                                     else latest.copy(fallbackFont = selection)
                                 )
                             }
-                            onMessage("Imported font: ${imported.displayName}")
+                            onMessage(strings.importedFontMessage(imported.displayName))
                             fontPickerTarget = null
                         } else {
-                            onMessage("Failed to import font file")
+                            onMessage(strings.failedImportFont)
                         }
                     },
                     onDeletedImported = { deletedPath ->
@@ -785,7 +846,7 @@ fun SettingsScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Lucide.Shield, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(10.dp))
-                        Text("OAuth Client Configuration", style = MaterialTheme.typography.titleMedium)
+                        Text(strings.oauthConfigTitle, style = MaterialTheme.typography.titleMedium)
                     }
                     Spacer(Modifier.height(12.dp))
                     Row(
@@ -796,7 +857,7 @@ fun SettingsScreen(
                         OutlinedTextField(
                             value = clientIdField,
                             onValueChange = { clientIdField = it },
-                            label = { Text("GitHub OAuth Client ID") },
+                            label = { Text(strings.oauthClientIdLabel) },
                             singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
@@ -804,11 +865,11 @@ fun SettingsScreen(
                             onClick = {
                                 scope.launch {
                                     container.sessionManager.updateClientId(clientIdField)
-                                    onMessage("Saved Client ID")
+                                    onMessage(strings.savedClientId)
                                 }
                             }
                         ) {
-                            Text("Save")
+                            Text(strings.save)
                         }
                     }
                 }

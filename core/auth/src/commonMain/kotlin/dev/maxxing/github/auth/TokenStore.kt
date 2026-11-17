@@ -1,5 +1,6 @@
 package dev.maxxing.github.auth
 
+import dev.maxxing.github.model.AppLanguage
 import dev.maxxing.github.model.AuthSession
 import dev.maxxing.github.model.FontSelection
 import kotlinx.serialization.Serializable
@@ -10,7 +11,8 @@ data class ThemePreferences(
     val useDynamicColor: Boolean = true,
     val darkModeOverride: Boolean? = null,
     val primaryFont: FontSelection = FontSelection.SystemDefault,
-    val fallbackFont: FontSelection = FontSelection.SystemDefault
+    val fallbackFont: FontSelection = FontSelection.SystemDefault,
+    val language: AppLanguage = AppLanguage.DEFAULT
 )
 
 @Serializable

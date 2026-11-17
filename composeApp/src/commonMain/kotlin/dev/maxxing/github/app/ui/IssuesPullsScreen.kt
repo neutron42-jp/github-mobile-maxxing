@@ -29,7 +29,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.layout.AnimatedPane
@@ -70,12 +69,14 @@ import dev.maxxing.github.model.IssueStateFilter
 import dev.maxxing.github.ui.components.ExpressiveStatusPill
 import dev.maxxing.github.ui.components.GitHubLabelChip
 import dev.maxxing.github.ui.components.MaxxingDropdownSelector
+import dev.maxxing.github.ui.components.MaxxingIconLabelTab
 import dev.maxxing.github.ui.components.MaxxingLoadingState
 import dev.maxxing.github.ui.components.MaxxingPredictiveBackContainer
 import dev.maxxing.github.ui.components.MaxxingTopHeaderDefaults
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.UserAvatar
 import dev.maxxing.github.ui.components.expressiveAnimateContentSize
+import dev.maxxing.github.ui.i18n.appStrings
 import kotlinx.coroutines.launch
 
 @OptIn(
@@ -90,6 +91,7 @@ fun IssuesPullsScreen(
 ) {
     val navigator = rememberListDetailPaneScaffoldNavigator<IssuePullTarget>()
     val scope = rememberCoroutineScope()
+    val strings = appStrings()
     val profile by container.viewerProfile.collectAsState()
     val session by container.sessionManager.session.collectAsState()
     val issueStateRevision by container.repository.issueStateRevision.collectAsState()
@@ -138,7 +140,7 @@ fun IssuesPullsScreen(
                 }
                 .onFailure {
                     if (seq != requestSeq) return@onFailure
-                    val msg = it.message ?: "Failed to load issues and PRs"
+                    val msg = strings.errorMessage(it, strings.failedLoadIssuesAndPrs)
                     errorMsg = msg
                     isLoading = false
                     isRefreshing = false
@@ -198,7 +200,7 @@ fun IssuesPullsScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = "Issues & PRs",
+                                text = strings.issuesAndPrsTitle,
                                 style = if (headerTracker.isCollapsed) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium,
                                 maxLines = 1,
                                 modifier = Modifier.weight(1f)
@@ -207,17 +209,10 @@ fun IssuesPullsScreen(
                                 options = IssueFilterPreset.entries,
                                 selected = preset,
                                 onSelect = { preset = it },
-                                labelProvider = {
-                                    when (it) {
-                                        IssueFilterPreset.CREATED -> "Created"
-                                        IssueFilterPreset.ASSIGNED -> "Assigned"
-                                        IssueFilterPreset.REVIEW_REQUESTED -> "Reviews"
-                                        IssueFilterPreset.MENTIONED -> "Mentioned"
-                                    }
-                                }
+                                labelProvider = { strings.issueFilterPresetLabel(it) }
                             )
                             IconButton(onClick = { loadItems(forceRefresh = true) }) {
-                                Icon(Lucide.RefreshCw, contentDescription = "Refresh", modifier = Modifier.size(18.dp))
+                                Icon(Lucide.RefreshCw, contentDescription = strings.refresh, modifier = Modifier.size(18.dp))
                             }
                         }
 
@@ -234,18 +229,11 @@ fun IssuesPullsScreen(
                                             IssueStateFilter.CLOSED -> Lucide.CircleCheck
                                             IssueStateFilter.ALL -> Lucide.Layers
                                         }
-                                        Tab(
+                                        MaxxingIconLabelTab(
                                             selected = stateFilter == sf,
                                             onClick = { stateFilter = sf },
-                                            text = {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                                ) {
-                                                    Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
-                                                    Text(sf.label, maxLines = 1, softWrap = false)
-                                                }
-                                            }
+                                            icon = icon,
+                                            label = strings.issueStateFilterLabel(sf)
                                         )
                                     }
                                 }
@@ -266,7 +254,7 @@ fun IssuesPullsScreen(
                         when {
                             isLoading && items.isEmpty() -> {
                                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    MaxxingLoadingState(message = "Fetching your issues & PRs...")
+                                    MaxxingLoadingState(message = strings.fetchingIssuesAndPrs)
                                 }
                             }
 
@@ -279,7 +267,7 @@ fun IssuesPullsScreen(
                                     Text(errorMsg!!, color = MaterialTheme.colorScheme.error)
                                     Spacer(Modifier.height(10.dp))
                                     FilledTonalButton(onClick = { loadItems(forceRefresh = true) }) {
-                                        Text("Retry")
+                                        Text(strings.retry)
                                     }
                                 }
                             }
@@ -298,12 +286,12 @@ fun IssuesPullsScreen(
                                     )
                                     Spacer(Modifier.height(12.dp))
                                     Text(
-                                        text = "No ${stateFilter.label} Issues or PRs",
+                                        text = strings.noIssuesOrPrsTitle(stateFilter),
                                         style = MaterialTheme.typography.titleLarge
                                     )
                                     Spacer(Modifier.height(6.dp))
                                     Text(
-                                        text = "There are no ${stateFilter.label.lowercase()} items for '${preset.name.lowercase().replace('_', ' ')}'.",
+                                        text = strings.noIssuesOrPrsBody(stateFilter, preset),
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -365,7 +353,7 @@ fun IssuesPullsScreen(
                 } else {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            text = "Select an Issue or Pull Request",
+                            text = strings.selectIssueOrPr,
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -384,6 +372,7 @@ fun IssuePullSummaryCard(
     selected: Boolean = false,
     onClick: () -> Unit
 ) {
+    val strings = appStrings()
     val stateColor = when {
         item.isDraft -> MaterialTheme.colorScheme.onSurfaceVariant
         item.state == IssueOrPullState.OPEN -> Color(0xFF16A34A)
@@ -434,7 +423,7 @@ fun IssuePullSummaryCard(
                         else -> Color(0xFFD97706)
                     }
                     ExpressiveStatusPill(
-                        label = rollup.state,
+                        label = strings.formatCheckRollupState(rollup.state),
                         containerColor = ciColor.copy(alpha = 0.16f),
                         contentColor = MaterialTheme.colorScheme.onSurface
                     )

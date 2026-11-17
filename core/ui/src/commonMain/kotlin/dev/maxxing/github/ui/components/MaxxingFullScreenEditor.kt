@@ -44,6 +44,8 @@ import com.composables.icons.lucide.Eye
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Pencil
 import com.composables.icons.lucide.X
+import dev.maxxing.github.ui.i18n.AppStrings
+import dev.maxxing.github.ui.i18n.appStrings
 
 data class EditorTextMetrics(
     val lines: Int,
@@ -58,11 +60,9 @@ fun measureEditorText(text: String): EditorTextMetrics {
     )
 }
 
-fun formatEditorMetrics(text: String): String {
+fun formatEditorMetrics(text: String, strings: AppStrings): String {
     val metrics = measureEditorText(text)
-    val lineUnit = if (metrics.lines == 1) "line" else "lines"
-    val charUnit = if (metrics.characters == 1) "char" else "chars"
-    return "${metrics.lines} $lineUnit · ${metrics.characters} $charUnit"
+    return strings.formatEditorMetricsLabel(metrics.lines, metrics.characters)
 }
 
 /**
@@ -94,6 +94,7 @@ fun MaxxingFullScreenEditorScaffold(
         mutableStateOf(initiallyMetadataExpanded)
     }
     var isPreviewMode by remember { mutableStateOf(false) }
+    val strings = appStrings()
 
     MaxxingPredictiveBackContainer(
         enabled = true,
@@ -114,7 +115,7 @@ fun MaxxingFullScreenEditorScaffold(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(enabled = !isSubmitting, onClick = onDismiss) {
-                            Icon(Lucide.X, contentDescription = "Close editor")
+                            Icon(Lucide.X, contentDescription = strings.closeEditor)
                         }
                         Column(modifier = Modifier.weight(1f).padding(horizontal = 4.dp)) {
                             Text(
@@ -144,7 +145,7 @@ fun MaxxingFullScreenEditorScaffold(
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(Modifier.width(4.dp))
-                                Text(if (isPreviewMode) "Write" else "Preview", maxLines = 1, softWrap = false)
+                                Text(if (isPreviewMode) strings.writeMode else strings.previewMode, maxLines = 1, softWrap = false)
                             }
                         }
                         Spacer(Modifier.width(4.dp))
@@ -195,7 +196,7 @@ fun MaxxingFullScreenEditorScaffold(
                         )
                         Icon(
                             imageVector = if (metadataExpanded) Lucide.ChevronUp else Lucide.ChevronDown,
-                            contentDescription = if (metadataExpanded) "Collapse details" else "Expand details",
+                            contentDescription = if (metadataExpanded) strings.collapseDetails else strings.expandDetails,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp)
                         )
@@ -225,7 +226,7 @@ fun MaxxingFullScreenEditorScaffold(
                 ) {
                     if (bodyValue.isBlank()) {
                         Text(
-                            text = "Nothing to preview yet.",
+                            text = strings.nothingToPreview,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -261,13 +262,13 @@ fun MaxxingFullScreenEditorScaffold(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = formatEditorMetrics(bodyValue),
+                        text = formatEditorMetrics(bodyValue, strings),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f)
                     )
                     Text(
-                        text = if (useMonospace) "Monospace code" else "Markdown supported",
+                        text = if (useMonospace) strings.monospaceCodeHint else strings.markdownSupportedHint,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

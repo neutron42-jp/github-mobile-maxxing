@@ -23,10 +23,12 @@ import androidx.work.WorkerParameters
 import dev.maxxing.github.auth.AndroidAuthContextHolder
 import dev.maxxing.github.auth.SessionManager
 import dev.maxxing.github.model.AppBranding
-import dev.maxxing.github.model.NotificationReason
+import dev.maxxing.github.model.AppLanguage
 import dev.maxxing.github.model.NotificationThread
 import dev.maxxing.github.network.GitHubRepository
 import dev.maxxing.github.network.NotificationMonitor
+import dev.maxxing.github.ui.i18n.AppStrings
+import dev.maxxing.github.ui.i18n.stringsFor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -42,24 +44,37 @@ private const val EXTRA_THREAD_ID = "thread_id"
 private const val EXTRA_NOTIF_ID = "notif_id"
 
 actual object PlatformNotifier {
+    @Volatile
+    private var currentLanguage: AppLanguage = AppLanguage.DEFAULT
+
+    private fun currentStrings(): AppStrings = stringsFor(currentLanguage)
+
+    actual fun updateLanguage(language: AppLanguage) {
+        if (currentLanguage != language) {
+            currentLanguage = language
+            ensureInitialized()
+        }
+    }
+
     actual fun ensureInitialized() {
         val context = runCatching { AndroidAuthContextHolder.requireContext() }.getOrNull() ?: return
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val strings = currentStrings()
 
         val urgentChannel = NotificationChannel(
             CHANNEL_URGENT,
-            "Mentions & Review Requests",
+            strings.osNotifUrgentChannelName,
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "High-priority GitHub mentions, review requests, and assignments."
+            description = strings.osNotifUrgentChannelDesc
         }
 
         val activityChannel = NotificationChannel(
             CHANNEL_ACTIVITY,
-            "Repository Activity",
+            strings.osNotifActivityChannelName,
             NotificationManager.IMPORTANCE_DEFAULT
         ).apply {
-            description = "General GitHub repository updates and subscribed threads."
+            description = strings.osNotifActivityChannelDesc
         }
 
         manager.createNotificationChannel(urgentChannel)
@@ -72,6 +87,7 @@ actual object PlatformNotifier {
         if (!hasNotificationPermission(context)) return
         ensureInitialized()
 
+        val strings = currentStrings()
         val nm = NotificationManagerCompat.from(context)
         threads.take(6).forEach { thread ->
             val notifId = thread.id.hashCode()
@@ -82,7 +98,7 @@ actual object PlatformNotifier {
             val markReadIntent = buildActionIntent(context, ACTION_MARK_READ, thread.id, notifId)
             val markDoneIntent = buildActionIntent(context, ACTION_MARK_DONE, thread.id, notifId)
 
-            val reasonLabel = thread.reason.name.lowercase().replace('_', ' ')
+            val reasonLabel = strings.notificationReasonLabel(thread.reason)
             val notification = NotificationCompat.Builder(context, channelId)
                 .setSmallIcon(android.R.drawable.ic_dialog_email)
                 .setContentTitle("${thread.repoFullName} • $reasonLabel")
@@ -93,8 +109,8 @@ actual object PlatformNotifier {
                     if (isUrgent) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT
                 )
                 .setContentIntent(contentIntent)
-                .addAction(0, "Mark Read", markReadIntent)
-                .addAction(0, "Done", markDoneIntent)
+                .addAction(0, strings.osNotifMarkReadAction, markReadIntent)
+                .addAction(0, strings.doneAction, markDoneIntent)
                 .build()
 
             nm.notify(notifId, notification)
@@ -105,6 +121,7 @@ actual object PlatformNotifier {
         val context = runCatching { AndroidAuthContextHolder.requireContext() }.getOrNull() ?: return false
         if (!hasNotificationPermission(context)) return false
         ensureInitialized()
+        val strings = currentStrings()
 
         val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
         val pendingIntent = launchIntent?.let {
@@ -118,8 +135,8 @@ actual object PlatformNotifier {
 
         val notification = NotificationCompat.Builder(context, CHANNEL_URGENT)
             .setSmallIcon(android.R.drawable.ic_dialog_email)
-            .setContentTitle("${AppBranding.APP_NAME} Notifications Ready")
-            .setContentText("New mentions & review requests will appear here with Mark Read / Done actions.")
+            .setContentTitle(strings.osNotifTestReadyTitle(AppBranding.APP_NAME))
+            .setContentText(strings.osNotifTestReadyBody)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .apply { if (pendingIntent != null) setContentIntent(pendingIntent) }
@@ -211,6 +228,7 @@ class NotificationSyncWorker(
         AndroidAuthContextHolder.init(applicationContext)
         val sessionManager = SessionManager()
         sessionManager.initialize()
+        PlatformNotifier.updateLanguage(sessionManager.themePreferences.value.language)
         if (sessionManager.session.value == null) return Result.success()
         if (!sessionManager.notificationPreferences.value.osNotificationsEnabled) return Result.success()
 

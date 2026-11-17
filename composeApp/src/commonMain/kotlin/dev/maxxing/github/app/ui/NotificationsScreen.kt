@@ -91,20 +91,36 @@ import dev.maxxing.github.ui.components.MaxxingTopHeaderDefaults
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.UserAvatar
 import dev.maxxing.github.ui.components.expressiveAnimateContentSize
+import dev.maxxing.github.ui.i18n.AppStrings
+import dev.maxxing.github.ui.i18n.appStrings
 import kotlinx.coroutines.launch
 
-private enum class InboxFilter(val label: String) {
-    UNREAD("Unread"),
-    PARTICIPATING("Participating"),
-    ALL("All")
+private enum class InboxFilter {
+    UNREAD,
+    PARTICIPATING,
+    ALL;
+
+    fun localizedLabel(strings: AppStrings): String = when (this) {
+        UNREAD -> strings.inboxFilterUnread
+        PARTICIPATING -> strings.inboxFilterParticipating
+        ALL -> strings.inboxFilterAll
+    }
 }
 
-internal enum class ReasonFilter(val label: String) {
-    ALL("All Reasons"),
-    REVIEWS("Review Req"),
-    MENTIONS("Mentions"),
-    ASSIGNED("Assigned"),
-    CI("CI")
+internal enum class ReasonFilter {
+    ALL,
+    REVIEWS,
+    MENTIONS,
+    ASSIGNED,
+    CI;
+
+    fun localizedLabel(strings: AppStrings): String = when (this) {
+        ALL -> strings.reasonAll
+        REVIEWS -> strings.reasonReviews
+        MENTIONS -> strings.reasonMentions
+        ASSIGNED -> strings.reasonAssigned
+        CI -> strings.reasonCi
+    }
 }
 
 @OptIn(
@@ -121,6 +137,7 @@ fun NotificationsScreen(
 ) {
     val navigator = rememberListDetailPaneScaffoldNavigator<String>()
     val scope = rememberCoroutineScope()
+    val strings = appStrings()
 
     var selectedIssueTargets by remember { mutableStateOf<Map<String, IssuePullTarget>>(emptyMap()) }
     var selectedThreads by remember { mutableStateOf<Map<String, NotificationThread>>(emptyMap()) }
@@ -217,14 +234,14 @@ fun NotificationsScreen(
                         isRefreshing = false
                         if (showRefreshFeedback) {
                             onMessage(
-                                if (check.allUnread.isEmpty()) "Inbox is up to date (0 unread)"
-                                else "Synced ${check.allUnread.size} unread notifications"
+                                if (check.allUnread.isEmpty()) strings.inboxUpToDate
+                                else strings.syncedUnreadCount(check.allUnread.size)
                             )
                         }
                     }
                     .onFailure {
                         if (seq != requestSeq) return@onFailure
-                        val msg = it.message ?: "Failed to load notifications"
+                        val msg = strings.errorMessage(it, strings.failedLoadNotifications)
                         errorMsg = msg
                         isLoading = false
                         isRefreshing = false
@@ -249,11 +266,11 @@ fun NotificationsScreen(
                     isLoading = false
                     isRefreshing = false
                     if (showRefreshFeedback) {
-                        onMessage("Synced ${loaded.size} notifications")
+                        onMessage(strings.syncedCount(loaded.size))
                     }
                 }.onFailure {
                     if (seq != requestSeq) return@onFailure
-                    val msg = it.message ?: "Failed to load notifications"
+                    val msg = strings.errorMessage(it, strings.failedLoadNotifications)
                     errorMsg = msg
                     isLoading = false
                     isRefreshing = false
@@ -335,7 +352,7 @@ fun NotificationsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Inbox",
+                                    text = strings.inboxTitle,
                                     style = if (showExpandedHeader) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleLarge,
                                     maxLines = 1,
                                     modifier = Modifier.weight(1f)
@@ -344,10 +361,10 @@ fun NotificationsScreen(
                                     options = InboxFilter.entries,
                                     selected = filter,
                                     onSelect = { filter = it },
-                                    labelProvider = { it.label }
+                                    labelProvider = { it.localizedLabel(strings) }
                                 )
                                 IconButton(onClick = { loadNotifications(forceRefresh = true, showRefreshFeedback = true) }) {
-                                    Icon(Lucide.RefreshCw, contentDescription = "Refresh", modifier = Modifier.size(18.dp))
+                                    Icon(Lucide.RefreshCw, contentDescription = strings.refresh, modifier = Modifier.size(18.dp))
                                 }
                             }
 
@@ -376,7 +393,7 @@ fun NotificationsScreen(
                                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                                     ) {
                                                         Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
-                                                        Text(rf.label, maxLines = 1, softWrap = false)
+                                                        Text(rf.localizedLabel(strings), maxLines = 1, softWrap = false)
                                                     }
                                                 }
                                             )
@@ -406,7 +423,7 @@ fun NotificationsScreen(
                                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                                 Text(
-                                                    text = "Filter by repo or title...",
+                                                    text = strings.filterNotificationsPlaceholder,
                                                     style = MaterialTheme.typography.bodyLarge,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     maxLines = 1,
@@ -430,7 +447,7 @@ fun NotificationsScreen(
                                         OutlinedTextField(
                                             value = searchQuery,
                                             onValueChange = { searchQuery = it },
-                                            placeholder = { Text("Filter by repo or title...") },
+                                            placeholder = { Text(strings.filterNotificationsPlaceholder) },
                                             leadingIcon = { Icon(Lucide.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
                                             suffix = {
                                                 Text(
@@ -447,7 +464,7 @@ fun NotificationsScreen(
                                                         isFilterInputActive = false
                                                     }
                                                 ) {
-                                                    Icon(Lucide.X, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+                                                    Icon(Lucide.X, contentDescription = strings.clear, modifier = Modifier.size(16.dp))
                                                 }
                                             },
                                             singleLine = true,
@@ -480,7 +497,7 @@ fun NotificationsScreen(
                             when {
                                 isLoading && threads.isEmpty() -> {
                                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        MaxxingLoadingState(message = "Syncing notifications...")
+                                        MaxxingLoadingState(message = strings.syncingNotifications)
                                     }
                                 }
 
@@ -507,13 +524,13 @@ fun NotificationsScreen(
                                             tint = MaterialTheme.colorScheme.primary
                                         )
                                         Spacer(Modifier.height(12.dp))
-                                        Text("Inbox Zero!", style = MaterialTheme.typography.headlineSmall)
+                                        Text(strings.inboxZeroTitle, style = MaterialTheme.typography.headlineSmall)
                                         Spacer(Modifier.height(4.dp))
                                         Text(
                                             text = if (filter == InboxFilter.UNREAD) {
-                                                "No unread notifications. Check 'All' for already-read threads or tap Refresh."
+                                                strings.inboxZeroUnreadHint
                                             } else {
-                                                "No notifications matching '${filter.label}'."
+                                                strings.inboxZeroFilteredHint(filter.localizedLabel(strings))
                                             },
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -539,7 +556,7 @@ fun NotificationsScreen(
                                                     container.updateUnreadCount(threads.count { it.unread })
                                                     scope.launch {
                                                         container.repository.markNotificationDone(thread.id)
-                                                            .onSuccess { onMessage("Marked done") }
+                                                            .onSuccess { onMessage(strings.markedDone) }
                                                             .onFailure { loadNotifications() }
                                                     }
                                                     true
@@ -559,7 +576,7 @@ fun NotificationsScreen(
                                                 ) {
                                                     Icon(
                                                         Lucide.Check,
-                                                        contentDescription = "Done",
+                                                        contentDescription = strings.doneAction,
                                                         tint = MaterialTheme.colorScheme.primary
                                                     )
                                                 }
@@ -629,7 +646,7 @@ fun NotificationsScreen(
                             .padding(16.dp)
                     ) {
                         FilledTonalIconButton(onClick = { loadNotifications(forceRefresh = true, showRefreshFeedback = true) }) {
-                            Icon(Lucide.RefreshCw, contentDescription = "Refresh")
+                            Icon(Lucide.RefreshCw, contentDescription = strings.refresh)
                         }
                         Spacer(Modifier.width(6.dp))
                         FilledTonalIconButton(
@@ -637,14 +654,14 @@ fun NotificationsScreen(
                                 scope.launch {
                                     container.repository.markAllNotificationsRead()
                                         .onSuccess {
-                                            onMessage("All notifications marked read")
+                                            onMessage(strings.allNotificationsMarkedRead)
                                             loadNotifications(forceRefresh = true)
                                         }
-                                        .onFailure { onMessage(it.message ?: "Failed") }
+                                        .onFailure { onMessage(strings.errorMessage(it, strings.markAllReadFailed)) }
                                 }
                             }
                         ) {
-                            Icon(Lucide.CheckCheck, contentDescription = "Mark all read")
+                            Icon(Lucide.CheckCheck, contentDescription = strings.markAllReadAction)
                         }
                     }
                 }
@@ -690,7 +707,7 @@ fun NotificationsScreen(
                                 )
                                 Spacer(Modifier.height(10.dp))
                                 Text(
-                                    text = "Select a notification to triage",
+                                    text = strings.selectNotificationToTriage,
                                     style = MaterialTheme.typography.titleMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -770,7 +787,7 @@ private fun NotificationThreadCard(
                         modifier = Modifier.weight(1f)
                     )
                     ExpressiveStatusPill(
-                        label = thread.reason.name.lowercase().replace('_', ' '),
+                        label = appStrings().notificationReasonLabel(thread.reason),
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,
                         contentColor = MaterialTheme.colorScheme.onSecondaryContainer
                     )
@@ -787,7 +804,7 @@ private fun NotificationThreadCard(
             IconButton(onClick = onMarkDone, modifier = Modifier.size(32.dp)) {
                 Icon(
                     Lucide.Check,
-                    contentDescription = "Mark done",
+                    contentDescription = appStrings().markDoneAction,
                     modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.primary
                 )

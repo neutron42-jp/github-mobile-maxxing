@@ -16,10 +16,10 @@ enum class IssueOrPullState {
 }
 
 @Serializable
-enum class IssueStateFilter(val label: String) {
-    OPEN("Open"),
-    CLOSED("Closed"),
-    ALL("All")
+enum class IssueStateFilter {
+    OPEN,
+    CLOSED,
+    ALL
 }
 
 @Serializable
@@ -31,17 +31,17 @@ enum class IssueFilterPreset {
 }
 
 @Serializable
-enum class MergeMethod(val apiValue: String, val displayLabel: String) {
-    SQUASH("squash", "Squash and merge"),
-    MERGE("merge", "Create a merge commit"),
-    REBASE("rebase", "Rebase and merge")
+enum class MergeMethod(val apiValue: String) {
+    SQUASH("squash"),
+    MERGE("merge"),
+    REBASE("rebase")
 }
 
 @Serializable
-enum class ReviewEvent(val apiValue: String, val displayLabel: String) {
-    APPROVE("APPROVE", "Approve"),
-    REQUEST_CHANGES("REQUEST_CHANGES", "Request changes"),
-    COMMENT("COMMENT", "Comment")
+enum class ReviewEvent(val apiValue: String) {
+    APPROVE("APPROVE"),
+    REQUEST_CHANGES("REQUEST_CHANGES"),
+    COMMENT("COMMENT")
 }
 
 @Serializable

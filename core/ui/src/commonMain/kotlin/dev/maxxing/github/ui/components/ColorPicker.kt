@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import dev.maxxing.github.ui.i18n.appStrings
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -122,6 +123,7 @@ fun MaxxingColorPickerDialog(
 
     val currentColorHex = remember(hue, saturation, value) { hsvToColorHex(hue, saturation, value) }
     val currentColor = Color(currentColorHex)
+    val strings = appStrings()
 
     fun syncHexFromHsv(nextH: Float, nextS: Float, nextV: Float) {
         hue = nextH
@@ -133,7 +135,7 @@ fun MaxxingColorPickerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Custom Accent Color") },
+        title = { Text(strings.customAccentColorTitle) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(
@@ -170,7 +172,7 @@ fun MaxxingColorPickerDialog(
                                 hexError = raw.trim().removePrefix("#").isNotEmpty()
                             }
                         },
-                        label = { Text("Hex (#RRGGBB)") },
+                        label = { Text(strings.hexColorLabel) },
                         isError = hexError,
                         singleLine = true,
                         textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
@@ -274,12 +276,12 @@ fun MaxxingColorPickerDialog(
                     onSelectColor(chosen)
                 }
             ) {
-                Text("Apply")
+                Text(strings.apply)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(strings.cancel)
             }
         }
     )

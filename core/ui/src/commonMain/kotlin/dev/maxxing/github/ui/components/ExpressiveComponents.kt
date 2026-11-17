@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -41,6 +42,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SplitButtonDefaults
 import androidx.compose.material3.SplitButtonLayout
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -78,11 +80,43 @@ import com.composables.icons.lucide.Star
 import com.composables.icons.lucide.UserCheck
 import com.composables.icons.lucide.UserPlus
 import dev.maxxing.github.model.LabelTag
+import dev.maxxing.github.ui.i18n.appStrings
+
+/**
+ * Tab with a leading icon and a one-line label. The side padding (8dp) and icon gap (4dp) are tighter than
+ * the stock text tab (16dp / 6dp) so that three such tabs fit a 360dp-wide screen even with enlarged system
+ * font sizes; a label that still does not fit ends with an ellipsis instead of being cut mid-character.
+ */
+@Composable
+fun MaxxingIconLabelTab(
+    selected: Boolean,
+    onClick: () -> Unit,
+    icon: ImageVector,
+    label: String,
+    modifier: Modifier = Modifier
+) {
+    Tab(selected = selected, onClick = onClick, modifier = modifier) {
+        Row(
+            modifier = Modifier.heightIn(min = 48.dp).padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun MaxxingLoadingState(
-    message: String = "Loading...",
+    message: String = appStrings().loading,
     modifier: Modifier = Modifier,
     contained: Boolean = true
 ) {
@@ -208,6 +242,7 @@ fun <T> MaxxingDropdownSelector(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selectedIcon = iconProvider?.invoke(selected)
+    val strings = appStrings()
     Box(modifier = modifier) {
         FilledTonalButton(
             onClick = { expanded = true },
@@ -223,7 +258,7 @@ fun <T> MaxxingDropdownSelector(
                 softWrap = false
             )
             Spacer(Modifier.width(4.dp))
-            Icon(Lucide.ChevronDown, contentDescription = "Select option", modifier = Modifier.size(15.dp))
+            Icon(Lucide.ChevronDown, contentDescription = strings.selectOption, modifier = Modifier.size(15.dp))
         }
         DropdownMenu(
             expanded = expanded,
@@ -238,7 +273,7 @@ fun <T> MaxxingDropdownSelector(
                     },
                     text = { Text(labelProvider(option), maxLines = 1, softWrap = false) },
                     trailingIcon = if (isSelected) {
-                        { Icon(Lucide.Check, contentDescription = "Selected", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary) }
+                        { Icon(Lucide.Check, contentDescription = strings.selectedOption, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary) }
                     } else null,
                     onClick = {
                         expanded = false
@@ -298,7 +333,7 @@ fun <T> MaxxingSplitActionButton(
                 ) {
                     Icon(
                         imageVector = Lucide.ChevronDown,
-                        contentDescription = "Select option",
+                        contentDescription = appStrings().selectOption,
                         modifier = Modifier
                             .size(SplitButtonDefaults.TrailingIconSize)
                             .graphicsLayer { rotationZ = chevronRotation }
@@ -453,6 +488,7 @@ fun StarActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val strings = appStrings()
     val isLight = MaterialTheme.colorScheme.surface.luminance() > 0.5f
     val countSuffix = count?.let { " ${formatCompactCount(it)}" }.orEmpty()
     if (isStarred) {
@@ -472,13 +508,13 @@ fun StarActionButton(
         ) {
             Icon(
                 imageVector = MaxxingFilledIcons.Star,
-                contentDescription = "Starred",
+                contentDescription = strings.starred,
                 tint = starTint,
                 modifier = Modifier.size(16.dp)
             )
             Spacer(Modifier.width(5.dp))
             Text(
-                text = "Starred$countSuffix",
+                text = "${strings.starred}$countSuffix",
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 softWrap = false
@@ -494,12 +530,12 @@ fun StarActionButton(
         ) {
             Icon(
                 imageVector = Lucide.Star,
-                contentDescription = "Star",
+                contentDescription = strings.star,
                 modifier = Modifier.size(16.dp)
             )
             Spacer(Modifier.width(5.dp))
             Text(
-                text = "Star$countSuffix",
+                text = "${strings.star}$countSuffix",
                 maxLines = 1,
                 softWrap = false
             )
@@ -517,6 +553,7 @@ fun FollowActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val strings = appStrings()
     if (isFollowing) {
         OutlinedButton(
             onClick = onClick,
@@ -526,7 +563,7 @@ fun FollowActionButton(
         ) {
             Icon(Lucide.UserCheck, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
-            Text("Following", maxLines = 1, softWrap = false)
+            Text(strings.followingLabel, maxLines = 1, softWrap = false)
         }
     } else {
         Button(
@@ -537,7 +574,7 @@ fun FollowActionButton(
         ) {
             Icon(Lucide.UserPlus, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
-            Text("Follow", maxLines = 1, softWrap = false)
+            Text(strings.follow, maxLines = 1, softWrap = false)
         }
     }
 }
@@ -579,7 +616,7 @@ fun RepoLabelsPickerDialog(
     onToggleLabel: (String, Boolean) -> Unit,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
-    confirmLabel: String = "Save",
+    confirmLabel: String = appStrings().save,
     isLoading: Boolean = false,
     isBusy: Boolean = false,
     canCreateLabel: Boolean = true,
@@ -587,6 +624,7 @@ fun RepoLabelsPickerDialog(
     onNewLabelNameChange: (String) -> Unit = {},
     onCreateLabel: ((String) -> Unit)? = null
 ) {
+    val strings = appStrings()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -597,10 +635,10 @@ fun RepoLabelsPickerDialog(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     if (isLoading && availableLabels.isEmpty()) {
-                        MaxxingLoadingState(message = "Loading labels...")
+                        MaxxingLoadingState(message = strings.loadingLabels)
                     } else if (availableLabels.isEmpty()) {
                         Text(
-                            "No labels found in repository.",
+                            strings.issueNoLabels,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -630,7 +668,7 @@ fun RepoLabelsPickerDialog(
                         OutlinedTextField(
                             value = newLabelName,
                             onValueChange = onNewLabelNameChange,
-                            label = { Text("New label") },
+                            label = { Text(strings.issueNewLabel) },
                             singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
@@ -638,7 +676,7 @@ fun RepoLabelsPickerDialog(
                             enabled = newLabelName.isNotBlank() && !isBusy,
                             onClick = { onCreateLabel(newLabelName.trim()) }
                         ) {
-                            Icon(Lucide.Plus, contentDescription = "Create label")
+                            Icon(Lucide.Plus, contentDescription = strings.createLabelAction)
                         }
                     }
                 }
@@ -653,7 +691,7 @@ fun RepoLabelsPickerDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(strings.cancel) }
         }
     )
 }

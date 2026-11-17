@@ -9,6 +9,7 @@ import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
@@ -19,6 +20,9 @@ import androidx.compose.ui.unit.sp
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamiccolor.ColorSpec
 import com.materialkolor.rememberDynamicColorScheme
+import dev.maxxing.github.model.AppLanguage
+import dev.maxxing.github.ui.i18n.LocalAppStrings
+import dev.maxxing.github.ui.i18n.stringsFor
 
 data class SeedPreset(
     val name: String,
@@ -148,6 +152,7 @@ fun MaxxingTheme(
     useDynamicColor: Boolean = true,
     darkThemeOverride: Boolean? = null,
     fontFamilyOverride: FontFamily? = null,
+    language: AppLanguage = AppLanguage.DEFAULT,
     content: @Composable () -> Unit
 ) {
     val darkTheme = darkThemeOverride ?: isSystemInDarkTheme()
@@ -162,12 +167,17 @@ fun MaxxingTheme(
     val typography = remember(fontFamilyOverride) {
         buildMaxxingTypography(fontFamilyOverride)
     }
+    val strings = remember(language) {
+        stringsFor(language)
+    }
 
-    MaterialExpressiveTheme(
-        colorScheme = colorScheme,
-        motionScheme = MotionScheme.expressive(),
-        shapes = MaxxingShapes,
-        typography = typography,
-        content = content
-    )
+    CompositionLocalProvider(LocalAppStrings provides strings) {
+        MaterialExpressiveTheme(
+            colorScheme = colorScheme,
+            motionScheme = MotionScheme.expressive(),
+            shapes = MaxxingShapes,
+            typography = typography,
+            content = content
+        )
+    }
 }

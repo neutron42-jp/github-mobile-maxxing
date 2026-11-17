@@ -4,6 +4,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import dev.maxxing.github.model.FontSelection
 import dev.maxxing.github.model.FontSourceKind
+import dev.maxxing.github.ui.i18n.EnglishStrings
+import dev.maxxing.github.ui.i18n.JapaneseStrings
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -65,31 +67,49 @@ class MaxxingThemeCustomizationTest {
     }
 
     @Test
-    fun fontSelectionDisplayLabelsFormatAllSourceKinds() {
-        assertEquals("System Default", FontSelection.SystemDefault.displayLabel())
-        assertEquals("Sans-serif", FontSelection.SansSerif.displayLabel())
-        assertEquals("Serif", FontSelection.Serif.displayLabel())
-        assertEquals("Monospace", FontSelection.Monospace.displayLabel())
+    fun fontSelectionLabelsFormatAllSourceKindsInBothLanguages() {
+        assertEquals("System Default", EnglishStrings.fontSelectionLabel(FontSelection.SystemDefault))
+        assertEquals("Sans-serif", EnglishStrings.fontSelectionLabel(FontSelection.SansSerif))
+        assertEquals("Serif", EnglishStrings.fontSelectionLabel(FontSelection.Serif))
+        assertEquals("Monospace", EnglishStrings.fontSelectionLabel(FontSelection.Monospace))
+        assertEquals("システム標準", JapaneseStrings.fontSelectionLabel(FontSelection.SystemDefault))
+        assertEquals("サンセリフ", JapaneseStrings.fontSelectionLabel(FontSelection.SansSerif))
+        assertEquals("セリフ", JapaneseStrings.fontSelectionLabel(FontSelection.Serif))
+        assertEquals("等幅", JapaneseStrings.fontSelectionLabel(FontSelection.Monospace))
 
         val systemFont = FontSelection(
             kind = FontSourceKind.SYSTEM_FAMILY,
             value = "Roboto",
             displayName = ""
         )
-        assertEquals("Roboto", systemFont.displayLabel())
+        assertEquals("Roboto", EnglishStrings.fontSelectionLabel(systemFont))
+        assertEquals("Roboto", JapaneseStrings.fontSelectionLabel(systemFont))
+        assertEquals(
+            "System Default",
+            EnglishStrings.fontSelectionLabel(FontSelection(FontSourceKind.SYSTEM_FAMILY))
+        )
 
         val customPathOnly = FontSelection(
             kind = FontSourceKind.CUSTOM_FILE,
             value = "/tmp/fonts/MyCustomFont.otf",
             displayName = ""
         )
-        assertEquals("MyCustomFont.otf", customPathOnly.displayLabel())
+        assertEquals("MyCustomFont.otf", EnglishStrings.fontSelectionLabel(customPathOnly))
 
         val customWithName = FontSelection(
             kind = FontSourceKind.CUSTOM_FILE,
             value = "/tmp/fonts/MyCustomFont.otf",
             displayName = "MyCustomFont"
         )
-        assertEquals("MyCustomFont", customWithName.displayLabel())
+        assertEquals("MyCustomFont", EnglishStrings.fontSelectionLabel(customWithName))
+    }
+
+    @Test
+    fun customFileLabelUsesTheFileNameOnEveryPlatform() {
+        val windowsPath = FontSelection(FontSourceKind.CUSTOM_FILE, "C:\\Users\\u\\fonts\\Foo.ttf")
+        assertEquals("Foo.ttf", EnglishStrings.fontSelectionLabel(FontSelection(FontSourceKind.CUSTOM_FILE, "/home/u/fonts/Foo.ttf")))
+        assertEquals("Foo.ttf", EnglishStrings.fontSelectionLabel(windowsPath))
+        assertEquals("Foo.ttf", JapaneseStrings.fontSelectionLabel(windowsPath))
+        assertEquals("Shown", EnglishStrings.fontSelectionLabel(FontSelection(FontSourceKind.CUSTOM_FILE, "/x/Foo.ttf", "Shown")))
     }
 }
