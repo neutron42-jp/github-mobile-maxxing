@@ -170,6 +170,8 @@ appUpdateFailedOpenBrowser,,Could not open download page in browser,ブラウザ
 loadingHome,,Loading GitHub home...,GitHub ホームを読み込み中...
 failedLoadActivity,,Failed to load activity feed,アクティビティフィードの読み込みに失敗しました
 pinnedBookmarks,,Pinned Bookmarks,ピン留めブックマーク
+pinnedBookmarksShowAll,Int,Show all ({0}),すべて表示 ({0})
+pinnedBookmarksShowLess,,Show less,折りたたむ
 recentRepositories,,Recent Repositories,最近のリポジトリ
 activityFeed,,Activity Feed,アクティビティフィード
 feedTabFollowing,,Following,フォロー中
