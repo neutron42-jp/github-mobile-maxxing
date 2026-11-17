@@ -28,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,10 +43,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.composables.icons.lucide.Bell
 import com.composables.icons.lucide.Check
+import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.LogOut
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Palette
@@ -53,11 +57,19 @@ import com.composables.icons.lucide.Shield
 import dev.maxxing.github.app.AppContainer
 import dev.maxxing.github.app.MaxxingBuildConfig
 import dev.maxxing.github.app.notifications.PlatformNotifier
+import dev.maxxing.github.model.FontPreset
+import dev.maxxing.github.model.FontSelection
+import dev.maxxing.github.model.FontSourceKind
 import dev.maxxing.github.ui.components.MaxxingDropdownSelector
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.UserAvatar
 import dev.maxxing.github.ui.theme.MaxxingSeedPresets
 import kotlinx.coroutines.launch
+
+private enum class FontPickerTarget {
+    PRIMARY,
+    FALLBACK
+}
 
 private enum class DarkModeOption(val label: String, val value: Boolean?) {
     SYSTEM("System", null),
@@ -415,6 +427,186 @@ fun SettingsScreen(
                         )
                     }
                 }
+            }
+
+            // Typography & Font customizer
+            var fontPickerTarget by remember { mutableStateOf<FontPickerTarget?>(null) }
+            val matchedPreset = FontPreset.match(themePrefs.primaryFont, themePrefs.fallbackFont)
+            val presetOptions = remember { FontPreset.entries + listOf<FontPreset?>(null) }
+
+            ElevatedCard(
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Lucide.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Typography & Fonts", style = MaterialTheme.typography.titleMedium)
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Font Preset", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "Bundled Ubuntu + Kaisei Opti or custom combination",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        MaxxingDropdownSelector(
+                            options = presetOptions,
+                            selected = matchedPreset,
+                            onSelect = { preset ->
+                                if (preset != null) {
+                                    scope.launch {
+                                        container.sessionManager.updateThemePreferences(
+                                            themePrefs.copy(
+                                                primaryFont = preset.primary,
+                                                fallbackFont = preset.fallback
+                                            )
+                                        )
+                                    }
+                                } else {
+                                    fontPickerTarget = FontPickerTarget.PRIMARY
+                                }
+                            },
+                            labelProvider = { FontPreset.labelFor(it) }
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Primary Font", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "Used first for Latin text, numbers, and symbols",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        FilledTonalButton(onClick = { fontPickerTarget = FontPickerTarget.PRIMARY }) {
+                            Text(
+                                text = themePrefs.primaryFont.displayLabel(),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Icon(Lucide.ChevronDown, contentDescription = null, modifier = Modifier.size(15.dp))
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Fallback Font", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "Used for Japanese / CJK and glyphs missing in primary",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        FilledTonalButton(onClick = { fontPickerTarget = FontPickerTarget.FALLBACK }) {
+                            Text(
+                                text = themePrefs.fallbackFont.displayLabel(),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Icon(Lucide.ChevronDown, contentDescription = null, modifier = Modifier.size(15.dp))
+                        }
+                    }
+
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "Preview",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "The quick brown fox jumps over the lazy dog 0123456789",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = "素早い茶色の狐が怠け者の犬を飛び越える — GitHub Pull Request #42",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+
+            fontPickerTarget?.let { target ->
+                val isPrimary = target == FontPickerTarget.PRIMARY
+                FontPickerDialog(
+                    title = if (isPrimary) "Select Primary Font" else "Select Fallback Font",
+                    current = if (isPrimary) themePrefs.primaryFont else themePrefs.fallbackFont,
+                    onSelect = { selection ->
+                        scope.launch {
+                            container.sessionManager.updateThemePreferences(
+                                if (isPrimary) themePrefs.copy(primaryFont = selection)
+                                else themePrefs.copy(fallbackFont = selection)
+                            )
+                        }
+                        fontPickerTarget = null
+                    },
+                    onDismiss = { fontPickerTarget = null },
+                    onImported = { imported ->
+                        if (imported != null) {
+                            val selection = FontSelection(
+                                kind = FontSourceKind.CUSTOM_FILE,
+                                value = imported.filePath,
+                                displayName = imported.displayName
+                            )
+                            scope.launch {
+                                container.sessionManager.updateThemePreferences(
+                                    if (isPrimary) themePrefs.copy(primaryFont = selection)
+                                    else themePrefs.copy(fallbackFont = selection)
+                                )
+                            }
+                            onMessage("Imported font: ${imported.displayName}")
+                            fontPickerTarget = null
+                        } else {
+                            onMessage("Failed to import font file")
+                        }
+                    },
+                    onDeletedImported = { deletedPath ->
+                        scope.launch {
+                            var next = themePrefs
+                            if (next.primaryFont.kind == FontSourceKind.CUSTOM_FILE && next.primaryFont.value == deletedPath) {
+                                next = next.copy(primaryFont = FontSelection.SystemDefault)
+                            }
+                            if (next.fallbackFont.kind == FontSourceKind.CUSTOM_FILE && next.fallbackFont.value == deletedPath) {
+                                next = next.copy(fallbackFont = FontSelection.SystemDefault)
+                            }
+                            if (next != themePrefs) {
+                                container.sessionManager.updateThemePreferences(next)
+                            }
+                        }
+                    }
+                )
             }
 
             // OAuth Client ID config

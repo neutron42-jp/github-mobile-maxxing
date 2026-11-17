@@ -97,6 +97,7 @@ kotlin {
             }
         }
         androidMain.dependencies {
+            implementation(libs.androidx.activity.compose)
             implementation(libs.kotlinx.coroutines.android)
             implementation(libs.androidx.core.ktx)
             implementation(libs.androidx.work.runtime)

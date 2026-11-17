@@ -9,6 +9,7 @@ import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -94,12 +95,35 @@ val MaxxingTypography = Typography(
     )
 )
 
+fun buildMaxxingTypography(fontFamilyOverride: FontFamily? = null): Typography {
+    if (fontFamilyOverride == null) return MaxxingTypography
+    val base = MaxxingTypography
+    return Typography(
+        displayLarge = base.displayLarge.copy(fontFamily = fontFamilyOverride),
+        displayMedium = base.displayMedium.copy(fontFamily = fontFamilyOverride),
+        displaySmall = base.displaySmall.copy(fontFamily = fontFamilyOverride),
+        headlineLarge = base.headlineLarge.copy(fontFamily = fontFamilyOverride),
+        headlineMedium = base.headlineMedium.copy(fontFamily = fontFamilyOverride),
+        headlineSmall = base.headlineSmall.copy(fontFamily = fontFamilyOverride),
+        titleLarge = base.titleLarge.copy(fontFamily = fontFamilyOverride),
+        titleMedium = base.titleMedium.copy(fontFamily = fontFamilyOverride),
+        titleSmall = base.titleSmall.copy(fontFamily = fontFamilyOverride),
+        bodyLarge = base.bodyLarge.copy(fontFamily = fontFamilyOverride),
+        bodyMedium = base.bodyMedium.copy(fontFamily = fontFamilyOverride),
+        bodySmall = base.bodySmall.copy(fontFamily = fontFamilyOverride),
+        labelLarge = base.labelLarge.copy(fontFamily = fontFamilyOverride),
+        labelMedium = base.labelMedium.copy(fontFamily = fontFamilyOverride),
+        labelSmall = base.labelSmall // Keep monospace styling for code/hash badges
+    )
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun MaxxingTheme(
     seedColorHex: Long = MaxxingSeedPresets.first().colorHex,
     useDynamicColor: Boolean = true,
     darkThemeOverride: Boolean? = null,
+    fontFamilyOverride: FontFamily? = null,
     content: @Composable () -> Unit
 ) {
     val darkTheme = darkThemeOverride ?: isSystemInDarkTheme()
@@ -111,12 +135,15 @@ fun MaxxingTheme(
         style = PaletteStyle.Expressive,
         specVersion = ColorSpec.SpecVersion.SPEC_2025
     )
+    val typography = remember(fontFamilyOverride) {
+        buildMaxxingTypography(fontFamilyOverride)
+    }
 
     MaterialExpressiveTheme(
         colorScheme = colorScheme,
         motionScheme = MotionScheme.expressive(),
         shapes = MaxxingShapes,
-        typography = MaxxingTypography,
+        typography = typography,
         content = content
     )
 }

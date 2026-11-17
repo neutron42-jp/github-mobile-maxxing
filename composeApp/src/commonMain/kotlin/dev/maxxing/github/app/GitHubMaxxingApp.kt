@@ -46,6 +46,7 @@ import com.composables.icons.lucide.House
 import com.composables.icons.lucide.Inbox
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Settings
+import dev.maxxing.github.app.fonts.ProvideAppTypographyFont
 import dev.maxxing.github.app.notifications.PlatformNotifier
 import dev.maxxing.github.app.ui.GistsScreen
 import dev.maxxing.github.app.ui.HomeScreen
@@ -163,36 +164,42 @@ fun GitHubMaxxingApp(
         onDarkThemeChanged(resolvedDarkTheme)
     }
 
-    MaxxingTheme(
-        seedColorHex = themePrefs.seedColorHex,
-        useDynamicColor = themePrefs.useDynamicColor,
-        darkThemeOverride = themePrefs.darkModeOverride
-    ) {
-        when {
-            !isInitialized -> {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        MaxxingLoadingState(message = "Starting ${AppBranding.APP_NAME}...")
+    ProvideAppTypographyFont(
+        primary = themePrefs.primaryFont,
+        fallback = themePrefs.fallbackFont
+    ) { fontFamilyOverride ->
+        MaxxingTheme(
+            seedColorHex = themePrefs.seedColorHex,
+            useDynamicColor = themePrefs.useDynamicColor,
+            darkThemeOverride = themePrefs.darkModeOverride,
+            fontFamilyOverride = fontFamilyOverride
+        ) {
+            when {
+                !isInitialized -> {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            MaxxingLoadingState(message = "Starting ${AppBranding.APP_NAME}...")
+                        }
                     }
                 }
-            }
 
-            session == null -> {
-                SignInScreen(
-                    sessionManager = container.sessionManager,
-                    onSignedIn = { /* session StateFlow transitions automatically */ }
-                )
-            }
+                session == null -> {
+                    SignInScreen(
+                        sessionManager = container.sessionManager,
+                        onSignedIn = { /* session StateFlow transitions automatically */ }
+                    )
+                }
 
-            else -> {
-                MainAuthenticatedShell(
-                    container = container,
-                    deepLinkTarget = deepLinkTarget,
-                    onConsumeDeepLink = onConsumeDeepLink
-                )
+                else -> {
+                    MainAuthenticatedShell(
+                        container = container,
+                        deepLinkTarget = deepLinkTarget,
+                        onConsumeDeepLink = onConsumeDeepLink
+                    )
+                }
             }
         }
     }
