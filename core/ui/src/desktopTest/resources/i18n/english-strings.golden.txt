@@ -453,6 +453,8 @@ issueDeleteCommentTitle	Delete Comment?
 issueDetailTabChat	Chat
 issueDetailTabChecks	Checks
 issueDetailTabFiles	Files
+issueDraftNoticeBody	Merging is blocked until it is marked ready for review.
+issueDraftNoticeTitle	This pull request is still a draft
 issueEditCommentTitle	Edit Comment
 issueLabelsCount	Labels (7301)
 issueLabelsUpdated	Updated labels

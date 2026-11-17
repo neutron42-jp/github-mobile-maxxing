@@ -559,6 +559,8 @@ issueMilestoneFallback,,Milestone,マイルストーン
 issueReviewersCount,Int,Reviewers ({0}),レビュアー ({0})
 issueReadyForReview,,Ready for review,レビュー可能にする
 issueConvertToDraft,,Convert to draft,下書きに変換
+issueDraftNoticeTitle,,This pull request is still a draft,このプルリクエストはまだ下書きです
+issueDraftNoticeBody,,Merging is blocked until it is marked ready for review.,マージは、レビュー可能にするまで拒否されます。
 issueReactAction,,React,リアクション
 mergeSquashLabel,,Squash and merge,スカッシュしてマージ
 mergeCommitLabel,,Create a merge commit,マージコミットを作成

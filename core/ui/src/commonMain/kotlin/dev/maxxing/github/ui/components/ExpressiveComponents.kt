@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonColors
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Checkbox
@@ -177,6 +178,22 @@ fun MaxxingFloatingToolbar(
     )
 }
 
+object MaxxingFloatingToolbarDefaults {
+    /**
+     * Filled button colors for use inside a vibrant [MaxxingFloatingToolbar].
+     * The default disabled colors (onSurface at 10%/38%) nearly vanish on primaryContainer,
+     * so the disabled state is derived from onPrimaryContainer instead to stay readable.
+     */
+    @Composable
+    fun vibrantButtonColors(): ButtonColors {
+        val onContainer = MaterialTheme.colorScheme.onPrimaryContainer
+        return ButtonDefaults.buttonColors(
+            disabledContainerColor = onContainer.copy(alpha = 0.12f),
+            disabledContentColor = onContainer.copy(alpha = 0.60f)
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun <T> MaxxingConnectedButtonGroup(
@@ -299,7 +316,8 @@ fun <T> MaxxingSplitActionButton(
     onPrimaryClick: (T) -> Unit,
     onSelectOption: (T) -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    colors: ButtonColors = ButtonDefaults.buttonColors()
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val chevronRotation by animateFloatAsState(
@@ -312,7 +330,8 @@ fun <T> MaxxingSplitActionButton(
             leadingButton = {
                 SplitButtonDefaults.LeadingButton(
                     onClick = { onPrimaryClick(selectedOption.value) },
-                    enabled = enabled
+                    enabled = enabled,
+                    colors = colors
                 ) {
                     selectedOption.icon?.let {
                         Icon(
@@ -329,7 +348,8 @@ fun <T> MaxxingSplitActionButton(
                 SplitButtonDefaults.TrailingButton(
                     checked = menuExpanded,
                     onCheckedChange = { menuExpanded = it },
-                    enabled = enabled
+                    enabled = enabled,
+                    colors = colors
                 ) {
                     Icon(
                         imageVector = Lucide.ChevronDown,

@@ -453,6 +453,8 @@ issueDeleteCommentTitle	コメントを削除しますか？
 issueDetailTabChat	会話
 issueDetailTabChecks	チェック
 issueDetailTabFiles	変更ファイル
+issueDraftNoticeBody	マージは、レビュー可能にするまで拒否されます。
+issueDraftNoticeTitle	このプルリクエストはまだ下書きです
 issueEditCommentTitle	コメントを編集
 issueLabelsCount	ラベル (7301)
 issueLabelsUpdated	ラベルを更新しました

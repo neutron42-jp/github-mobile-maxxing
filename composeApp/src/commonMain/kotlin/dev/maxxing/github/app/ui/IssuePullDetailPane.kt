@@ -104,6 +104,7 @@ import dev.maxxing.github.ui.components.GitHubLabelChip
 import dev.maxxing.github.ui.components.GitHubMarkdown
 import dev.maxxing.github.ui.components.MaxxingDropdownSelector
 import dev.maxxing.github.ui.components.MaxxingFloatingToolbar
+import dev.maxxing.github.ui.components.MaxxingFloatingToolbarDefaults
 import dev.maxxing.github.ui.components.MaxxingFullScreenDiffViewer
 import dev.maxxing.github.ui.components.MaxxingFullScreenEditorScaffold
 import dev.maxxing.github.ui.components.MaxxingLoadingState
@@ -267,6 +268,22 @@ private fun IssuePullDetailPaneContent(
                 val headerTracker = remember(item.number, isPr) { RepoHeaderCollapseTracker() }
                 val headerNestedScroll = remember(headerTracker) { headerTracker.toNestedScrollConnection() }
                 val headerVerticalPadding by animateDpAsState(if (headerTracker.isCollapsed) 4.dp else 12.dp)
+                // Shared by the header chip and the floating toolbar.
+                val toggleDraft: () -> Unit = {
+                    scope.launch {
+                        actionBusy = true
+                        val nextDraft = !item.isDraft
+                        container.repository.setPullRequestDraftState(
+                            target.owner, target.repo, target.number, item.id, nextDraft
+                        ).onSuccess {
+                            onMessage(if (nextDraft) strings.prConvertedToDraftMessage else strings.prMarkedReadyMessage)
+                            loadDetail(forceRefresh = true)
+                        }.onFailure {
+                            onMessage(strings.errorMessage(it, strings.failedUpdateDraftState))
+                        }
+                        actionBusy = false
+                    }
+                }
 
                 Column(modifier = Modifier.fillMaxSize().nestedScroll(headerNestedScroll)) {
                     // Top Bar
@@ -407,22 +424,14 @@ private fun IssuePullDetailPaneContent(
                                             }
                                         }
                                     },
-                                    onToggleDraft = {
-                                        scope.launch {
-                                            actionBusy = true
-                                            val nextDraft = !item.isDraft
-                                            container.repository.setPullRequestDraftState(
-                                                target.owner, target.repo, target.number, item.id, nextDraft
-                                            ).onSuccess {
-                                                onMessage(if (nextDraft) strings.prConvertedToDraftMessage else strings.prMarkedReadyMessage)
-                                                loadDetail(forceRefresh = true)
-                                            }.onFailure {
-                                                onMessage(strings.errorMessage(it, strings.failedUpdateDraftState))
-                                            }
-                                            actionBusy = false
-                                        }
-                                    }
+                                    onToggleDraft = toggleDraft
                                 )
+                            }
+
+                            if (isPr && item.isDraft && item.state == IssueOrPullState.OPEN) {
+                                item {
+                                    DraftNoticeCard()
+                                }
                             }
 
                             if (item.body.isNotBlank() || item.reactions.isNotEmpty() || item.viewerCanUpdate) {
@@ -657,6 +666,15 @@ private fun IssuePullDetailPaneContent(
                 var pendingMergeConfirmMethod by remember(target) { mutableStateOf<MergeMethod?>(null) }
                 var pendingStateConfirmOpen by remember(target) { mutableStateOf<Boolean?>(null) }
 
+                val primaryAction = prPrimaryAction(
+                    isPr = isPr,
+                    state = item.state,
+                    isDraft = item.isDraft,
+                    canMerge = item.viewerCanMerge,
+                    canUpdate = item.viewerCanUpdate
+                )
+                val toolbarButtonColors = MaxxingFloatingToolbarDefaults.vibrantButtonColors()
+
                 // MD3E Floating Action Toolbar at bottom
                 MaxxingFloatingToolbar(
                     expanded = true,
@@ -683,30 +701,45 @@ private fun IssuePullDetailPaneContent(
                             Text(strings.issueReviewAction)
                         }
 
-                        if (item.viewerCanMerge) {
-                            Spacer(Modifier.width(6.dp))
-                            val mergeOptions = remember(strings) {
-                                MergeMethod.entries.map {
-                                    SplitActionOption(it, strings.mergeMethodLabel(it), Lucide.GitMerge)
+                        when (primaryAction) {
+                            PrPrimaryAction.MERGE -> {
+                                Spacer(Modifier.width(6.dp))
+                                val mergeOptions = remember(strings) {
+                                    MergeMethod.entries.map {
+                                        SplitActionOption(it, strings.mergeMethodLabel(it), Lucide.GitMerge)
+                                    }
+                                }
+                                MaxxingSplitActionButton(
+                                    selectedOption = mergeOptions.first { it.value == selectedMergeMethod },
+                                    options = mergeOptions,
+                                    enabled = !actionBusy,
+                                    colors = toolbarButtonColors,
+                                    onSelectOption = { selectedMergeMethod = it },
+                                    onPrimaryClick = { method ->
+                                        pendingMergeConfirmMethod = method
+                                    }
+                                )
+                            }
+                            PrPrimaryAction.MARK_READY -> {
+                                Spacer(Modifier.width(6.dp))
+                                Button(
+                                    onClick = toggleDraft,
+                                    enabled = !actionBusy,
+                                    colors = toolbarButtonColors
+                                ) {
+                                    Icon(Lucide.GitPullRequest, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(strings.issueReadyForReview)
                                 }
                             }
-                            MaxxingSplitActionButton(
-                                selectedOption = mergeOptions.first { it.value == selectedMergeMethod },
-                                options = mergeOptions,
-                                enabled = !actionBusy && !item.isDraft,
-                                onSelectOption = { selectedMergeMethod = it },
-                                onPrimaryClick = { method ->
-                                    pendingMergeConfirmMethod = method
-                                }
-                            )
+                            PrPrimaryAction.NONE -> Unit
                         }
                     }
 
                     if (item.state != IssueOrPullState.MERGED && item.viewerCanCloseOrReopen) {
                         val willOpen = item.state == IssueOrPullState.CLOSED
-                        val mergeVisible = isPr && item.state == IssueOrPullState.OPEN && item.viewerCanMerge
                         Spacer(Modifier.width(6.dp))
-                        if (mergeVisible) {
+                        if (primaryAction != PrPrimaryAction.NONE) {
                             FilledTonalIconButton(
                                 onClick = { pendingStateConfirmOpen = willOpen },
                                 enabled = !actionBusy
@@ -1349,6 +1382,56 @@ private fun IssuePullDetailPaneContent(
                 TextButton(onClick = { showReviewersDialog = false }) { Text(strings.cancel) }
             }
         )
+    }
+}
+
+internal enum class PrPrimaryAction { NONE, MERGE, MARK_READY }
+
+/**
+ * Decides the primary action shown in the detail toolbar. Like GitHub web, a draft PR
+ * offers "Ready for review" instead of a disabled merge button.
+ */
+internal fun prPrimaryAction(
+    isPr: Boolean,
+    state: IssueOrPullState,
+    isDraft: Boolean,
+    canMerge: Boolean,
+    canUpdate: Boolean
+): PrPrimaryAction = when {
+    !isPr || state != IssueOrPullState.OPEN -> PrPrimaryAction.NONE
+    isDraft -> if (canUpdate) PrPrimaryAction.MARK_READY else PrPrimaryAction.NONE
+    canMerge -> PrPrimaryAction.MERGE
+    else -> PrPrimaryAction.NONE
+}
+
+@Composable
+private fun DraftNoticeCard() {
+    val strings = appStrings()
+    Card(
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(Lucide.Pencil, contentDescription = null, modifier = Modifier.size(18.dp))
+            Column {
+                Text(
+                    strings.issueDraftNoticeTitle,
+                    style = MaterialTheme.typography.titleSmall
+                )
+                Text(
+                    strings.issueDraftNoticeBody,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
     }
 }
 
