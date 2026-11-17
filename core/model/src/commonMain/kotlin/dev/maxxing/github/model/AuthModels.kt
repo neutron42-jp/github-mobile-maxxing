@@ -14,7 +14,15 @@ data class AuthSession(
     val tokenType: String = "bearer",
     val scope: String = "",
     val authMethod: AuthMethod = AuthMethod.DEVICE_FLOW,
-    val userLogin: String? = null
+    val userLogin: String? = null,
+    /** Single-use token for renewing an expiring OAuth access token; null for non-expiring tokens and PATs. */
+    val refreshToken: String? = null,
+    /** When [accessToken] stops working (Unix epoch seconds); null when the token does not expire. */
+    val accessTokenExpiresAtEpochSeconds: Long? = null,
+    /** When [refreshToken] stops working (Unix epoch seconds); null when unknown or not applicable. */
+    val refreshTokenExpiresAtEpochSeconds: Long? = null,
+    /** The OAuth client id the token was issued to, so it can be refreshed after the client id setting changes. */
+    val clientId: String? = null
 )
 
 sealed interface DeviceCodeState {

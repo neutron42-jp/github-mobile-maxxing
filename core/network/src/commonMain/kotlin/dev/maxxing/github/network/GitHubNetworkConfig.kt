@@ -4,11 +4,20 @@ import dev.maxxing.github.auth.SessionManager
 import dev.maxxing.github.model.AppBranding
 import dev.maxxing.github.model.RateLimitInfo
 import io.ktor.client.HttpClient
+import io.ktor.client.HttpClientConfig
+import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.plugins.DefaultRequest
 import io.ktor.client.plugins.HttpResponseValidator
+import io.ktor.client.plugins.HttpSend
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.plugin
+import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.header
+import io.ktor.http.DEFAULT_PORT
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.URLBuilder
+import io.ktor.http.Url
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,14 +42,24 @@ class GitHubNetworkConfig(
         explicitNulls = false
     }
 
-    fun createHttpClient(): HttpClient = HttpClient {
+    private val apiUrl = Url(baseUrl)
+
+    /**
+     * Creates the API client. [engine] is for tests; null uses the platform default engine.
+     *
+     * The access token is attached per request by an [HttpSend] interceptor (see [installAuthorization]) so an
+     * expiring OAuth token can be refreshed before it expires and once more after an HTTP 401.
+     */
+    fun createHttpClient(engine: HttpClientEngine? = null): HttpClient {
+        val client = if (engine != null) HttpClient(engine) { configure() } else HttpClient { configure() }
+        return client.apply { installAuthorization() }
+    }
+
+    private fun HttpClientConfig<*>.configure() {
         install(ContentNegotiation) {
             json(json)
         }
         install(DefaultRequest) {
-            sessionManager.session.value?.accessToken?.let { token ->
-                header(HttpHeaders.Authorization, "Bearer $token")
-            }
             header(HttpHeaders.Accept, "application/vnd.github+json")
             header("X-GitHub-Api-Version", "2022-11-28")
             header(HttpHeaders.UserAgent, AppBranding.USER_AGENT)
@@ -60,4 +79,37 @@ class GitHubNetworkConfig(
             }
         }
     }
+
+    private fun HttpClient.installAuthorization() {
+        plugin(HttpSend).intercept { request ->
+            if (!request.url.isApiUrl()) {
+                // Never send the token to other hosts (e.g. a redirect to a log download URL).
+                request.headers.remove(HttpHeaders.Authorization)
+                return@intercept execute(request)
+            }
+            val token = sessionManager.refreshSessionIfExpiringSoon()?.accessToken
+            request.setBearerToken(token)
+            val call = execute(request)
+            if (token == null || call.response.status != HttpStatusCode.Unauthorized) return@intercept call
+
+            // The token may have expired or been replaced by another SessionManager; retry once with a new one.
+            val refreshedToken = sessionManager.refreshAfterUnauthorized(token)?.accessToken
+            if (refreshedToken == null || refreshedToken == token) return@intercept call
+            request.setBearerToken(refreshedToken)
+            execute(request)
+        }
+    }
+
+    private fun HttpRequestBuilder.setBearerToken(token: String?) {
+        headers.remove(HttpHeaders.Authorization)
+        if (token != null) headers.append(HttpHeaders.Authorization, "Bearer $token")
+    }
+
+    private fun URLBuilder.isApiUrl(): Boolean =
+        protocol == apiUrl.protocol &&
+            host.equals(apiUrl.host, ignoreCase = true) &&
+            port.effectivePort(protocol.defaultPort) == apiUrl.port
 }
+
+/** [URLBuilder.port] is [DEFAULT_PORT] (0) when the URL does not name a port. */
+private fun Int.effectivePort(defaultPort: Int): Int = if (this == DEFAULT_PORT) defaultPort else this
