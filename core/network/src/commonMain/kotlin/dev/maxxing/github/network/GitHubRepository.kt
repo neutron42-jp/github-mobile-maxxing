@@ -191,6 +191,11 @@ class GitHubRepository(
 ) {
     val rateLimit: StateFlow<RateLimitInfo> = networkConfig.rateLimit
 
+    /** Releases the underlying HttpClient. Only for short-lived instances that own their client. */
+    fun close() {
+        httpClient.close()
+    }
+
     private val issueOverridesMutex = Mutex()
     @Volatile
     private var recentIssueStateOverrides: Map<NormalizedIssueKey, RecentIssueStateEntry> = emptyMap()

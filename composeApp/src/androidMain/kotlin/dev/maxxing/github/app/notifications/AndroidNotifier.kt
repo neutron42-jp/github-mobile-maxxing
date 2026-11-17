@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -21,12 +22,15 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import dev.maxxing.github.auth.AndroidAuthContextHolder
+import dev.maxxing.github.auth.DeviceFlowClient
 import dev.maxxing.github.auth.SessionManager
 import dev.maxxing.github.model.AppBranding
 import dev.maxxing.github.model.AppLanguage
 import dev.maxxing.github.model.NotificationThread
+import dev.maxxing.github.network.GitHubApiException
 import dev.maxxing.github.network.GitHubRepository
 import dev.maxxing.github.network.NotificationMonitor
+import dev.maxxing.github.network.splitForOsDisplay
 import dev.maxxing.github.ui.i18n.AppStrings
 import dev.maxxing.github.ui.i18n.stringsFor
 import kotlinx.coroutines.CoroutineScope
@@ -42,6 +46,7 @@ private const val ACTION_MARK_READ = "dev.maxxing.github.app.ACTION_MARK_READ"
 private const val ACTION_MARK_DONE = "dev.maxxing.github.app.ACTION_MARK_DONE"
 private const val EXTRA_THREAD_ID = "thread_id"
 private const val EXTRA_NOTIF_ID = "notif_id"
+private const val OVERFLOW_SUMMARY_NOTIF_ID = 9002
 
 actual object PlatformNotifier {
     @Volatile
@@ -84,12 +89,13 @@ actual object PlatformNotifier {
     actual fun showGitHubNotifications(threads: List<NotificationThread>) {
         if (threads.isEmpty()) return
         val context = runCatching { AndroidAuthContextHolder.requireContext() }.getOrNull() ?: return
-        if (!hasNotificationPermission(context)) return
+        if (!canPostNotifications(context)) return
         ensureInitialized()
 
         val strings = currentStrings()
         val nm = NotificationManagerCompat.from(context)
-        threads.take(6).forEach { thread ->
+        val batch = splitForOsDisplay(threads)
+        batch.individual.forEach { thread ->
             val notifId = thread.id.hashCode()
             val isUrgent = thread.reason in NotificationMonitor.URGENT_REASONS
             val channelId = if (isUrgent) CHANNEL_URGENT else CHANNEL_ACTIVITY
@@ -115,11 +121,38 @@ actual object PlatformNotifier {
 
             nm.notify(notifId, notification)
         }
+
+        // Represent threads beyond the individual cap with one summary instead of dropping them.
+        if (batch.overflow.isNotEmpty()) {
+            val inboxStyle = NotificationCompat.InboxStyle()
+            batch.overflow.take(5).forEach { inboxStyle.addLine("${it.repoFullName}: ${it.subjectTitle}") }
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            val summary = NotificationCompat.Builder(context, CHANNEL_ACTIVITY)
+                .setSmallIcon(android.R.drawable.ic_dialog_email)
+                .setContentTitle(strings.osNotifOverflowTitle(batch.overflow.size))
+                .setContentText(strings.osNotifOverflowBody)
+                .setStyle(inboxStyle)
+                .setAutoCancel(true)
+                .apply {
+                    if (launchIntent != null) {
+                        setContentIntent(
+                            PendingIntent.getActivity(
+                                context,
+                                OVERFLOW_SUMMARY_NOTIF_ID,
+                                launchIntent,
+                                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                            )
+                        )
+                    }
+                }
+                .build()
+            nm.notify(OVERFLOW_SUMMARY_NOTIF_ID, summary)
+        }
     }
 
     actual fun showTestNotification(): Boolean {
         val context = runCatching { AndroidAuthContextHolder.requireContext() }.getOrNull() ?: return false
-        if (!hasNotificationPermission(context)) return false
+        if (!canPostNotifications(context)) return false
         ensureInitialized()
         val strings = currentStrings()
 
@@ -165,6 +198,26 @@ actual object PlatformNotifier {
             request
         )
     }
+
+    actual fun areOsNotificationsBlocked(): Boolean {
+        val context = runCatching { AndroidAuthContextHolder.requireContext() }.getOrNull() ?: return true
+        return !canPostNotifications(context)
+    }
+
+    actual fun openOsNotificationSettings(): Boolean {
+        val context = runCatching { AndroidAuthContextHolder.requireContext() }.getOrNull() ?: return false
+        return runCatching {
+            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun canPostNotifications(context: Context): Boolean =
+        hasNotificationPermission(context) && NotificationManagerCompat.from(context).areNotificationsEnabled()
 
     private fun hasNotificationPermission(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
@@ -226,21 +279,39 @@ class NotificationSyncWorker(
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         AndroidAuthContextHolder.init(applicationContext)
-        val sessionManager = SessionManager()
-        sessionManager.initialize()
-        PlatformNotifier.updateLanguage(sessionManager.themePreferences.value.language)
-        if (sessionManager.session.value == null) return Result.success()
-        if (!sessionManager.notificationPreferences.value.osNotificationsEnabled) return Result.success()
+        // The worker owns its HTTP clients; close them so periodic runs do not leak them.
+        val authHttpClient = DeviceFlowClient.defaultAuthHttpClient()
+        try {
+            val sessionManager = SessionManager(deviceFlowClient = DeviceFlowClient(authHttpClient))
+            sessionManager.initialize()
+            PlatformNotifier.updateLanguage(sessionManager.themePreferences.value.language)
+            if (sessionManager.session.value == null) return Result.success()
+            if (!sessionManager.notificationPreferences.value.osNotificationsEnabled) return Result.success()
 
-        val repository = GitHubRepository(sessionManager)
-        val monitor = NotificationMonitor(sessionManager, repository)
-        val check = monitor.checkForNewNotifications()
-        check.onSuccess { res ->
-            if (res.newlyArrivedForOs.isNotEmpty()) {
-                PlatformNotifier.showGitHubNotifications(res.newlyArrivedForOs)
+            val repository = GitHubRepository(sessionManager)
+            try {
+                val monitor = NotificationMonitor(sessionManager, repository) {
+                    !PlatformNotifier.areOsNotificationsBlocked()
+                }
+                val check = monitor.checkForNewNotifications()
+                check.onSuccess { res ->
+                    if (res.newlyArrivedForOs.isNotEmpty()) {
+                        PlatformNotifier.showGitHubNotifications(res.newlyArrivedForOs)
+                    }
+                }
+                val error = check.exceptionOrNull()
+                return when {
+                    error == null -> Result.success()
+                    // Retrying cannot fix an invalid/expired token; the next periodic run tries again.
+                    (error as? GitHubApiException)?.statusCode == 401 -> Result.success()
+                    else -> Result.retry()
+                }
+            } finally {
+                repository.close()
             }
+        } finally {
+            authHttpClient.close()
         }
-        return if (check.isSuccess) Result.success() else Result.retry()
     }
 }
 

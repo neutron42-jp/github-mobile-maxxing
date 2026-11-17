@@ -316,6 +316,7 @@ failedLoadTrending	Failed to load trending repositories
 failedLoadWorkflowRuns	Failed to load workflow runs
 failedOpenAppLinkSettings	Could not open app link settings
 failedOpenGitHubMobileLinkSettings	Could not open GitHub Mobile app link settings
+failedOpenNotificationSettings	Could not open notification settings
 failedPostComment	Failed to post comment
 failedPostDiffComment	Failed to post diff comment
 failedRequestReviewers	Failed to request reviewers
@@ -585,6 +586,7 @@ oauthConfigTitle	OAuth Client Configuration
 openDetails	Open details
 openFullScreenDiff	Open full-screen diff
 openInBrowser	Open in browser
+openNotificationSettings	Open notification settings
 openReleaseInBrowserDesc	Open release in browser
 orgBadge	Org
 organizationsTitle	Organizations
@@ -594,10 +596,13 @@ osNotifBatchTitle	7301 new GitHub notifications
 osNotifDesktopTestBody	Desktop notifications are active and working!
 osNotifDesktopTestTitle	zqa1 Test Notification
 osNotifMarkReadAction	Mark Read
+osNotifOverflowBody	Open the inbox to see all new notifications.
+osNotifOverflowTitle	+7301 more GitHub notifications
 osNotifTestReadyBody	New mentions & review requests will appear here with Mark Read / Done actions.
 osNotifTestReadyTitle	zqa1 Notifications Ready
 osNotifUrgentChannelDesc	High-priority GitHub mentions, review requests, and assignments.
 osNotifUrgentChannelName	Mentions & Review Requests
+osNotificationsBlockedWarning	Notifications are blocked by the system, so alerts won't appear.
 osNotificationsTitle	GitHub OS Notifications
 pickCustomColorDesc	Pick custom color
 pinnedBookmarks	Pinned Bookmarks

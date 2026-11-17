@@ -84,6 +84,9 @@ pollIntervalMinutes,Int,{0} min,{0} 分
 sendTestNotification,,Send Test Notification,テスト通知を送信
 testNotificationSent,,Test notification dispatched,テスト通知を送信しました
 testNotificationBlocked,,Notifications blocked or notify-send unavailable — check OS permissions,通知がブロックされているか notify-send を利用できません。OS の権限を確認してください
+osNotificationsBlockedWarning,,"Notifications are blocked by the system, so alerts won't appear.",システムで通知がブロックされているため、通知は表示されません。
+openNotificationSettings,,Open notification settings,通知設定を開く
+failedOpenNotificationSettings,,Could not open notification settings,通知設定を開けませんでした
 themeTitle,,Material 3 Expressive Theme,Material 3 Expressive テーマ
 appearanceLabel,,Appearance,外観モード
 appearanceSystem,,System,システム
@@ -604,6 +607,8 @@ osNotifActivityChannelName,,Repository Activity,リポジトリのアクティ�
 osNotifActivityChannelDesc,,General GitHub repository updates and subscribed threads.,GitHub リポジトリの更新や購読中スレッドの一般通知。
 osNotifMarkReadAction,,Mark Read,既読にする
 osNotifBatchTitle,Int,{0} new GitHub notifications,新着の GitHub 通知が {0} 件あります
+osNotifOverflowTitle,Int,+{0} more GitHub notifications,ほかに {0} 件の GitHub 通知があります
+osNotifOverflowBody,,Open the inbox to see all new notifications.,受信箱を開くと、新着の通知をすべて確認できます。
 osNotifTestReadyTitle,String,{0} Notifications Ready,{0} の通知が有効です
 osNotifTestReadyBody,,New mentions & review requests will appear here with Mark Read / Done actions.,新しいメンションやレビュー依頼が、既読・完了アクション付きでここに表示されます。
 osNotifDesktopTestTitle,String,{0} Test Notification,{0} テスト通知

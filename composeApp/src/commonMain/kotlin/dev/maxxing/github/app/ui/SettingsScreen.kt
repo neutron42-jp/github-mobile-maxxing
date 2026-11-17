@@ -130,6 +130,7 @@ fun SettingsScreen(
     var clientIdField by remember(savedClientId) { mutableStateOf(savedClientId) }
     var showCustomColorPicker by remember { mutableStateOf(false) }
     var linkHandlingState by remember { mutableStateOf(inspectGitHubLinkHandling()) }
+    var osNotificationsBlocked by remember { mutableStateOf(PlatformNotifier.areOsNotificationsBlocked()) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val strings = appStrings()
@@ -138,6 +139,7 @@ fun SettingsScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 linkHandlingState = inspectGitHubLinkHandling()
+                osNotificationsBlocked = PlatformNotifier.areOsNotificationsBlocked()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -295,6 +297,25 @@ fun SettingsScreen(
                                 }
                             }
                         )
+                    }
+
+                    if (notifPrefs.osNotificationsEnabled && osNotificationsBlocked) {
+                        Text(
+                            strings.osNotificationsBlockedWarning,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                if (!PlatformNotifier.openOsNotificationSettings()) {
+                                    onMessage(strings.failedOpenNotificationSettings)
+                                }
+                            }
+                        ) {
+                            Icon(Lucide.ExternalLink, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(strings.openNotificationSettings)
+                        }
                     }
 
                     Row(

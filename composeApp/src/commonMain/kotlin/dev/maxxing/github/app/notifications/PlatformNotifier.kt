@@ -9,4 +9,10 @@ expect object PlatformNotifier {
     fun showGitHubNotifications(threads: List<NotificationThread>)
     fun showTestNotification(): Boolean
     fun syncBackgroundSchedule(enabled: Boolean)
+
+    /** True when the OS currently blocks this app's notifications (permission denied or disabled). */
+    fun areOsNotificationsBlocked(): Boolean
+
+    /** Opens the system notification settings for this app. Returns false if unsupported. */
+    fun openOsNotificationSettings(): Boolean
 }

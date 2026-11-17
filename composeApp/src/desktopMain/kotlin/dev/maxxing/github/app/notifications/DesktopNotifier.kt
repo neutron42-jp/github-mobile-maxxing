@@ -54,6 +54,10 @@ actual object PlatformNotifier {
         // Desktop foreground coroutine poller manages polling interval automatically.
     }
 
+    actual fun areOsNotificationsBlocked(): Boolean = false
+
+    actual fun openOsNotificationSettings(): Boolean = false
+
     private fun sendLinuxNotification(title: String, body: String, urgency: String): Boolean {
         return runCatching {
             val pb = ProcessBuilder(

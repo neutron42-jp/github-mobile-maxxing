@@ -140,7 +140,10 @@ fun GitHubMaxxingApp(
         }
     }
 
-    LaunchedEffect(session, notifPrefs.osNotificationsEnabled) {
+    LaunchedEffect(isInitialized, session, notifPrefs.osNotificationsEnabled) {
+        // Wait for the stored session/prefs to load; otherwise the initial null session
+        // would cancel the periodic background work on every cold start.
+        if (!isInitialized) return@LaunchedEffect
         PlatformNotifier.syncBackgroundSchedule(
             enabled = session != null && notifPrefs.osNotificationsEnabled
         )

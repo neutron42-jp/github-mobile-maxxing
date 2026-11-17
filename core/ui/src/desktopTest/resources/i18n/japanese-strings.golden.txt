@@ -316,6 +316,7 @@ failedLoadTrending	トレンドリポジトリの読み込みに失敗しまし�
 failedLoadWorkflowRuns	ワークフロー実行の読み込みに失敗しました
 failedOpenAppLinkSettings	アプリリンク設定を開けませんでした
 failedOpenGitHubMobileLinkSettings	GitHub Mobile のアプリリンク設定を開けませんでした
+failedOpenNotificationSettings	通知設定を開けませんでした
 failedPostComment	コメントの投稿に失敗しました
 failedPostDiffComment	差分コメントの投稿に失敗しました
 failedRequestReviewers	レビューの依頼に失敗しました
@@ -585,6 +586,7 @@ oauthConfigTitle	OAuth クライアント設定
 openDetails	詳細を開く
 openFullScreenDiff	全画面で差分を開く
 openInBrowser	ブラウザで開く
+openNotificationSettings	通知設定を開く
 openReleaseInBrowserDesc	リリースをブラウザで開く
 orgBadge	Org
 organizationsTitle	Organization
@@ -594,10 +596,13 @@ osNotifBatchTitle	新着の GitHub 通知が 7301 件あります
 osNotifDesktopTestBody	デスクトップ通知は正常に動作しています！
 osNotifDesktopTestTitle	zqa1 テスト通知
 osNotifMarkReadAction	既読にする
+osNotifOverflowBody	受信箱を開くと、新着の通知をすべて確認できます。
+osNotifOverflowTitle	ほかに 7301 件の GitHub 通知があります
 osNotifTestReadyBody	新しいメンションやレビュー依頼が、既読・完了アクション付きでここに表示されます。
 osNotifTestReadyTitle	zqa1 の通知が有効です
 osNotifUrgentChannelDesc	優先度の高い GitHub のメンション、レビュー依頼、アサイン通知。
 osNotifUrgentChannelName	メンションとレビュー依頼
+osNotificationsBlockedWarning	システムで通知がブロックされているため、通知は表示されません。
 osNotificationsTitle	OS 通知設定
 pickCustomColorDesc	カスタムカラーを選択
 pinnedBookmarks	ピン留めブックマーク

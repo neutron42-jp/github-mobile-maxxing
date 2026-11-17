@@ -32,7 +32,9 @@ class AppContainer {
         defaultClientId = MaxxingBuildConfig.DEFAULT_GITHUB_CLIENT_ID.ifBlank { AppBranding.DEFAULT_OAUTH_CLIENT_ID }
     )
     val repository: GitHubRepository = GitHubRepository(sessionManager)
-    val notificationMonitor: NotificationMonitor = NotificationMonitor(sessionManager, repository)
+    val notificationMonitor: NotificationMonitor = NotificationMonitor(sessionManager, repository) {
+        !PlatformNotifier.areOsNotificationsBlocked()
+    }
 
     private val _viewerProfile = MutableStateFlow<ViewerProfile?>(null)
     val viewerProfile: StateFlow<ViewerProfile?> = _viewerProfile.asStateFlow()

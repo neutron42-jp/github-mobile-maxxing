@@ -18,6 +18,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 private class InMemoryTokenStore(
@@ -42,7 +43,161 @@ private class InMemoryTokenStore(
     override suspend fun loadSeenNotificationMarkers(): Map<String, String> = markers
 }
 
+private fun threadJson(id: String, reason: String, updatedAt: String = "2026-11-15T10:00:00Z"): String = """
+    {
+      "id": "$id",
+      "unread": true,
+      "reason": "$reason",
+      "updated_at": "$updatedAt",
+      "subject": { "title": "Thread $id", "type": "Issue", "url": "https://api.github.com/repos/a/b/issues/1" },
+      "repository": { "name": "b", "full_name": "a/b", "owner": { "login": "a" } }
+    }
+""".trimIndent()
+
+/** Builds a monitor whose n-th poll returns [rounds][n-1] (the last entry repeats). */
+private suspend fun monitorFor(
+    rounds: List<List<String>>,
+    prefs: NotificationPreferences,
+    store: InMemoryTokenStore = InMemoryTokenStore(),
+    canPost: () -> Boolean = { true }
+): NotificationMonitor {
+    var pollRound = 0
+    val engine = MockEngine {
+        val payload = rounds[minOf(pollRound, rounds.lastIndex)]
+        pollRound++
+        respond(
+            content = payload.joinToString(prefix = "[", postfix = "]"),
+            status = HttpStatusCode.OK,
+            headers = headersOf(HttpHeaders.ContentType, "application/json")
+        )
+    }
+    val sessionManager = SessionManager(
+        tokenStore = store,
+        deviceFlowClient = DeviceFlowClient(HttpClient(engine))
+    )
+    sessionManager.initialize()
+    sessionManager.updateNotificationPreferences(prefs)
+    val httpClient = HttpClient(engine) {
+        install(ContentNegotiation) {
+            json(Json { ignoreUnknownKeys = true; isLenient = true })
+        }
+    }
+    val repo = GitHubRepository(sessionManager = sessionManager, httpClient = httpClient)
+    return NotificationMonitor(sessionManager, repo, canPost)
+}
+
 class NotificationMonitorTest {
+
+    @Test
+    fun blockedOsNotificationsKeepMarkersSoThreadsAlertLater() = runTest {
+        val store = InMemoryTokenStore()
+        var canPost = true
+        val monitor = monitorFor(
+            rounds = listOf(
+                listOf(threadJson("old", "subscribed")),
+                listOf(threadJson("old", "subscribed"), threadJson("new", "mention"))
+            ),
+            prefs = NotificationPreferences(osNotificationsEnabled = true, urgentOnly = false),
+            store = store,
+            canPost = { canPost }
+        )
+
+        monitor.checkForNewNotifications().getOrThrow() // baseline
+        canPost = false
+        val blocked = monitor.checkForNewNotifications().getOrThrow()
+        assertTrue(blocked.newlyArrivedForOs.isEmpty())
+        assertEquals(2, blocked.allUnread.size)
+        assertFalse("new" in store.markers)
+        assertEquals("2026-11-15T10:00:00Z", store.markers["old"])
+
+        // Once notifications can be shown again, the held-back thread is still reported.
+        canPost = true
+        val unblocked = monitor.checkForNewNotifications().getOrThrow()
+        assertEquals(listOf("new"), unblocked.newlyArrivedForOs.map { it.id })
+        assertEquals("2026-11-15T10:00:00Z", store.markers["new"])
+    }
+
+    @Test
+    fun blockedOsNotificationsKeepPreviousMarkerForUpdatedThread() = runTest {
+        val store = InMemoryTokenStore()
+        var canPost = true
+        val monitor = monitorFor(
+            rounds = listOf(
+                listOf(threadJson("t1", "mention", "2026-11-15T08:00:00Z")),
+                listOf(threadJson("t1", "mention", "2026-11-15T09:00:00Z"))
+            ),
+            prefs = NotificationPreferences(osNotificationsEnabled = true, urgentOnly = false),
+            store = store,
+            canPost = { canPost }
+        )
+
+        monitor.checkForNewNotifications().getOrThrow()
+        canPost = false
+        assertTrue(monitor.checkForNewNotifications().getOrThrow().newlyArrivedForOs.isEmpty())
+        assertEquals("2026-11-15T08:00:00Z", store.markers["t1"])
+    }
+
+    @Test
+    fun blockedWithUrgentOnlyStillAdvancesNonAlertedThreads() = runTest {
+        val store = InMemoryTokenStore()
+        var canPost = true
+        val monitor = monitorFor(
+            rounds = listOf(
+                emptyList(),
+                listOf(threadJson("urgent", "review_requested"), threadJson("noise", "subscribed"))
+            ),
+            prefs = NotificationPreferences(osNotificationsEnabled = true, urgentOnly = true),
+            store = store,
+            canPost = { canPost }
+        )
+
+        monitor.checkForNewNotifications().getOrThrow()
+        canPost = false
+        assertTrue(monitor.checkForNewNotifications().getOrThrow().newlyArrivedForOs.isEmpty())
+        assertFalse("urgent" in store.markers)
+        assertTrue("noise" in store.markers)
+    }
+
+    @Test
+    fun osAlertsDisabledAdvancesMarkersEvenWhenBlocked() = runTest {
+        val store = InMemoryTokenStore()
+        var canPost = true
+        val monitor = monitorFor(
+            rounds = listOf(emptyList(), listOf(threadJson("t1", "mention"))),
+            prefs = NotificationPreferences(osNotificationsEnabled = false),
+            store = store,
+            canPost = { canPost }
+        )
+
+        monitor.checkForNewNotifications().getOrThrow()
+        canPost = false
+        assertTrue(monitor.checkForNewNotifications().getOrThrow().newlyArrivedForOs.isEmpty())
+        assertTrue("t1" in store.markers)
+    }
+
+    @Test
+    fun moreThanIndividualCapReturnsAllThreadsAndSplitsOverflow() = runTest {
+        val store = InMemoryTokenStore()
+        val ids = (1..9).map { "t$it" }
+        val monitor = monitorFor(
+            rounds = listOf(emptyList(), ids.map { threadJson(it, "mention") }),
+            prefs = NotificationPreferences(osNotificationsEnabled = true, urgentOnly = false),
+            store = store
+        )
+
+        monitor.checkForNewNotifications().getOrThrow()
+        val result = monitor.checkForNewNotifications().getOrThrow()
+        assertEquals(ids, result.newlyArrivedForOs.map { it.id })
+        assertTrue(ids.all { it in store.markers })
+
+        val batch = splitForOsDisplay(result.newlyArrivedForOs)
+        assertEquals(ids.take(NotificationMonitor.MAX_INDIVIDUAL_OS_NOTIFICATIONS), batch.individual.map { it.id })
+        assertEquals(ids.drop(NotificationMonitor.MAX_INDIVIDUAL_OS_NOTIFICATIONS), batch.overflow.map { it.id })
+
+        val small = splitForOsDisplay(result.newlyArrivedForOs.take(3))
+        assertEquals(3, small.individual.size)
+        assertTrue(small.overflow.isEmpty())
+    }
 
     @Test
     fun baselineThenNewUrgentAndNonUrgentNotificationsAreFilteredCorrectly() = runTest {
