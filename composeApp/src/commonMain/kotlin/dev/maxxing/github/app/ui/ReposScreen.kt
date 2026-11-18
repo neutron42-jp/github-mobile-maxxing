@@ -58,6 +58,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
@@ -197,10 +198,43 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
-private enum class RepoListTab {
+internal enum class RepoListTab {
     MINE,
     STARRED,
     SEARCH
+}
+
+@Composable
+internal fun RepoListTabRow(
+    activeTab: RepoListTab,
+    onSelectTab: (RepoListTab) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val strings = appStrings()
+    PrimaryTabRow(
+        selectedTabIndex = RepoListTab.entries.indexOf(activeTab).coerceAtLeast(0),
+        containerColor = Color.Transparent,
+        modifier = modifier
+    ) {
+        RepoListTab.entries.forEach { tab ->
+            val label = when (tab) {
+                RepoListTab.MINE -> strings.repoTabMine
+                RepoListTab.STARRED -> strings.repoTabStarred
+                RepoListTab.SEARCH -> strings.repoTabExplore
+            }
+            val icon = when (tab) {
+                RepoListTab.MINE -> Lucide.FolderGit2
+                RepoListTab.STARRED -> MaxxingFilledIcons.Star
+                RepoListTab.SEARCH -> Lucide.Compass
+            }
+            MaxxingIconLabelTab(
+                selected = activeTab == tab,
+                onClick = { onSelectTab(tab) },
+                icon = icon,
+                label = label
+            )
+        }
+    }
 }
 
 internal enum class RepoDetailTab {
@@ -521,31 +555,10 @@ private fun RepoListPane(
             MaxxingCollapsibleSection(visible = showExpandedHeader) {
                 Column {
                     Spacer(Modifier.height(MaxxingTopHeaderDefaults.TabBarTopSpacing))
-                    // Scrollable so that no label is ever clipped, whatever the language, font or screen width.
-                    PrimaryScrollableTabRow(
-                        selectedTabIndex = RepoListTab.entries.indexOf(activeTab).coerceAtLeast(0),
-                        containerColor = androidx.compose.ui.graphics.Color.Transparent,
-                        edgePadding = 0.dp
-                    ) {
-                        RepoListTab.entries.forEach { tab ->
-                            val label = when (tab) {
-                                RepoListTab.MINE -> strings.repoTabMine
-                                RepoListTab.STARRED -> strings.repoTabStarred
-                                RepoListTab.SEARCH -> strings.repoTabExplore
-                            }
-                            val icon = when (tab) {
-                                RepoListTab.MINE -> Lucide.FolderGit2
-                                RepoListTab.STARRED -> MaxxingFilledIcons.Star
-                                RepoListTab.SEARCH -> Lucide.Compass
-                            }
-                            MaxxingIconLabelTab(
-                                selected = activeTab == tab,
-                                onClick = { activeTab = tab },
-                                icon = icon,
-                                label = label
-                            )
-                        }
-                    }
+                    RepoListTabRow(
+                        activeTab = activeTab,
+                        onSelectTab = { activeTab = it }
+                    )
                     if (activeTab == RepoListTab.SEARCH) {
                         Spacer(Modifier.height(10.dp))
                         Row(
