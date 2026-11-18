@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -174,7 +175,13 @@ fun MaxxingFloatingToolbar(
             FloatingToolbarDefaults.standardFloatingToolbarColors()
         },
         modifier = modifier,
-        content = content
+        content = {
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+                content = content
+            )
+        }
     )
 }
 
@@ -341,7 +348,11 @@ fun <T> MaxxingSplitActionButton(
                         )
                         Spacer(Modifier.size(ButtonDefaults.IconSpacing))
                     }
-                    Text(selectedOption.label)
+                    Text(
+                        text = selectedOption.label,
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
             },
             trailingButton = {

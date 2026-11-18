@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -825,6 +826,7 @@ private fun IssuePullDetailPaneContent(
                     vibrant = true,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
                         .padding(16.dp)
                 ) {
                     FilledTonalIconButton(
@@ -838,11 +840,12 @@ private fun IssuePullDetailPaneContent(
                         Spacer(Modifier.width(6.dp))
                         FilledTonalButton(
                             onClick = { showReviewDialog = true },
-                            enabled = !actionBusy
+                            enabled = !actionBusy,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                         ) {
                             Icon(Lucide.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text(strings.issueReviewAction)
+                            Text(strings.issueReviewAction, maxLines = 1, softWrap = false)
                         }
 
                         when (primaryAction) {
@@ -869,11 +872,12 @@ private fun IssuePullDetailPaneContent(
                                 Button(
                                     onClick = toggleDraft,
                                     enabled = !actionBusy,
-                                    colors = toolbarButtonColors
+                                    colors = toolbarButtonColors,
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                                 ) {
                                     Icon(Lucide.GitPullRequest, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(6.dp))
-                                    Text(strings.issueReadyForReview)
+                                    Text(strings.issueReadyForReview, maxLines = 1, softWrap = false)
                                 }
                             }
                             PrPrimaryAction.NONE -> Unit
@@ -896,7 +900,8 @@ private fun IssuePullDetailPaneContent(
                         } else {
                             FilledTonalButton(
                                 onClick = { pendingStateConfirmOpen = willOpen },
-                                enabled = !actionBusy
+                                enabled = !actionBusy,
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                             ) {
                                 Icon(
                                     if (willOpen) Lucide.CircleDot else Lucide.X,
@@ -904,7 +909,11 @@ private fun IssuePullDetailPaneContent(
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(Modifier.width(6.dp))
-                                Text(if (willOpen) strings.issueReopenAction else strings.issueCloseAction)
+                                Text(
+                                    if (willOpen) strings.issueReopenAction else strings.issueCloseAction,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
                             }
                         }
                     }
