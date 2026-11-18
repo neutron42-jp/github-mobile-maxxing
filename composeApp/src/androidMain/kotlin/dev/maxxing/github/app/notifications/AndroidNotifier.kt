@@ -21,6 +21,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import dev.maxxing.github.app.shared.R
 import dev.maxxing.github.auth.AndroidAuthContextHolder
 import dev.maxxing.github.auth.DeviceFlowClient
 import dev.maxxing.github.auth.SessionManager
@@ -106,7 +107,7 @@ actual object PlatformNotifier {
 
             val reasonLabel = strings.notificationReasonLabel(thread.reason)
             val notification = NotificationCompat.Builder(context, channelId)
-                .setSmallIcon(android.R.drawable.ic_dialog_email)
+                .setSmallIcon(R.drawable.ic_stat_maxxing)
                 .setContentTitle("${thread.repoFullName} • $reasonLabel")
                 .setContentText(thread.subjectTitle)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(thread.subjectTitle))
@@ -128,7 +129,7 @@ actual object PlatformNotifier {
             batch.overflow.take(5).forEach { inboxStyle.addLine("${it.repoFullName}: ${it.subjectTitle}") }
             val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
             val summary = NotificationCompat.Builder(context, CHANNEL_ACTIVITY)
-                .setSmallIcon(android.R.drawable.ic_dialog_email)
+                .setSmallIcon(R.drawable.ic_stat_maxxing)
                 .setContentTitle(strings.osNotifOverflowTitle(batch.overflow.size))
                 .setContentText(strings.osNotifOverflowBody)
                 .setStyle(inboxStyle)
@@ -167,7 +168,7 @@ actual object PlatformNotifier {
         }
 
         val notification = NotificationCompat.Builder(context, CHANNEL_URGENT)
-            .setSmallIcon(android.R.drawable.ic_dialog_email)
+            .setSmallIcon(R.drawable.ic_stat_maxxing)
             .setContentTitle(strings.osNotifTestReadyTitle(AppBranding.APP_NAME))
             .setContentText(strings.osNotifTestReadyBody)
             .setAutoCancel(true)
