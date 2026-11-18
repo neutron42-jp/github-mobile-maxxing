@@ -23,7 +23,10 @@ class PrFloatingToolbarLayoutTest {
     private fun measureToolbarMaxScroll(
         widthDp: Int,
         language: AppLanguage,
+        isPr: Boolean = true,
+        state: IssueOrPullState = IssueOrPullState.OPEN,
         primaryAction: PrPrimaryAction,
+        canCloseOrReopen: Boolean = true,
         mergeMethod: MergeMethod = MergeMethod.SQUASH
     ): Int {
         val scrollState = ScrollState(initial = 0)
@@ -39,10 +42,10 @@ class PrFloatingToolbarLayoutTest {
             ) {
                 Box(modifier = Modifier.fillMaxWidth()) {
                     IssuePullFloatingToolbar(
-                        isPr = true,
-                        state = IssueOrPullState.OPEN,
+                        isPr = isPr,
+                        state = state,
                         primaryAction = primaryAction,
-                        canCloseOrReopen = true,
+                        canCloseOrReopen = canCloseOrReopen,
                         selectedMergeMethod = mergeMethod,
                         actionBusy = false,
                         onCommentClick = {},
@@ -104,5 +107,41 @@ class PrFloatingToolbarLayoutTest {
                 primaryAction = PrPrimaryAction.MARK_READY
             )
         )
+    }
+
+    @Test
+    fun issueAndReadOnlyPrToolbarsFitWithoutHorizontalScroll() {
+        for (language in listOf(AppLanguage.DEFAULT, AppLanguage.JAPANESE)) {
+            assertEquals(
+                0,
+                measureToolbarMaxScroll(
+                    widthDp = 360,
+                    language = language,
+                    isPr = false,
+                    state = IssueOrPullState.OPEN,
+                    primaryAction = PrPrimaryAction.NONE
+                )
+            )
+            assertEquals(
+                0,
+                measureToolbarMaxScroll(
+                    widthDp = 360,
+                    language = language,
+                    isPr = false,
+                    state = IssueOrPullState.CLOSED,
+                    primaryAction = PrPrimaryAction.NONE
+                )
+            )
+            assertEquals(
+                0,
+                measureToolbarMaxScroll(
+                    widthDp = 360,
+                    language = language,
+                    isPr = true,
+                    state = IssueOrPullState.OPEN,
+                    primaryAction = PrPrimaryAction.NONE
+                )
+            )
+        }
     }
 }
