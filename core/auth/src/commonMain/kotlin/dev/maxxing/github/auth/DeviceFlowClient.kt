@@ -113,6 +113,8 @@ class DeviceFlowClient(
                 return@flow
             }
             response.body<DeviceCodeResponse>()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             emit(DeviceCodeState.Error("Failed to contact GitHub: ${e.message ?: "Network error"}", kind = DeviceFlowErrorKind.NETWORK))
             return@flow
@@ -150,6 +152,8 @@ class DeviceFlowClient(
                         )
                     )
                 }.body<AccessTokenResponse>()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 emit(
                     DeviceCodeState.AwaitingUser(
@@ -258,6 +262,8 @@ class DeviceFlowClient(
                     )
                 )
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -347,6 +353,8 @@ class DeviceFlowClient(
                 header(HttpHeaders.Accept, "application/vnd.github+json")
             }
             if (res.status == HttpStatusCode.OK) res.body<PatUserCheckDto>().login else null
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             null
         }

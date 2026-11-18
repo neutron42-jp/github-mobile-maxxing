@@ -61,6 +61,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.encodeURLPathPart
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -1519,6 +1520,15 @@ class GitHubRestService(
         return res.bodyOrDefaultOnEmpty<List<RestGistDto>> { emptyList() }.map { it.toGistSummary() }
     }
 
+    /** Checks whether the viewer has starred [encodedId], propagating coroutine cancellation. */
+    private suspend fun isGistStarred(encodedId: String): Boolean = try {
+        httpClient.get("$baseUrl/gists/$encodedId/star").status.value == 204
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Throwable) {
+        false
+    }
+
     suspend fun fetchGistDetail(gistId: String): GistDetail {
         val encodedId = normalizeGistId(gistId).encodeURLPathPart()
         val res = httpClient.get("$baseUrl/gists/$encodedId")
@@ -1526,9 +1536,7 @@ class GitHubRestService(
             throw gistApiException(res.status.value, "load gist")
         }
         val dto = res.body<RestGistDto>()
-        val isStarred = runCatching {
-            httpClient.get("$baseUrl/gists/$encodedId/star").status.value == 204
-        }.getOrDefault(false)
+        val isStarred = isGistStarred(encodedId)
         return dto.toGistDetail(viewerHasStarred = isStarred)
     }
 
@@ -1579,9 +1587,7 @@ class GitHubRestService(
             throw gistApiException(res.status.value, "update gist")
         }
         val dto = res.body<RestGistDto>()
-        val isStarred = runCatching {
-            httpClient.get("$baseUrl/gists/$encodedId/star").status.value == 204
-        }.getOrDefault(false)
+        val isStarred = isGistStarred(encodedId)
         return dto.toGistDetail(viewerHasStarred = isStarred)
     }
 
