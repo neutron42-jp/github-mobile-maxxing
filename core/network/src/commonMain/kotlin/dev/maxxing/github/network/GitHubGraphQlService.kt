@@ -220,8 +220,8 @@ class GitHubGraphQlService(
         number: Int
     ): IssueOrPullDetail {
         val query = """
-            query {
-              repository(owner: "$owner", name: "$repo") {
+            query(${'$'}owner: String!, ${'$'}name: String!) {
+              repository(owner: ${'$'}owner, name: ${'$'}name) {
                 viewerPermission
                 issueOrPullRequest(number: $number) {
                   __typename
@@ -357,7 +357,7 @@ class GitHubGraphQlService(
             }
         """.trimIndent()
 
-        val data = execute(query)
+        val data = execute(query, variables = mapOf("owner" to owner, "name" to repo))
         val repoNode = data.obj("repository")
         val viewerPermission = repoNode?.str("viewerPermission")?.uppercase()
         val item = repoNode?.obj("issueOrPullRequest")
@@ -744,8 +744,8 @@ class GitHubGraphQlService(
         }
         val data = execute(
             """
-            query {
-              repository(owner: "$owner", name: "$name") {
+            query(${'$'}owner: String!, ${'$'}name: String!) {
+              repository(owner: ${'$'}owner, name: ${'$'}name) {
                 $field(first: 30, states: $statesClause, orderBy: { field: UPDATED_AT, direction: DESC }) {
                   nodes {
                     id
@@ -762,7 +762,8 @@ class GitHubGraphQlService(
                 }
               }
             }
-            """.trimIndent()
+            """.trimIndent(),
+            variables = mapOf("owner" to owner, "name" to name)
         )
         val nodes = data.obj("repository")?.obj(field)?.arr("nodes")
             ?: return emptyList()
