@@ -3,6 +3,7 @@ package dev.maxxing.github.ui.components
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -165,6 +166,8 @@ fun MaxxingFloatingToolbar(
     expanded: Boolean = true,
     vibrant: Boolean = true,
     modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = FloatingToolbarDefaults.ContentPadding,
+    scrollState: ScrollState = rememberScrollState(),
     content: @Composable RowScope.() -> Unit
 ) {
     HorizontalFloatingToolbar(
@@ -174,10 +177,15 @@ fun MaxxingFloatingToolbar(
         } else {
             FloatingToolbarDefaults.standardFloatingToolbarColors()
         },
+        contentPadding = contentPadding,
         modifier = modifier,
         content = {
             Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                modifier = Modifier.horizontalScroll(
+                    state = scrollState,
+                    // Keep the toolbar stationary unless items genuinely overflow a tiny viewport.
+                    enabled = scrollState.maxValue > 0
+                ),
                 verticalAlignment = Alignment.CenterVertically,
                 content = content
             )
@@ -312,7 +320,8 @@ fun <T> MaxxingDropdownSelector(
 data class SplitActionOption<T>(
     val value: T,
     val label: String,
-    val icon: ImageVector? = null
+    val icon: ImageVector? = null,
+    val buttonLabel: String = label
 )
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -338,18 +347,19 @@ fun <T> MaxxingSplitActionButton(
                 SplitButtonDefaults.LeadingButton(
                     onClick = { onPrimaryClick(selectedOption.value) },
                     enabled = enabled,
-                    colors = colors
+                    colors = colors,
+                    contentPadding = PaddingValues(start = 9.dp, top = 8.dp, end = 5.dp, bottom = 8.dp)
                 ) {
                     selectedOption.icon?.let {
                         Icon(
                             imageVector = it,
                             contentDescription = null,
-                            modifier = Modifier.size(SplitButtonDefaults.LeadingIconSize)
+                            modifier = Modifier.size(16.dp)
                         )
-                        Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                        Spacer(Modifier.width(4.dp))
                     }
                     Text(
-                        text = selectedOption.label,
+                        text = selectedOption.buttonLabel,
                         maxLines = 1,
                         softWrap = false
                     )
@@ -360,13 +370,14 @@ fun <T> MaxxingSplitActionButton(
                     checked = menuExpanded,
                     onCheckedChange = { menuExpanded = it },
                     enabled = enabled,
-                    colors = colors
+                    colors = colors,
+                    contentPadding = PaddingValues(start = 4.dp, top = 8.dp, end = 6.dp, bottom = 8.dp)
                 ) {
                     Icon(
                         imageVector = Lucide.ChevronDown,
                         contentDescription = appStrings().selectOption,
                         modifier = Modifier
-                            .size(SplitButtonDefaults.TrailingIconSize)
+                            .size(18.dp)
                             .graphicsLayer { rotationZ = chevronRotation }
                     )
                 }

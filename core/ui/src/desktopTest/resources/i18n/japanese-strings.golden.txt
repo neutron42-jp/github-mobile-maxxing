@@ -529,10 +529,13 @@ markDoneAction	完了にする
 markdownSupportedHint	Markdown 対応
 markedDone	完了にしました
 mergeCommitLabel	マージコミットを作成
+mergeCommitShortLabel	マージ
 mergeConfirmQuestionInto	zqa1 にマージしますか？（zqb2）
 mergeConfirmQuestionIntoBase	ベースブランチにマージしますか？（zqa1）
 mergeRebaseLabel	リベースしてマージ
+mergeRebaseShortLabel	リベース
 mergeSquashLabel	スカッシュしてマージ
+mergeSquashShortLabel	スカッシュ
 milestoneDue	期限: zqa1
 missingGistScopeNotice	現在のトークンには 'gist' スコープがありません。Gist の作成・編集・スター、およびシークレット Gist の表示を行うには、設定からサインアウトして再度サインインしてください。
 monospaceCodeHint	等幅コード

@@ -529,10 +529,13 @@ markDoneAction	Mark done
 markdownSupportedHint	Markdown supported
 markedDone	Marked done
 mergeCommitLabel	Create a merge commit
+mergeCommitShortLabel	Merge
 mergeConfirmQuestionInto	Are you sure you want to merge into zqa1 using zqb2?
 mergeConfirmQuestionIntoBase	Are you sure you want to merge into base using zqa1?
 mergeRebaseLabel	Rebase and merge
+mergeRebaseShortLabel	Rebase
 mergeSquashLabel	Squash and merge
+mergeSquashShortLabel	Squash
 milestoneDue	Due zqa1
 missingGistScopeNotice	Your current sign-in token lacks 'gist' scope. Sign out in Settings and sign in again to create, edit, star, or view secret Gists.
 monospaceCodeHint	Monospace code

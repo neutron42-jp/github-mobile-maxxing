@@ -573,6 +573,9 @@ issueReactAction,,React,リアクション
 mergeSquashLabel,,Squash and merge,スカッシュしてマージ
 mergeCommitLabel,,Create a merge commit,マージコミットを作成
 mergeRebaseLabel,,Rebase and merge,リベースしてマージ
+mergeSquashShortLabel,,Squash,スカッシュ
+mergeCommitShortLabel,,Merge,マージ
+mergeRebaseShortLabel,,Rebase,リベース
 reviewApproveLabel,,Approve,承認
 reviewRequestChangesLabel,,Request changes,変更を要求
 reviewCommentLabel,,Comment,コメント

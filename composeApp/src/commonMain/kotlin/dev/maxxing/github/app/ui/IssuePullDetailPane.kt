@@ -1,6 +1,7 @@
 package dev.maxxing.github.app.ui
 
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -818,106 +819,26 @@ private fun IssuePullDetailPaneContent(
                     canMerge = item.viewerCanMerge,
                     canUpdate = item.viewerCanUpdate
                 )
-                val toolbarButtonColors = MaxxingFloatingToolbarDefaults.vibrantButtonColors()
 
                 // MD3E Floating Action Toolbar at bottom
-                MaxxingFloatingToolbar(
-                    expanded = true,
-                    vibrant = true,
+                IssuePullFloatingToolbar(
+                    isPr = isPr,
+                    state = item.state,
+                    primaryAction = primaryAction,
+                    canCloseOrReopen = item.viewerCanCloseOrReopen,
+                    selectedMergeMethod = selectedMergeMethod,
+                    actionBusy = actionBusy,
+                    onCommentClick = { showCommentDialog = true },
+                    onReviewClick = { showReviewDialog = true },
+                    onSelectMergeMethod = { selectedMergeMethod = it },
+                    onMergeClick = { pendingMergeConfirmMethod = it },
+                    onReadyForReviewClick = toggleDraft,
+                    onStateToggleClick = { pendingStateConfirmOpen = it },
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .navigationBarsPadding()
-                        .padding(16.dp)
-                ) {
-                    FilledTonalIconButton(
-                        onClick = { showCommentDialog = true },
-                        enabled = !actionBusy
-                    ) {
-                        Icon(Lucide.MessageSquarePlus, contentDescription = strings.reviewCommentLabel)
-                    }
-
-                    if (isPr && item.state == IssueOrPullState.OPEN) {
-                        Spacer(Modifier.width(6.dp))
-                        FilledTonalButton(
-                            onClick = { showReviewDialog = true },
-                            enabled = !actionBusy,
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                        ) {
-                            Icon(Lucide.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(strings.issueReviewAction, maxLines = 1, softWrap = false)
-                        }
-
-                        when (primaryAction) {
-                            PrPrimaryAction.MERGE -> {
-                                Spacer(Modifier.width(6.dp))
-                                val mergeOptions = remember(strings) {
-                                    MergeMethod.entries.map {
-                                        SplitActionOption(it, strings.mergeMethodLabel(it), Lucide.GitMerge)
-                                    }
-                                }
-                                MaxxingSplitActionButton(
-                                    selectedOption = mergeOptions.first { it.value == selectedMergeMethod },
-                                    options = mergeOptions,
-                                    enabled = !actionBusy,
-                                    colors = toolbarButtonColors,
-                                    onSelectOption = { selectedMergeMethod = it },
-                                    onPrimaryClick = { method ->
-                                        pendingMergeConfirmMethod = method
-                                    }
-                                )
-                            }
-                            PrPrimaryAction.MARK_READY -> {
-                                Spacer(Modifier.width(6.dp))
-                                Button(
-                                    onClick = toggleDraft,
-                                    enabled = !actionBusy,
-                                    colors = toolbarButtonColors,
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                                ) {
-                                    Icon(Lucide.GitPullRequest, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(strings.issueReadyForReview, maxLines = 1, softWrap = false)
-                                }
-                            }
-                            PrPrimaryAction.NONE -> Unit
-                        }
-                    }
-
-                    if (item.state != IssueOrPullState.MERGED && item.viewerCanCloseOrReopen) {
-                        val willOpen = item.state == IssueOrPullState.CLOSED
-                        Spacer(Modifier.width(6.dp))
-                        if (primaryAction != PrPrimaryAction.NONE) {
-                            FilledTonalIconButton(
-                                onClick = { pendingStateConfirmOpen = willOpen },
-                                enabled = !actionBusy
-                            ) {
-                                Icon(
-                                    if (willOpen) Lucide.CircleDot else Lucide.X,
-                                    contentDescription = if (willOpen) strings.issueReopenAction else strings.issueCloseAction
-                                )
-                            }
-                        } else {
-                            FilledTonalButton(
-                                onClick = { pendingStateConfirmOpen = willOpen },
-                                enabled = !actionBusy,
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                            ) {
-                                Icon(
-                                    if (willOpen) Lucide.CircleDot else Lucide.X,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    if (willOpen) strings.issueReopenAction else strings.issueCloseAction,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                            }
-                        }
-                    }
-                }
+                        .padding(horizontal = 6.dp, vertical = 16.dp)
+                )
 
                 pendingMergeConfirmMethod?.let { method ->
                     AlertDialog(
@@ -1535,6 +1456,129 @@ private fun IssuePullDetailPaneContent(
                 TextButton(onClick = { showReviewersDialog = false }) { Text(strings.cancel) }
             }
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun IssuePullFloatingToolbar(
+    isPr: Boolean,
+    state: IssueOrPullState,
+    primaryAction: PrPrimaryAction,
+    canCloseOrReopen: Boolean,
+    selectedMergeMethod: MergeMethod,
+    actionBusy: Boolean,
+    onCommentClick: () -> Unit,
+    onReviewClick: () -> Unit,
+    onSelectMergeMethod: (MergeMethod) -> Unit,
+    onMergeClick: (MergeMethod) -> Unit,
+    onReadyForReviewClick: () -> Unit,
+    onStateToggleClick: (willOpen: Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    scrollState: ScrollState = rememberScrollState()
+) {
+    val strings = appStrings()
+    val toolbarButtonColors = MaxxingFloatingToolbarDefaults.vibrantButtonColors()
+    val pillButtonPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+
+    MaxxingFloatingToolbar(
+        expanded = true,
+        vibrant = true,
+        contentPadding = PaddingValues(horizontal = 4.dp),
+        scrollState = scrollState,
+        modifier = modifier
+    ) {
+        FilledTonalIconButton(
+            onClick = onCommentClick,
+            enabled = !actionBusy
+        ) {
+            Icon(Lucide.MessageSquarePlus, contentDescription = strings.reviewCommentLabel)
+        }
+
+        if (isPr && state == IssueOrPullState.OPEN) {
+            // IconButton already adds 4dp touch-target padding around its 40dp circle.
+            FilledTonalButton(
+                onClick = onReviewClick,
+                enabled = !actionBusy,
+                contentPadding = pillButtonPadding
+            ) {
+                Icon(Lucide.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(strings.issueReviewAction, maxLines = 1, softWrap = false)
+            }
+
+            when (primaryAction) {
+                PrPrimaryAction.MERGE -> {
+                    Spacer(Modifier.width(4.dp))
+                    val mergeOptions = remember(strings) {
+                        MergeMethod.entries.map {
+                            SplitActionOption(
+                                value = it,
+                                label = strings.mergeMethodLabel(it),
+                                icon = Lucide.GitMerge,
+                                buttonLabel = strings.mergeMethodShortLabel(it)
+                            )
+                        }
+                    }
+                    MaxxingSplitActionButton(
+                        selectedOption = mergeOptions.first { it.value == selectedMergeMethod },
+                        options = mergeOptions,
+                        enabled = !actionBusy,
+                        colors = toolbarButtonColors,
+                        onSelectOption = onSelectMergeMethod,
+                        onPrimaryClick = onMergeClick
+                    )
+                }
+                PrPrimaryAction.MARK_READY -> {
+                    Spacer(Modifier.width(4.dp))
+                    Button(
+                        onClick = onReadyForReviewClick,
+                        enabled = !actionBusy,
+                        colors = toolbarButtonColors,
+                        contentPadding = pillButtonPadding
+                    ) {
+                        Icon(Lucide.GitPullRequest, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(strings.issueReadyForReview, maxLines = 1, softWrap = false)
+                    }
+                }
+                PrPrimaryAction.NONE -> Unit
+            }
+        }
+
+        if (state != IssueOrPullState.MERGED && canCloseOrReopen) {
+            val willOpen = state == IssueOrPullState.CLOSED
+            if (primaryAction != PrPrimaryAction.NONE) {
+                FilledTonalIconButton(
+                    onClick = { onStateToggleClick(willOpen) },
+                    enabled = !actionBusy
+                ) {
+                    Icon(
+                        if (willOpen) Lucide.CircleDot else Lucide.X,
+                        contentDescription = if (willOpen) strings.issueReopenAction else strings.issueCloseAction
+                    )
+                }
+            } else {
+                Spacer(Modifier.width(4.dp))
+                FilledTonalButton(
+                    onClick = { onStateToggleClick(willOpen) },
+                    enabled = !actionBusy,
+                    contentPadding = pillButtonPadding
+                ) {
+                    Icon(
+                        if (willOpen) Lucide.CircleDot else Lucide.X,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        if (willOpen) strings.issueReopenAction else strings.issueCloseAction,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+        }
     }
 }
 

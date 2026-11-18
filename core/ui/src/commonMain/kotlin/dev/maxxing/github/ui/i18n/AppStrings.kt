@@ -102,6 +102,12 @@ abstract class AppStrings internal constructor(val language: AppLanguage) : Gene
         MergeMethod.REBASE -> mergeRebaseLabel
     }
 
+    fun mergeMethodShortLabel(method: MergeMethod): String = when (method) {
+        MergeMethod.SQUASH -> mergeSquashShortLabel
+        MergeMethod.MERGE -> mergeCommitShortLabel
+        MergeMethod.REBASE -> mergeRebaseShortLabel
+    }
+
     fun reviewEventLabel(event: ReviewEvent): String = when (event) {
         ReviewEvent.APPROVE -> reviewApproveLabel
         ReviewEvent.REQUEST_CHANGES -> reviewRequestChangesLabel
