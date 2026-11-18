@@ -16,7 +16,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
+import kotlin.time.TimeSource
 
 data class IssuePullTarget(
     val owner: String,
@@ -45,28 +48,102 @@ class AppContainer {
     private val _unreadThreads = MutableStateFlow<List<NotificationThread>?>(null)
     val unreadThreads: StateFlow<List<NotificationThread>?> = _unreadThreads.asStateFlow()
 
+    private val trackerState = MutableStateFlow(UnreadNotificationTrackerState())
+    private val trackerClockOrigin = TimeSource.Monotonic.markNow()
+
+    private fun trackerNowMs(): Long = trackerClockOrigin.elapsedNow().inWholeMilliseconds
+
+    private fun updateTracker(transform: (UnreadNotificationTrackerState) -> UnreadNotificationTrackerState): UnreadNotificationTrackerState {
+        val next = trackerState.updateAndGet(transform)
+        _unreadThreads.value = next.currentThreads
+        _unreadNotificationCount.value = next.unreadCount
+        return next
+    }
+
     fun updateUnreadCount(count: Int) {
-        _unreadNotificationCount.value = count.coerceAtLeast(0)
+        updateTracker { it.withDirectCount(count) }
     }
 
     fun updateUnreadThreads(threads: List<NotificationThread>) {
-        _unreadThreads.value = threads
-        _unreadNotificationCount.value = threads.count { it.unread }
+        val nowMs = trackerNowMs()
+        updateTracker { it.reconcileFromServer(threads, syncStartedAtMs = nowMs, nowMs = nowMs) }
+    }
+
+    fun markNotificationRead(threadId: String) {
+        val nowMs = trackerNowMs()
+        updateTracker { it.markReadLocally(threadId, nowMs) }
+        backgroundScope.launch {
+            repository.markNotificationRead(threadId).onFailure {
+                updateTracker { it.rollbackSuppression(threadId) }
+            }
+        }
+    }
+
+    fun markIssueTargetNotificationRead(target: IssuePullTarget) {
+        val matches = trackerState.value.currentThreads.orEmpty().filter { thread ->
+            thread.unread &&
+                thread.repoOwner.equals(target.owner, ignoreCase = true) &&
+                thread.repoName.equals(target.repo, ignoreCase = true) &&
+                thread.subjectNumber == target.number
+        }
+        matches.forEach { markNotificationRead(it.id) }
+    }
+
+    fun markNotificationDone(
+        threadId: String,
+        onSuccess: () -> Unit = {},
+        onFailure: (Throwable) -> Unit = {}
+    ) {
+        val nowMs = trackerNowMs()
+        updateTracker { it.markDoneLocally(threadId, nowMs) }
+        backgroundScope.launch {
+            repository.markNotificationDone(threadId)
+                .onSuccess { onSuccess() }
+                .onFailure { err ->
+                    updateTracker { it.rollbackSuppression(threadId) }
+                    syncNotifications()
+                    onFailure(err)
+                }
+        }
+    }
+
+    fun markAllNotificationsRead(
+        onSuccess: () -> Unit = {},
+        onFailure: (Throwable) -> Unit = {}
+    ) {
+        val nowMs = trackerNowMs()
+        updateTracker { it.markAllReadLocally(nowMs) }
+        backgroundScope.launch {
+            repository.markAllNotificationsRead()
+                .onSuccess { onSuccess() }
+                .onFailure { err ->
+                    updateTracker { it.rollbackMarkAll() }
+                    syncNotifications()
+                    onFailure(err)
+                }
+        }
     }
 
     suspend fun syncNotifications(): Result<NotificationCheckResult> {
-        return notificationMonitor.checkForNewNotifications().onSuccess { check ->
-            _unreadThreads.value = check.allUnread
-            _unreadNotificationCount.value = check.allUnread.size
+        val syncStartedAtMs = trackerNowMs()
+        return notificationMonitor.checkForNewNotifications().map { check ->
+            val reconciled = updateTracker {
+                it.reconcileFromServer(
+                    fetchedUnread = check.allUnread,
+                    syncStartedAtMs = syncStartedAtMs,
+                    nowMs = trackerNowMs()
+                )
+            }.currentThreads.orEmpty()
             if (check.newlyArrivedForOs.isNotEmpty()) {
                 PlatformNotifier.showGitHubNotifications(check.newlyArrivedForOs)
             }
-            val topTargets = check.allUnread.mapNotNull { thread ->
+            val topTargets = reconciled.mapNotNull { thread ->
                 thread.subjectNumber?.let { num ->
                     IssuePullTarget(thread.repoOwner, thread.repoName, num, thread.subjectTitle)
                 }
             }.take(3)
             prefetchIssuePullTargets(topTargets)
+            check.copy(allUnread = reconciled)
         }
     }
 
@@ -124,8 +201,7 @@ class AppContainer {
 
     fun clearCachedProfile() {
         _viewerProfile.value = null
-        _unreadNotificationCount.value = 0
-        _unreadThreads.value = null
+        updateTracker { UnreadNotificationTrackerState() }
         backgroundScope.launch {
             repository.clearCache()
         }

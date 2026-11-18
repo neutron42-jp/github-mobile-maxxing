@@ -192,6 +192,14 @@ fun NotificationsScreen(
 
     LaunchedEffect(deepLinkTarget) {
         if (deepLinkTarget != null) {
+            threads = threads.map { thread ->
+                val matchesTarget = thread.unread &&
+                    thread.repoOwner.equals(deepLinkTarget.owner, ignoreCase = true) &&
+                    thread.repoName.equals(deepLinkTarget.repo, ignoreCase = true) &&
+                    thread.subjectNumber == deepLinkTarget.number
+                if (matchesTarget) thread.copy(unread = false) else thread
+            }
+            container.markIssueTargetNotificationRead(deepLinkTarget)
             openIssueDetail(deepLinkTarget)
             onConsumeDeepLink()
         }
@@ -264,11 +272,11 @@ fun NotificationsScreen(
                     forceRefresh = forceRefresh
                 ).onSuccess { loaded ->
                     if (seq != requestSeq) return@onSuccess
-                    threads = loaded
                     if (reqFilter == InboxFilter.UNREAD) {
                         container.updateUnreadThreads(loaded)
+                        threads = container.unreadThreads.value ?: loaded
                     } else {
-                        container.updateUnreadCount(loaded.count { it.unread })
+                        threads = loaded
                     }
                     prefetchVisible(loaded)
                     isLoading = false
@@ -561,12 +569,15 @@ fun NotificationsScreen(
                                             confirmValueChange = { value ->
                                                 if (value == SwipeToDismissBoxValue.EndToStart) {
                                                     threads = threads.filterNot { it.id == thread.id }
-                                                    container.updateUnreadCount(threads.count { it.unread })
-                                                    scope.launch {
-                                                        container.repository.markNotificationDone(thread.id)
-                                                            .onSuccess { onMessage(strings.markedDone) }
-                                                            .onFailure { loadNotifications() }
-                                                    }
+                                                    container.markNotificationDone(
+                                                        threadId = thread.id,
+                                                        onSuccess = {
+                                                            scope.launch { onMessage(strings.markedDone) }
+                                                        },
+                                                        onFailure = {
+                                                            scope.launch { loadNotifications() }
+                                                        }
+                                                    )
                                                     true
                                                 } else false
                                             }
@@ -614,10 +625,7 @@ fun NotificationsScreen(
                                                         threads = threads.map {
                                                             if (it.id == thread.id) it.copy(unread = false) else it
                                                         }
-                                                        container.updateUnreadCount(threads.count { it.unread })
-                                                        scope.launch {
-                                                            container.repository.markNotificationRead(thread.id)
-                                                        }
+                                                        container.markNotificationRead(thread.id)
                                                     }
                                                     val num = thread.subjectNumber
                                                     if (num != null && (thread.subjectType == NotificationSubjectType.ISSUE || thread.subjectType == NotificationSubjectType.PULL_REQUEST)) {
@@ -636,11 +644,12 @@ fun NotificationsScreen(
                                                 onMarkDone = if (isMarkDoneAvailable(filter)) {
                                                     {
                                                         threads = threads.filterNot { it.id == thread.id }
-                                                        container.updateUnreadCount(threads.count { it.unread })
-                                                        scope.launch {
-                                                            container.repository.markNotificationDone(thread.id)
-                                                                .onFailure { loadNotifications() }
-                                                        }
+                                                        container.markNotificationDone(
+                                                            threadId = thread.id,
+                                                            onFailure = {
+                                                                scope.launch { loadNotifications() }
+                                                            }
+                                                        )
                                                     }
                                                 } else {
                                                     null
@@ -667,14 +676,20 @@ fun NotificationsScreen(
                         Spacer(Modifier.width(6.dp))
                         FilledTonalIconButton(
                             onClick = {
-                                scope.launch {
-                                    container.repository.markAllNotificationsRead()
-                                        .onSuccess {
+                                threads = threads.map { it.copy(unread = false) }
+                                container.markAllNotificationsRead(
+                                    onSuccess = {
+                                        scope.launch {
                                             onMessage(strings.allNotificationsMarkedRead)
+                                        }
+                                    },
+                                    onFailure = { err ->
+                                        scope.launch {
+                                            onMessage(strings.errorMessage(err, strings.markAllReadFailed))
                                             loadNotifications(forceRefresh = true)
                                         }
-                                        .onFailure { onMessage(strings.errorMessage(it, strings.markAllReadFailed)) }
-                                }
+                                    }
+                                )
                             }
                         ) {
                             Icon(Lucide.CheckCheck, contentDescription = strings.markAllReadAction)
