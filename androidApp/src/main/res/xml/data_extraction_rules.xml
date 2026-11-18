@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Android 12 (API 31) and later. Imported font files (filesDir/custom_fonts) are left out of cloud
-    backups and device transfers. Only exclude rules are used, so everything else (settings and
-    other app data) is still included.
+    Android 12 (API 31) and later. Imported font files (filesDir/custom_fonts) and the encrypted
+    session file (filesDir/maxxing_session.enc) are left out of cloud backups and device transfers.
+    Only exclude rules are used, so everything else (settings and other app data) is still included.
 -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="file" path="custom_fonts/" />
+        <exclude domain="file" path="maxxing_session.enc" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="custom_fonts/" />
+        <exclude domain="file" path="maxxing_session.enc" />
     </device-transfer>
 </data-extraction-rules>

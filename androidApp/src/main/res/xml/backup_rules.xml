@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Android 11 (API 30) and earlier. Imported font files (filesDir/custom_fonts) are left out of Auto
-    Backup. Only exclude rules are used, so everything else is still backed up.
+    Android 11 (API 30) and earlier. Imported font files (filesDir/custom_fonts) and the encrypted
+    session file (filesDir/maxxing_session.enc) are left out of Auto Backup. Only exclude rules are
+    used, so everything else is still backed up.
 -->
 <full-backup-content>
     <exclude domain="file" path="custom_fonts/" />
+    <exclude domain="file" path="maxxing_session.enc" />
 </full-backup-content>
