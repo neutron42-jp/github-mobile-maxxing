@@ -837,7 +837,7 @@ private fun IssuePullDetailPaneContent(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .navigationBarsPadding()
-                        .padding(horizontal = 6.dp, vertical = 16.dp)
+                        .padding(horizontal = 4.dp, vertical = 16.dp)
                 )
 
                 pendingMergeConfirmMethod?.let { method ->
@@ -1484,19 +1484,16 @@ internal fun IssuePullFloatingToolbar(
     val showsPrActions = isPr && state == IssueOrPullState.OPEN
     val showsCloseOrReopen = state != IssueOrPullState.MERGED && canCloseOrReopen
     // IconButtons carry 4dp of invisible touch-target inset on each side, whereas standard Buttons do not.
-    // Compensate end padding so visual left/right margins inside the pill stay symmetric.
+    // Keep visual margins symmetric with the 12dp top/bottom padding inside the 64dp toolbar pill.
     val endsWithIconButton = when {
         showsCloseOrReopen -> primaryAction != PrPrimaryAction.NONE
         showsPrActions -> false
         else -> true
     }
-    val toolbarContentPadding = when {
-        primaryAction != PrPrimaryAction.NONE -> {
-            if (endsWithIconButton) PaddingValues(horizontal = 4.dp)
-            else PaddingValues(start = 6.dp, end = 10.dp)
-        }
-        endsWithIconButton -> PaddingValues(horizontal = 8.dp)
-        else -> PaddingValues(start = 8.dp, end = 12.dp)
+    val toolbarContentPadding = if (endsWithIconButton) {
+        PaddingValues(horizontal = 8.dp)
+    } else {
+        PaddingValues(start = 8.dp, end = 12.dp)
     }
 
     MaxxingFloatingToolbar(

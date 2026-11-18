@@ -348,7 +348,7 @@ fun <T> MaxxingSplitActionButton(
                     onClick = { onPrimaryClick(selectedOption.value) },
                     enabled = enabled,
                     colors = colors,
-                    contentPadding = PaddingValues(start = 9.dp, top = 8.dp, end = 5.dp, bottom = 8.dp)
+                    contentPadding = PaddingValues(start = 8.dp, top = 8.dp, end = 4.dp, bottom = 8.dp)
                 ) {
                     selectedOption.icon?.let {
                         Icon(
@@ -356,7 +356,7 @@ fun <T> MaxxingSplitActionButton(
                             contentDescription = null,
                             modifier = Modifier.size(16.dp)
                         )
-                        Spacer(Modifier.width(4.dp))
+                        Spacer(Modifier.width(3.dp))
                     }
                     Text(
                         text = selectedOption.buttonLabel,
@@ -371,7 +371,7 @@ fun <T> MaxxingSplitActionButton(
                     onCheckedChange = { menuExpanded = it },
                     enabled = enabled,
                     colors = colors,
-                    contentPadding = PaddingValues(start = 4.dp, top = 8.dp, end = 6.dp, bottom = 8.dp)
+                    contentPadding = PaddingValues(start = 4.dp, top = 8.dp, end = 5.dp, bottom = 8.dp)
                 ) {
                     Icon(
                         imageVector = Lucide.ChevronDown,

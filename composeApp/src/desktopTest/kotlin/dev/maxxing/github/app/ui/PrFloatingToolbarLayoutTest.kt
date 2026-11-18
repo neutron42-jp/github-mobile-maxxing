@@ -57,7 +57,7 @@ class PrFloatingToolbarLayoutTest {
                         scrollState = scrollState,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(horizontal = 6.dp, vertical = 16.dp)
+                            .padding(horizontal = 4.dp, vertical = 16.dp)
                     )
                 }
             }
