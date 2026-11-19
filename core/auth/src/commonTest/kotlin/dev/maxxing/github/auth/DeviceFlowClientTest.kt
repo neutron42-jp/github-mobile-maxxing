@@ -17,6 +17,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -241,5 +242,27 @@ class DeviceFlowClientTest {
         )
         assertEquals("Temporary network hiccup, retrying...", states.filterIsInstance<DeviceCodeState.AwaitingUser>().last().statusMessage)
         assertIs<DeviceCodeState.Authenticated>(states.last())
+    }
+
+    @Test
+    fun deviceFlowValidatesVerificationUriStrictly() = runTest {
+        assertTrue(DeviceFlowClient.isTrustedDeviceVerificationUri("https://github.com/login/device"))
+        assertTrue(DeviceFlowClient.isTrustedDeviceVerificationUri("https://github.com/login/device/"))
+        assertTrue(DeviceFlowClient.isTrustedDeviceVerificationUri("https://github.com/login/device?user_code=ABCD-EFGH"))
+
+        assertFalse(DeviceFlowClient.isTrustedDeviceVerificationUri("http://github.com/login/device"))
+        assertFalse(DeviceFlowClient.isTrustedDeviceVerificationUri("https://evil.example/login/device"))
+        assertFalse(DeviceFlowClient.isTrustedDeviceVerificationUri("https://github.com/login/device-evil"))
+        assertFalse(DeviceFlowClient.isTrustedDeviceVerificationUri("https://github.com/login/device/../../phish"))
+        assertFalse(DeviceFlowClient.isTrustedDeviceVerificationUri("https://github.com:8443/login/device"))
+        assertFalse(DeviceFlowClient.isTrustedDeviceVerificationUri("https://user@github.com/login/device"))
+        assertFalse(DeviceFlowClient.isTrustedDeviceVerificationUri("javascript:alert(1)"))
+
+        val badStates = runFlow(
+            deviceCodeBody = """{"device_code":"d","user_code":"u","verification_uri":"https://github.com/login/device-evil","expires_in":60,"interval":5}"""
+        )
+        val err = assertIs<DeviceCodeState.Error>(badStates.last())
+        assertEquals(DeviceFlowErrorKind.OTHER, err.kind)
+        assertTrue(err.message.contains("unexpected verification URL"))
     }
 }
