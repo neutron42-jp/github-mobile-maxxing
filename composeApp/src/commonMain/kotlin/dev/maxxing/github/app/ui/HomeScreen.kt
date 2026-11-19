@@ -1,6 +1,5 @@
 package dev.maxxing.github.app.ui
 
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -9,8 +8,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -29,6 +27,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -585,15 +584,21 @@ private fun HomeDashboardPane(
     }
 }
 
-/** Collapsed item limit for pinned bookmarks: fewer on compact widths. */
+/** Number of pinned chips previewed in the single row: fewer on compact widths. */
 internal fun pinnedBookmarksCollapsedLimit(availableWidth: Dp): Int =
     if (availableWidth < 600.dp) 6 else 12
 
-/** Items to render: everything when expanded or within [limit], otherwise the first [limit]. */
-internal fun <T> pinnedBookmarksVisibleItems(items: List<T>, limit: Int, expanded: Boolean): List<T> =
-    if (expanded || items.size <= limit) items else items.take(limit)
+/** Chips previewed in the single row: the first [limit] items, or everything within [limit]. */
+internal fun <T> pinnedBookmarksPreviewItems(items: List<T>, limit: Int): List<T> =
+    if (items.size <= limit) items else items.take(limit)
 
-@OptIn(ExperimentalLayoutApi::class)
+/** Splits a pinned "owner/name" into (owner, name), or null when there is no owner to open. */
+internal fun pinnedBookmarkOwnerAndName(fullName: String): Pair<String, String>? {
+    val owner = fullName.substringBefore('/', "")
+    if (owner.isBlank()) return null
+    return owner to fullName.substringAfter('/', fullName)
+}
+
 @Composable
 private fun PinnedBookmarksSection(
     pinnedRepoNames: List<String>,
@@ -604,16 +609,20 @@ private fun PinnedBookmarksSection(
         recentRepos.associateBy { it.fullName.lowercase() }
     }
     val strings = appStrings()
-    var expanded by rememberSaveable { mutableStateOf(false) }
+    var showAllDialog by rememberSaveable { mutableStateOf(false) }
+    val openPinned: (String) -> Unit = { fullName ->
+        pinnedBookmarkOwnerAndName(fullName)?.let { (owner, name) -> onOpenRepo(owner, name) }
+    }
+    val isPrivate: (String) -> Boolean = { fullName -> repoByFullName[fullName.lowercase()]?.isPrivate == true }
+
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val limit = pinnedBookmarksCollapsedLimit(maxWidth)
-        val visibleNames = pinnedBookmarksVisibleItems(pinnedRepoNames, limit, expanded)
+        val previewNames = pinnedBookmarksPreviewItems(pinnedRepoNames, limit)
         Column(
-            modifier = Modifier.fillMaxWidth().animateContentSize(),
+            modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -625,40 +634,116 @@ private fun PinnedBookmarksSection(
                 )
                 Text(
                     text = strings.pinnedBookmarks,
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f)
+                    style = MaterialTheme.typography.titleMedium
                 )
-                if (pinnedRepoNames.size > limit) {
-                    TextButton(onClick = { expanded = !expanded }) {
-                        Text(if (expanded) strings.pinnedBookmarksShowLess else strings.pinnedBookmarksShowAll(pinnedRepoNames.size))
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // Chips scroll inside the remaining width; "Show all" stays pinned at the right edge.
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    previewNames.forEach { fullName ->
+                        AssistChip(
+                            onClick = { openPinned(fullName) },
+                            modifier = Modifier.widthIn(max = 240.dp),
+                            leadingIcon = { PinnedBookmarkIcon(isPrivate(fullName)) },
+                            label = { Text(fullName, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        )
                     }
                 }
-            }
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                visibleNames.forEach { fullName ->
-                    val owner = fullName.substringBefore('/', "")
-                    val name = fullName.substringAfter('/', fullName)
-                    val summary = repoByFullName[fullName.lowercase()]
-                    AssistChip(
-                        onClick = { if (owner.isNotBlank()) onOpenRepo(owner, name) },
-                        modifier = Modifier.widthIn(max = 240.dp),
-                        leadingIcon = {
-                            Icon(
-                                imageVector = if (summary?.isPrivate == true) Lucide.Lock else Lucide.Bookmark,
-                                contentDescription = null,
-                                modifier = Modifier.size(15.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        },
-                        label = { Text(fullName, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                    )
+                if (pinnedRepoNames.size > limit) {
+                    TextButton(onClick = { showAllDialog = true }) {
+                        Text(
+                            text = strings.pinnedBookmarksShowAll(pinnedRepoNames.size),
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 }
             }
         }
     }
+
+    if (showAllDialog) {
+        PinnedBookmarksDialog(
+            pinnedRepoNames = pinnedRepoNames,
+            isPrivate = isPrivate,
+            onOpen = { fullName ->
+                if (pinnedBookmarkOwnerAndName(fullName) != null) {
+                    showAllDialog = false
+                    openPinned(fullName)
+                }
+            },
+            onDismiss = { showAllDialog = false }
+        )
+    }
+}
+
+@Composable
+private fun PinnedBookmarkIcon(isPrivate: Boolean) {
+    Icon(
+        imageVector = if (isPrivate) Lucide.Lock else Lucide.Bookmark,
+        contentDescription = null,
+        modifier = Modifier.size(15.dp),
+        tint = MaterialTheme.colorScheme.primary
+    )
+}
+
+@Composable
+private fun PinnedBookmarksDialog(
+    pinnedRepoNames: List<String>,
+    isPrivate: (String) -> Boolean,
+    onOpen: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val strings = appStrings()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(strings.pinnedBookmarks) },
+        text = {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                items(pinnedRepoNames) { fullName ->
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpen(fullName) }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            PinnedBookmarkIcon(isPrivate(fullName))
+                            Text(
+                                text = fullName,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(strings.closeAction)
+            }
+        }
+    )
 }
 
 @Composable

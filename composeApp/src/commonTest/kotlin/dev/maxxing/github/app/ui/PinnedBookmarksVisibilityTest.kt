@@ -3,30 +3,31 @@ package dev.maxxing.github.app.ui
 import androidx.compose.ui.unit.dp
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class PinnedBookmarksVisibilityTest {
     private val names = (1..10).map { "owner/repo$it" }
 
     @Test
-    fun collapsedShowsOnlyFirstLimitItems() {
-        assertEquals(names.take(6), pinnedBookmarksVisibleItems(names, limit = 6, expanded = false))
+    fun previewShowsOnlyFirstLimitItems() {
+        assertEquals(names.take(6), pinnedBookmarksPreviewItems(names, limit = 6))
     }
 
     @Test
-    fun expandedShowsAllItems() {
-        assertEquals(names, pinnedBookmarksVisibleItems(names, limit = 6, expanded = true))
-    }
-
-    @Test
-    fun fewerThanLimitShowsAllItemsWhenCollapsed() {
+    fun fewerThanLimitPreviewsAllItems() {
         val few = names.take(3)
-        assertEquals(few, pinnedBookmarksVisibleItems(few, limit = 6, expanded = false))
+        assertEquals(few, pinnedBookmarksPreviewItems(few, limit = 6))
     }
 
     @Test
-    fun exactlyLimitShowsAllItemsWhenCollapsed() {
+    fun exactlyLimitPreviewsAllItems() {
         val exact = names.take(6)
-        assertEquals(exact, pinnedBookmarksVisibleItems(exact, limit = 6, expanded = false))
+        assertEquals(exact, pinnedBookmarksPreviewItems(exact, limit = 6))
+    }
+
+    @Test
+    fun previewOfEmptyListIsEmpty() {
+        assertEquals(emptyList(), pinnedBookmarksPreviewItems(emptyList<String>(), limit = 6))
     }
 
     @Test
@@ -35,5 +36,17 @@ class PinnedBookmarksVisibilityTest {
         assertEquals(6, pinnedBookmarksCollapsedLimit(599.dp))
         assertEquals(12, pinnedBookmarksCollapsedLimit(600.dp))
         assertEquals(12, pinnedBookmarksCollapsedLimit(1200.dp))
+    }
+
+    @Test
+    fun ownerAndNameAreSplitAtFirstSlash() {
+        assertEquals("owner" to "repo", pinnedBookmarkOwnerAndName("owner/repo"))
+    }
+
+    @Test
+    fun missingOwnerCannotBeOpened() {
+        assertNull(pinnedBookmarkOwnerAndName("repo-without-owner"))
+        assertNull(pinnedBookmarkOwnerAndName("/repo"))
+        assertNull(pinnedBookmarkOwnerAndName(" /repo"))
     }
 }
