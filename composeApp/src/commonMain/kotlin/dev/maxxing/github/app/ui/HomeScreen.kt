@@ -584,9 +584,13 @@ private fun HomeDashboardPane(
     }
 }
 
-/** Number of pinned chips previewed in the single row: fewer on compact widths. */
+/**
+ * Number of pinned chips previewed in the single row before "Show all" appears.
+ * Kept small (only ~1-2 chips fit beside "Show all" on a 360dp phone) so the rest goes to the dialog
+ * instead of a long horizontal scroll.
+ */
 internal fun pinnedBookmarksCollapsedLimit(availableWidth: Dp): Int =
-    if (availableWidth < 600.dp) 6 else 12
+    if (availableWidth < 600.dp) 3 else 6
 
 /** Chips previewed in the single row: the first [limit] items, or everything within [limit]. */
 internal fun <T> pinnedBookmarksPreviewItems(items: List<T>, limit: Int): List<T> =

@@ -32,10 +32,10 @@ class PinnedBookmarksVisibilityTest {
 
     @Test
     fun collapsedLimitDependsOnAvailableWidth() {
-        assertEquals(6, pinnedBookmarksCollapsedLimit(360.dp))
-        assertEquals(6, pinnedBookmarksCollapsedLimit(599.dp))
-        assertEquals(12, pinnedBookmarksCollapsedLimit(600.dp))
-        assertEquals(12, pinnedBookmarksCollapsedLimit(1200.dp))
+        assertEquals(3, pinnedBookmarksCollapsedLimit(360.dp))
+        assertEquals(3, pinnedBookmarksCollapsedLimit(599.dp))
+        assertEquals(6, pinnedBookmarksCollapsedLimit(600.dp))
+        assertEquals(6, pinnedBookmarksCollapsedLimit(1200.dp))
     }
 
     @Test
