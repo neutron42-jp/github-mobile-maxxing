@@ -1,6 +1,7 @@
 package dev.maxxing.github.app.notifications
 
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -115,6 +116,8 @@ actual object PlatformNotifier {
                 .setPriority(
                     if (isUrgent) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT
                 )
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setPublicVersion(buildLockScreenPublicVersion(context, channelId, strings))
                 .setContentIntent(contentIntent)
                 .addAction(0, strings.osNotifMarkReadAction, markReadIntent)
                 .addAction(0, strings.doneAction, markDoneIntent)
@@ -134,6 +137,8 @@ actual object PlatformNotifier {
                 .setContentText(strings.osNotifOverflowBody)
                 .setStyle(inboxStyle)
                 .setAutoCancel(true)
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setPublicVersion(buildLockScreenPublicVersion(context, CHANNEL_ACTIVITY, strings))
                 .apply {
                     if (launchIntent != null) {
                         setContentIntent(
@@ -173,6 +178,8 @@ actual object PlatformNotifier {
             .setContentText(strings.osNotifTestReadyBody)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(buildLockScreenPublicVersion(context, CHANNEL_URGENT, strings))
             .apply { if (pendingIntent != null) setContentIntent(pendingIntent) }
             .build()
 
@@ -227,6 +234,21 @@ actual object PlatformNotifier {
             Manifest.permission.POST_NOTIFICATIONS
         ) == PackageManager.PERMISSION_GRANTED
     }
+
+    /**
+     * Lock-screen replacement shown while the real notification is private: the app name and a generic
+     * phrase, so repo names and thread titles stay off the lock screen.
+     */
+    private fun buildLockScreenPublicVersion(
+        context: Context,
+        channelId: String,
+        strings: AppStrings
+    ): Notification =
+        NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(R.drawable.ic_stat_maxxing)
+            .setContentTitle(AppBranding.APP_NAME)
+            .setContentText(strings.osNotifLockScreenBody)
+            .build()
 
     private fun buildOpenThreadIntent(
         context: Context,
@@ -326,18 +348,25 @@ class NotificationActionReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
 
         CoroutineScope(Dispatchers.IO).launch {
+            // The receiver owns its HTTP clients; close them so repeated actions do not leak them.
+            val authHttpClient = DeviceFlowClient.defaultAuthHttpClient()
             try {
                 AndroidAuthContextHolder.init(context.applicationContext)
-                val sessionManager = SessionManager()
+                val sessionManager = SessionManager(deviceFlowClient = DeviceFlowClient(authHttpClient))
                 sessionManager.initialize()
                 if (sessionManager.session.value != null) {
                     val repo = GitHubRepository(sessionManager)
-                    when (action) {
-                        ACTION_MARK_READ -> repo.markNotificationRead(threadId)
-                        ACTION_MARK_DONE -> repo.markNotificationDone(threadId)
+                    try {
+                        when (action) {
+                            ACTION_MARK_READ -> repo.markNotificationRead(threadId)
+                            ACTION_MARK_DONE -> repo.markNotificationDone(threadId)
+                        }
+                    } finally {
+                        repo.close()
                     }
                 }
             } finally {
+                authHttpClient.close()
                 pendingResult.finish()
             }
         }

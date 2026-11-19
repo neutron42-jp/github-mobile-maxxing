@@ -105,6 +105,9 @@ import dev.maxxing.github.model.ReactionSummary
 import dev.maxxing.github.model.ReviewEvent
 import dev.maxxing.github.model.TimelineEvent
 import dev.maxxing.github.model.UserSummary
+import dev.maxxing.github.model.WorkflowJobSummary
+import dev.maxxing.github.model.WorkflowRunSummary
+import dev.maxxing.github.network.GitHubApiException
 import dev.maxxing.github.ui.components.ExpressiveStatusPill
 import dev.maxxing.github.ui.components.GitHubLabelChip
 import dev.maxxing.github.ui.components.GitHubMarkdown
@@ -114,12 +117,14 @@ import dev.maxxing.github.ui.components.MaxxingFloatingToolbarDefaults
 import dev.maxxing.github.ui.components.MaxxingFullScreenDiffViewer
 import dev.maxxing.github.ui.components.MaxxingFullScreenEditorScaffold
 import dev.maxxing.github.ui.components.MaxxingLoadingState
+import dev.maxxing.github.ui.components.MaxxingPredictiveOverlayHost
 import dev.maxxing.github.ui.components.MaxxingSplitActionButton
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.RepoLabelsPickerDialog
 import dev.maxxing.github.ui.components.SplitActionOption
 import dev.maxxing.github.ui.components.UserAvatar
 import dev.maxxing.github.ui.components.diffFileLazyItems
+import dev.maxxing.github.ui.i18n.AppStrings
 import dev.maxxing.github.ui.i18n.appStrings
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.delay
@@ -139,6 +144,78 @@ internal fun resolveChecksRef(headRefOid: String?, headRefName: String?): String
 
 internal fun hasPendingCheckRuns(runs: List<CheckRunSummary>?): Boolean =
     runs.orEmpty().any { it.status != "completed" }
+
+internal data class ActionsRunTarget(
+    val owner: String,
+    val repo: String,
+    val runId: Long,
+    val jobId: Long? = null
+)
+
+private val ACTIONS_RUN_URL_REGEX = Regex(
+    """^https?://[^/]+/([^/]+)/([^/]+)/actions/runs/(\d+)(?:/jobs?/(\d+))?"""
+)
+
+internal fun parseActionsRunUrl(detailsUrl: String): ActionsRunTarget? {
+    val clean = detailsUrl.trim().substringBefore('?').substringBefore('#')
+    val match = ACTIONS_RUN_URL_REGEX.find(clean) ?: return null
+    val owner = match.groupValues[1]
+    val repo = match.groupValues[2]
+    val runId = match.groupValues[3].toLongOrNull() ?: return null
+    val jobId = match.groupValues[4].takeIf { it.isNotBlank() }?.toLongOrNull()
+    if (owner.isBlank() || repo.isBlank()) return null
+    return ActionsRunTarget(owner = owner, repo = repo, runId = runId, jobId = jobId)
+}
+
+internal fun resolvePullMergeBlockReason(
+    detail: IssueOrPullDetail,
+    checkRuns: List<CheckRunSummary>?,
+    strings: AppStrings
+): String? {
+    val mergeState = detail.mergeStateStatus?.uppercase()
+    if (detail.mergeable.equals("CONFLICTING", ignoreCase = true) || mergeState == "DIRTY") {
+        return strings.issueMergeBlockedConflicts
+    }
+    val hasPendingChecks = hasPendingCheckRuns(checkRuns) ||
+        detail.checkRollup?.state?.uppercase() in setOf("PENDING", "EXPECTED")
+    // Allow UNSTABLE / CLEAN / HAS_HOOKS if checks are non-required, unless individual checks are still pending
+    if (hasPendingChecks && mergeState !in setOf("CLEAN", "HAS_HOOKS")) {
+        return strings.issueMergeBlockedPendingChecks
+    }
+    if (mergeState == "BEHIND") {
+        return strings.issueMergeBlockedBehind
+    }
+    if (mergeState == "BLOCKED") {
+        val reviewDecision = detail.reviewDecision?.uppercase()
+        return if (reviewDecision == "REVIEW_REQUIRED" || reviewDecision == "CHANGES_REQUESTED") {
+            strings.issueMergeBlockedReview
+        } else {
+            strings.issueMergeBlockedPolicy
+        }
+    }
+    return null
+}
+
+internal fun formatPullMergeFailureMessage(error: Throwable, strings: AppStrings): String {
+    if (error is GitHubApiException && (error.statusCode == 405 || error.statusCode == 409)) {
+        val msg = error.message.orEmpty()
+        return when {
+            msg.contains("conflict", ignoreCase = true) ||
+                msg.contains("mergeable", ignoreCase = true) -> strings.issueMergeBlockedConflicts
+            msg.contains("status check", ignoreCase = true) ||
+                msg.contains("required check", ignoreCase = true) ||
+                msg.contains("in progress", ignoreCase = true) ||
+                msg.contains("pending", ignoreCase = true) -> strings.issueMergeBlockedPendingChecks
+            msg.contains("review", ignoreCase = true) -> strings.issueMergeBlockedReview
+            msg.contains("out-of-date", ignoreCase = true) ||
+                msg.contains("behind", ignoreCase = true) -> strings.issueMergeBlockedBehind
+            msg.contains("protected branch", ignoreCase = true) ||
+                msg.contains("rule", ignoreCase = true) -> strings.issueMergeBlockedPolicy
+            else -> strings.errorMessage(error, strings.issueMergeFailed)
+        }
+    }
+    return strings.errorMessage(error, strings.issueMergeFailed)
+}
 
 internal enum class ChecksViewState { LOADING, ERROR, EMPTY, LIST }
 
@@ -201,60 +278,128 @@ private fun IssuePullDetailPaneContent(
     onBack: () -> Unit,
     onMessage: (String) -> Unit
 ) {
-    var detail by remember(target) {
+    val targetKey = remember(target.owner, target.repo, target.number) { issuePullIdentityKey(target) }
+    var detail by remember(targetKey) {
         mutableStateOf(container.repository.peekIssueOrPullDetail(target.owner, target.repo, target.number))
     }
-    var files by remember(target) {
+    var files by remember(targetKey) {
         mutableStateOf(container.repository.peekPullFiles(target.owner, target.repo, target.number).orEmpty())
     }
-    var isLoading by remember(target) { mutableStateOf(detail == null) }
-    var filesLoading by remember(target) { mutableStateOf(false) }
-    var checkRuns by remember(target) { mutableStateOf<List<CheckRunSummary>?>(null) }
-    var checksLoading by remember(target) { mutableStateOf(false) }
-    var checksError by remember(target) { mutableStateOf<String?>(null) }
+    var isLoading by remember(targetKey) { mutableStateOf(detail == null) }
+    var filesLoading by remember(targetKey) { mutableStateOf(false) }
+    var checkRuns by remember(targetKey) { mutableStateOf<List<CheckRunSummary>?>(null) }
+    var checksLoading by remember(targetKey) { mutableStateOf(false) }
+    var checksError by remember(targetKey) { mutableStateOf<String?>(null) }
     // Ref (head SHA or branch) that checkRuns belong to; null until the first load.
-    var checksLoadedRef by remember(target) { mutableStateOf<String?>(null) }
+    var checksLoadedRef by remember(targetKey) { mutableStateOf<String?>(null) }
     // Only the latest check-runs request may update the state above.
-    var checksRequestId by remember(target) { mutableIntStateOf(0) }
+    var checksRequestId by remember(targetKey) { mutableIntStateOf(0) }
     // Polls spent on this PR; the cap holds across tab switches and returns from the background.
-    var checksPollsUsed by remember(target) { mutableIntStateOf(0) }
-    var errorMsg by remember(target) { mutableStateOf<String?>(null) }
-    var selectedTab by remember(target) { mutableStateOf(DetailTab.CONVERSATION) }
+    var checksPollsUsed by remember(targetKey) { mutableIntStateOf(0) }
+    var errorMsg by remember(targetKey) { mutableStateOf<String?>(null) }
+    var selectedTab by remember(targetKey) { mutableStateOf(DetailTab.CONVERSATION) }
 
-    var showCommentDialog by remember { mutableStateOf(false) }
-    var commentDraft by remember { mutableStateOf("") }
-    var showReviewDialog by remember { mutableStateOf(false) }
-    var reviewBody by remember { mutableStateOf("") }
-    var reviewEvent by remember { mutableStateOf(ReviewEvent.APPROVE) }
-    var selectedMergeMethod by remember { mutableStateOf(MergeMethod.SQUASH) }
-    var actionBusy by remember { mutableStateOf(false) }
+    // Draft/editing state is keyed to targetKey (owner/repo/number, ignoring hintTitle):
+    // switching to another issue/PR drops drafts, while hintTitle updates keep them intact.
+    var showCommentDialog by remember(targetKey) { mutableStateOf(false) }
+    var commentDraft by remember(targetKey) { mutableStateOf("") }
+    var showReviewDialog by remember(targetKey) { mutableStateOf(false) }
+    var reviewBody by remember(targetKey) { mutableStateOf("") }
+    var reviewEvent by remember(targetKey) { mutableStateOf(ReviewEvent.APPROVE) }
+    var selectedMergeMethod by remember(targetKey) { mutableStateOf(MergeMethod.SQUASH) }
+    var actionBusy by remember(targetKey) { mutableStateOf(false) }
 
-    var showLabelsDialog by remember { mutableStateOf(false) }
-    var availableLabels by remember(target) { mutableStateOf<List<LabelTag>>(emptyList()) }
-    var selectedLabelNames by remember(target) { mutableStateOf<Set<String>>(emptySet()) }
-    var newLabelName by remember { mutableStateOf("") }
-    var newLabelColor by remember { mutableStateOf("6E40C9") }
+    var showLabelsDialog by remember(targetKey) { mutableStateOf(false) }
+    var availableLabels by remember(targetKey) { mutableStateOf<List<LabelTag>>(emptyList()) }
+    var selectedLabelNames by remember(targetKey) { mutableStateOf<Set<String>>(emptySet()) }
+    var newLabelName by remember(targetKey) { mutableStateOf("") }
+    var newLabelColor by remember(targetKey) { mutableStateOf("6E40C9") }
 
-    var showAssigneesDialog by remember { mutableStateOf(false) }
-    var availableAssignees by remember(target) { mutableStateOf<List<UserSummary>>(emptyList()) }
-    var selectedAssigneeLogins by remember(target) { mutableStateOf<Set<String>>(emptySet()) }
+    var showAssigneesDialog by remember(targetKey) { mutableStateOf(false) }
+    var availableAssignees by remember(targetKey) { mutableStateOf<List<UserSummary>>(emptyList()) }
+    var selectedAssigneeLogins by remember(targetKey) { mutableStateOf<Set<String>>(emptySet()) }
 
-    var showMilestoneDialog by remember { mutableStateOf(false) }
-    var availableMilestones by remember(target) { mutableStateOf<List<MilestoneSummary>>(emptyList()) }
-    var selectedMilestoneNumber by remember(target) { mutableStateOf<Int?>(null) }
+    var showMilestoneDialog by remember(targetKey) { mutableStateOf(false) }
+    var availableMilestones by remember(targetKey) { mutableStateOf<List<MilestoneSummary>>(emptyList()) }
+    var selectedMilestoneNumber by remember(targetKey) { mutableStateOf<Int?>(null) }
 
     val scope = rememberCoroutineScope()
     val strings = appStrings()
 
-    var pendingDiffCommentTarget by remember(target) { mutableStateOf<Triple<String, Int?, String>?>(null) }
-    var diffCommentBody by remember { mutableStateOf("") }
-    var fullScreenDiffFile by remember(target) { mutableStateOf<PullFileChange?>(null) }
-    var editingComment by remember { mutableStateOf<TimelineEvent.CommentEvent?>(null) }
-    var editingCommentBody by remember { mutableStateOf("") }
-    var deletingComment by remember { mutableStateOf<TimelineEvent.CommentEvent?>(null) }
-    var showReviewersDialog by remember { mutableStateOf(false) }
-    var selectedReviewerLogins by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var customReviewerLogin by remember { mutableStateOf("") }
+    var pendingDiffCommentTarget by remember(targetKey) { mutableStateOf<Triple<String, Int?, String>?>(null) }
+    var diffCommentBody by remember(targetKey) { mutableStateOf("") }
+    var fullScreenDiffFile by remember(targetKey) { mutableStateOf<PullFileChange?>(null) }
+    var editingComment by remember(targetKey) { mutableStateOf<TimelineEvent.CommentEvent?>(null) }
+    var editingCommentBody by remember(targetKey) { mutableStateOf("") }
+    var deletingComment by remember(targetKey) { mutableStateOf<TimelineEvent.CommentEvent?>(null) }
+    var showReviewersDialog by remember(targetKey) { mutableStateOf(false) }
+    var selectedReviewerLogins by remember(targetKey) { mutableStateOf<Set<String>>(emptySet()) }
+    var customReviewerLogin by remember(targetKey) { mutableStateOf("") }
+
+    var openedActionsTarget by remember(target) { mutableStateOf<ActionsRunTarget?>(null) }
+    var openedWorkflowRun by remember(target) { mutableStateOf<WorkflowRunSummary?>(null) }
+    var openedWorkflowJobs by remember(target) { mutableStateOf<List<WorkflowJobSummary>?>(null) }
+    var workflowRunLoading by remember(target) { mutableStateOf(false) }
+    var workflowRunError by remember(target) { mutableStateOf<String?>(null) }
+    var workflowActionBusy by remember(target) { mutableStateOf(false) }
+    var openedLogJob by remember(target) { mutableStateOf<WorkflowJobSummary?>(null) }
+    var jobLogsText by remember(target) { mutableStateOf<String?>(null) }
+    var jobLogsLoading by remember(target) { mutableStateOf(false) }
+
+    fun loadActionsOverlay(actionsTarget: ActionsRunTarget, forceRefresh: Boolean = false) {
+        openedActionsTarget = actionsTarget
+        workflowRunError = null
+        workflowRunLoading = true
+        scope.launch {
+            container.repository.getWorkflowRun(
+                owner = actionsTarget.owner,
+                repo = actionsTarget.repo,
+                runId = actionsTarget.runId,
+                forceRefresh = forceRefresh
+            ).onSuccess { run ->
+                openedWorkflowRun = run
+            }.onFailure { err ->
+                workflowRunError = strings.errorMessage(err, strings.issueCheckFailedLoadRun)
+            }
+            container.repository.getWorkflowRunJobs(
+                owner = actionsTarget.owner,
+                repo = actionsTarget.repo,
+                runId = actionsTarget.runId,
+                forceRefresh = forceRefresh
+            ).onSuccess { jobs ->
+                openedWorkflowJobs = jobs
+                val requestedJobId = actionsTarget.jobId
+                if (requestedJobId != null && openedLogJob == null && !forceRefresh) {
+                    jobs.firstOrNull { it.id == requestedJobId }?.let { matchedJob ->
+                        openedLogJob = matchedJob
+                        jobLogsLoading = true
+                        jobLogsText = null
+                        container.repository.getJobLogs(actionsTarget.owner, actionsTarget.repo, matchedJob.id)
+                            .onSuccess { jobLogsText = it }
+                            .onFailure { jobLogsText = strings.errorMessage(it, strings.failedLoadLogs) }
+                        jobLogsLoading = false
+                    }
+                }
+            }.onFailure { err ->
+                if (workflowRunError == null) {
+                    workflowRunError = strings.errorMessage(err, strings.failedLoadJobs)
+                }
+            }
+            workflowRunLoading = false
+        }
+    }
+
+    fun openWorkflowJobLogs(actionsTarget: ActionsRunTarget, job: WorkflowJobSummary) {
+        openedLogJob = job
+        jobLogsText = null
+        jobLogsLoading = true
+        scope.launch {
+            container.repository.getJobLogs(actionsTarget.owner, actionsTarget.repo, job.id)
+                .onSuccess { jobLogsText = it }
+                .onFailure { jobLogsText = strings.errorMessage(it, strings.failedLoadLogs) }
+            jobLogsLoading = false
+        }
+    }
 
     fun loadChecks(ref: String, forceRefresh: Boolean, silent: Boolean = false) {
         if (checksLoadedRef != ref) {
@@ -323,13 +468,13 @@ private fun IssuePullDetailPaneContent(
         }
     }
 
-    LaunchedEffect(target) {
+    LaunchedEffect(targetKey) {
         loadDetail(forceRefresh = false)
     }
 
     // Head ref whose runs were last seen unfinished. When they all finish, reload the PR so
     // the header CI rollup and the head commit catch up with the Checks tab.
-    var checksPendingRef by remember(target) { mutableStateOf<String?>(null) }
+    var checksPendingRef by remember(targetKey) { mutableStateOf<String?>(null) }
     LaunchedEffect(checkRuns) {
         val runs = checkRuns ?: return@LaunchedEffect
         val ref = checksLoadedRef
@@ -715,12 +860,27 @@ private fun IssuePullDetailPaneContent(
                                     }
                                     items(items = shownRuns, key = { it.id }, contentType = { "check_run" }) { cr ->
                                         val (icon, tint) = actionStatusVisual(cr.status, cr.conclusion)
+                                        val actionsTarget = remember(cr.detailsUrl) { parseActionsRunUrl(cr.detailsUrl) }
                                         ElevatedCard(
                                             shape = MaterialTheme.shapes.large,
                                             colors = CardDefaults.elevatedCardColors(
                                                 containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                                             ),
-                                            modifier = Modifier.fillMaxWidth()
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .then(
+                                                    if (actionsTarget != null) {
+                                                        Modifier.clickable {
+                                                            openedLogJob = null
+                                                            jobLogsText = null
+                                                            openedWorkflowRun = null
+                                                            openedWorkflowJobs = null
+                                                            loadActionsOverlay(actionsTarget, forceRefresh = false)
+                                                        }
+                                                    } else {
+                                                        Modifier
+                                                    }
+                                                )
                                         ) {
                                             Column(
                                                 modifier = Modifier.padding(14.dp),
@@ -747,8 +907,28 @@ private fun IssuePullDetailPaneContent(
                                                         contentColor = tint
                                                     )
                                                     if (cr.detailsUrl.isNotBlank()) {
-                                                        IconButton(onClick = { openUrlInBrowser(cr.detailsUrl) }) {
-                                                            Icon(Lucide.ExternalLink, contentDescription = strings.openDetails, modifier = Modifier.size(16.dp))
+                                                        IconButton(
+                                                            onClick = {
+                                                                if (actionsTarget != null) {
+                                                                    openedLogJob = null
+                                                                    jobLogsText = null
+                                                                    openedWorkflowRun = null
+                                                                    openedWorkflowJobs = null
+                                                                    loadActionsOverlay(actionsTarget, forceRefresh = false)
+                                                                } else {
+                                                                    openUrlInBrowser(cr.detailsUrl)
+                                                                }
+                                                            }
+                                                        ) {
+                                                            Icon(
+                                                                if (actionsTarget != null) Lucide.CircleDot else Lucide.ExternalLink,
+                                                                contentDescription = if (actionsTarget != null) {
+                                                                    strings.issueCheckOpenRunInApp
+                                                                } else {
+                                                                    strings.issueCheckOpenInBrowser
+                                                                },
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
                                                         }
                                                     }
                                                 }
@@ -765,7 +945,7 @@ private fun IssuePullDetailPaneContent(
                             }
                         }
                     } else {
-                        val expandedFiles = remember(target, files) {
+                        val expandedFiles = remember(targetKey, files) {
                             mutableStateMapOf<String, Boolean>().apply {
                                 val defaultOpen = files.size <= 6
                                 files.forEach { put(it.filename, defaultOpen) }
@@ -809,8 +989,8 @@ private fun IssuePullDetailPaneContent(
                     }
                 }
 
-                var pendingMergeConfirmMethod by remember(target) { mutableStateOf<MergeMethod?>(null) }
-                var pendingStateConfirmOpen by remember(target) { mutableStateOf<Boolean?>(null) }
+                var pendingMergeConfirmMethod by remember(targetKey) { mutableStateOf<MergeMethod?>(null) }
+                var pendingStateConfirmOpen by remember(targetKey) { mutableStateOf<Boolean?>(null) }
 
                 val primaryAction = prPrimaryAction(
                     isPr = isPr,
@@ -841,18 +1021,35 @@ private fun IssuePullDetailPaneContent(
                 )
 
                 pendingMergeConfirmMethod?.let { method ->
+                    val mergeBlockReason = resolvePullMergeBlockReason(item, checkRuns, strings)
                     AlertDialog(
                         onDismissRequest = { pendingMergeConfirmMethod = null },
                         icon = { Icon(Lucide.GitMerge, contentDescription = null) },
                         title = { Text(strings.issueMergeConfirmTitle(target.number)) },
                         text = {
-                            Text(
-                                "${strings.mergeConfirmQuestion(item.baseRefName, method)}\n\n${item.title}"
-                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text(
+                                    "${strings.mergeConfirmQuestion(item.baseRefName, method)}\n\n${item.title}"
+                                )
+                                if (mergeBlockReason != null) {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.errorContainer,
+                                        shape = MaterialTheme.shapes.medium,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = mergeBlockReason,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onErrorContainer,
+                                            modifier = Modifier.padding(12.dp)
+                                        )
+                                    }
+                                }
+                            }
                         },
                         confirmButton = {
                             Button(
-                                enabled = !actionBusy,
+                                enabled = !actionBusy && mergeBlockReason == null,
                                 onClick = {
                                     pendingMergeConfirmMethod = null
                                     scope.launch {
@@ -862,8 +1059,8 @@ private fun IssuePullDetailPaneContent(
                                         ).onSuccess {
                                             onMessage(strings.issueMergedMessage(target.number, method))
                                             loadDetail(forceRefresh = true)
-                                        }.onFailure {
-                                            onMessage(strings.errorMessage(it, strings.issueMergeFailed))
+                                        }.onFailure { err ->
+                                            onMessage(formatPullMergeFailureMessage(err, strings))
                                         }
                                         actionBusy = false
                                     }
@@ -1096,6 +1293,19 @@ private fun IssuePullDetailPaneContent(
                             onMessage(strings.createdLabelMessage(created.name))
                         }
                         .onFailure { onMessage(strings.errorMessage(it, strings.failedCreateLabel)) }
+                    actionBusy = false
+                }
+            },
+            onDeleteLabel = { label ->
+                scope.launch {
+                    actionBusy = true
+                    container.repository.deleteRepoLabel(target.owner, target.repo, label.name)
+                        .onSuccess {
+                            availableLabels = availableLabels.filterNot { it.name == label.name }
+                            selectedLabelNames = selectedLabelNames - label.name
+                            onMessage(strings.labelDeletedMessage(label.name))
+                        }
+                        .onFailure { onMessage(strings.errorMessage(it, strings.failedDeleteLabel)) }
                     actionBusy = false
                 }
             }
@@ -1456,6 +1666,126 @@ private fun IssuePullDetailPaneContent(
                 TextButton(onClick = { showReviewersDialog = false }) { Text(strings.cancel) }
             }
         )
+    }
+
+    MaxxingPredictiveOverlayHost(
+        target = openedActionsTarget,
+        onBack = {
+            if (openedLogJob != null) {
+                openedLogJob = null
+                jobLogsText = null
+            } else {
+                openedActionsTarget = null
+                openedWorkflowRun = null
+                openedWorkflowJobs = null
+                workflowRunError = null
+            }
+        },
+        contentKey = { "${it.owner}/${it.repo}/${it.runId}" }
+    ) { actionsTarget ->
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.fillMaxSize().statusBarsPadding()
+        ) {
+            val activeLogJob = openedLogJob
+            val activeRun = openedWorkflowRun
+            when {
+                activeLogJob != null -> {
+                    WorkflowLogViewer(
+                        job = activeLogJob,
+                        logs = jobLogsText,
+                        isLoading = jobLogsLoading,
+                        onBack = {
+                            openedLogJob = null
+                            jobLogsText = null
+                        }
+                    )
+                }
+                activeRun != null -> {
+                    WorkflowRunDetailView(
+                        run = activeRun,
+                        jobs = openedWorkflowJobs,
+                        isLoading = workflowRunLoading,
+                        actionBusy = workflowActionBusy,
+                        canManageRuns = detail?.viewerCanMerge == true,
+                        onBack = {
+                            openedActionsTarget = null
+                            openedWorkflowRun = null
+                            openedWorkflowJobs = null
+                            workflowRunError = null
+                        },
+                        onRefresh = { loadActionsOverlay(actionsTarget, forceRefresh = true) },
+                        onRerun = { failedOnly ->
+                            scope.launch {
+                                workflowActionBusy = true
+                                container.repository.rerunWorkflow(
+                                    actionsTarget.owner,
+                                    actionsTarget.repo,
+                                    activeRun.id,
+                                    failedOnly
+                                ).onSuccess {
+                                    onMessage(if (failedOnly) strings.notifRerunningFailed else strings.notifRerunningWorkflow)
+                                    loadActionsOverlay(actionsTarget, forceRefresh = true)
+                                }.onFailure { err ->
+                                    onMessage(strings.errorMessage(err, strings.actionsRerunFailedError))
+                                }
+                                workflowActionBusy = false
+                            }
+                        },
+                        onCancel = {
+                            scope.launch {
+                                workflowActionBusy = true
+                                container.repository.cancelWorkflowRun(
+                                    actionsTarget.owner,
+                                    actionsTarget.repo,
+                                    activeRun.id
+                                ).onSuccess {
+                                    onMessage(strings.notifCancelRequested)
+                                    loadActionsOverlay(actionsTarget, forceRefresh = true)
+                                }.onFailure { err ->
+                                    onMessage(strings.errorMessage(err, strings.actionsCancelFailedError))
+                                }
+                                workflowActionBusy = false
+                            }
+                        },
+                        onOpenLogs = { job -> openWorkflowJobLogs(actionsTarget, job) }
+                    )
+                }
+                workflowRunLoading -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        MaxxingLoadingState(message = strings.issueCheckLoadingRun)
+                    }
+                }
+                else -> {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = workflowRunError ?: strings.issueCheckFailedLoadRun,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(
+                                onClick = {
+                                    openedActionsTarget = null
+                                    workflowRunError = null
+                                }
+                            ) {
+                                Text(strings.back)
+                            }
+                            FilledTonalButton(
+                                onClick = { loadActionsOverlay(actionsTarget, forceRefresh = true) }
+                            ) {
+                                Text(strings.retry)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

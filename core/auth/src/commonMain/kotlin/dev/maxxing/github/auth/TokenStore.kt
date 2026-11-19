@@ -55,6 +55,10 @@ expect fun createPlatformTokenStore(): TokenStore
 
 expect fun openUrlInBrowser(url: String): Boolean
 
+/** Only http/https URLs may be launched in an external browser. */
+internal fun isAllowedBrowserUrlScheme(scheme: String?): Boolean =
+    scheme.equals("http", ignoreCase = true) || scheme.equals("https", ignoreCase = true)
+
 /** Opens a platform-native share sheet when available; returns false if the caller should fall back to clipboard copy. */
 expect fun shareText(text: String, title: String? = null): Boolean
 

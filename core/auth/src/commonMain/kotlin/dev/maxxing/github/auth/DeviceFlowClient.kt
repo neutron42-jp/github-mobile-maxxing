@@ -15,9 +15,12 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.http.DEFAULT_PORT
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Parameters
+import io.ktor.http.URLProtocol
+import io.ktor.http.Url
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -113,8 +116,21 @@ class DeviceFlowClient(
                 return@flow
             }
             response.body<DeviceCodeResponse>()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             emit(DeviceCodeState.Error("Failed to contact GitHub: ${e.message ?: "Network error"}", kind = DeviceFlowErrorKind.NETWORK))
+            return@flow
+        }
+
+        // The verification URL is opened in the user's browser, so only GitHub's device-flow page is accepted.
+        if (!isTrustedDeviceVerificationUri(codeResponse.verificationUri)) {
+            emit(
+                DeviceCodeState.Error(
+                    "GitHub returned an unexpected verification URL: ${codeResponse.verificationUri}",
+                    kind = DeviceFlowErrorKind.OTHER
+                )
+            )
             return@flow
         }
 
@@ -150,6 +166,8 @@ class DeviceFlowClient(
                         )
                     )
                 }.body<AccessTokenResponse>()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 emit(
                     DeviceCodeState.AwaitingUser(
@@ -258,6 +276,8 @@ class DeviceFlowClient(
                     )
                 )
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -347,6 +367,8 @@ class DeviceFlowClient(
                 header(HttpHeaders.Accept, "application/vnd.github+json")
             }
             if (res.status == HttpStatusCode.OK) res.body<PatUserCheckDto>().login else null
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             null
         }
@@ -354,6 +376,21 @@ class DeviceFlowClient(
 
     companion object {
         const val DEFAULT_OAUTH_SCOPE = "repo gist notifications read:user user:follow read:org"
+
+        /** Only this device-flow page is accepted as the verification URL, since the UI opens it in a browser. */
+        const val EXPECTED_VERIFICATION_URI = "https://github.com/login/device"
+
+        internal fun isTrustedDeviceVerificationUri(uri: String): Boolean {
+            val trimmed = uri.trim()
+            val parsed = runCatching { Url(trimmed) }.getOrNull() ?: return false
+            if (parsed.protocol != URLProtocol.HTTPS) return false
+            if (!parsed.host.equals("github.com", ignoreCase = true)) return false
+            if (parsed.specifiedPort != DEFAULT_PORT && parsed.specifiedPort != URLProtocol.HTTPS.defaultPort) return false
+            if (parsed.user != null || parsed.password != null) return false
+            val segments = parsed.rawSegments.filter { it.isNotEmpty() }
+            if (segments != listOf("login", "device")) return false
+            return parsed.encodedPath == "/login/device" || parsed.encodedPath == "/login/device/"
+        }
 
         /** Upper bound for one request to github.com, so a stalled token refresh cannot hold up API calls long. */
         const val AUTH_REQUEST_TIMEOUT_MILLIS = 15_000L

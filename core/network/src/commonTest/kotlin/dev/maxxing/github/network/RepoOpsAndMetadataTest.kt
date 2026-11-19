@@ -539,4 +539,127 @@ class RepoOpsAndMetadataTest {
         val secondObj = json.parseToJsonElement(postedPayloads[1]).jsonObject
         assertNull(secondObj["labels"])
     }
+
+    @Test
+    fun labelUpdateDeleteAndMilestoneCrudWork() = runTest {
+        val seenRequests = mutableListOf<String>()
+        val milestoneStates = mutableListOf<String?>()
+        val patchBodies = mutableListOf<String>()
+
+        val engine = MockEngine { request ->
+            val path = request.url.encodedPath
+            seenRequests += "${request.method.value} $path"
+            when {
+                path == "/repos/octo/app/labels" && request.method == HttpMethod.Get -> respond(
+                    content = """[{"name":"good first issue","color":"7057ff","description":"Starter"}]""",
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(HttpHeaders.ContentType, "application/json")
+                )
+
+                path == "/repos/octo/app/labels/good%20first%20issue" && request.method == HttpMethod.Patch -> {
+                    val body = (request.body as TextContent).text
+                    patchBodies += body
+                    respond(
+                        content = """{"name":"starter","color":"008672","description":"Updated"}""",
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json")
+                    )
+                }
+
+                path == "/repos/octo/app/labels/starter" && request.method == HttpMethod.Delete -> respond(
+                    content = "",
+                    status = HttpStatusCode.NoContent
+                )
+
+                path == "/repos/octo/app/milestones" && request.method == HttpMethod.Get -> {
+                    milestoneStates += request.url.parameters["state"]
+                    respond(
+                        content = """[{"number":1,"title":"v1.0","description":"Ship","state":"open","due_on":"2026-12-31T23:59:59Z","open_issues":2,"closed_issues":8}]""",
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json")
+                    )
+                }
+
+                path == "/repos/octo/app/milestones" && request.method == HttpMethod.Post -> {
+                    val req = json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                    assertEquals("v1.1", req["title"]?.jsonPrimitive?.content)
+                    assertEquals("2027-01-15T23:59:59Z", req["due_on"]?.jsonPrimitive?.content)
+                    respond(
+                        content = """{"number":2,"title":"v1.1","description":"Next","state":"open","due_on":"2027-01-15T23:59:59Z","open_issues":0,"closed_issues":0}""",
+                        status = HttpStatusCode.Created,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json")
+                    )
+                }
+
+                path == "/repos/octo/app/milestones/2" && request.method == HttpMethod.Patch -> {
+                    val body = (request.body as TextContent).text
+                    patchBodies += body
+                    respond(
+                        content = """{"number":2,"title":"v1.1.0","description":"Next","state":"closed","due_on":null,"open_issues":0,"closed_issues":0}""",
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json")
+                    )
+                }
+
+                path == "/repos/octo/app/milestones/2" && request.method == HttpMethod.Delete -> respond(
+                    content = "",
+                    status = HttpStatusCode.NoContent
+                )
+
+                else -> error("Unexpected request: ${request.method.value} $path")
+            }
+        }
+
+        val http = createClient(engine)
+        val sm = SessionManager(RepoOpsTokenStore(), DeviceFlowClient(http, "cid"))
+        sm.initialize()
+        val repo = GitHubRepository(sm, httpClient = http)
+
+        assertEquals("good first issue", repo.getRepoLabels("octo", "app").getOrThrow().single().name)
+        val updatedLabel = repo.updateRepoLabel(
+            owner = "octo",
+            repo = "app",
+            currentName = "good first issue",
+            newName = "starter",
+            colorHex = "#008672",
+            description = "Updated"
+        ).getOrThrow()
+        assertEquals("starter", updatedLabel.name)
+        assertEquals("008672", updatedLabel.colorHex)
+        assertNull(repo.peekRepoLabels("octo", "app"))
+
+        repo.deleteRepoLabel("octo", "app", "starter").getOrThrow()
+        assertTrue("DELETE /repos/octo/app/labels/starter" in seenRequests)
+
+        val milestones = repo.getRepoMilestones("octo", "app", state = "all").getOrThrow()
+        assertEquals(listOf<String?>("all"), milestoneStates)
+        assertEquals(1, milestones.single().number)
+
+        val createdMs = repo.createRepoMilestone(
+            owner = "octo",
+            repo = "app",
+            title = "v1.1",
+            description = "Next",
+            dueOn = "2027-01-15T23:59:59Z"
+        ).getOrThrow()
+        assertEquals(2, createdMs.number)
+        assertNull(repo.peekRepoMilestones("octo", "app", state = "all"))
+
+        val updatedMs = repo.updateRepoMilestone(
+            owner = "octo",
+            repo = "app",
+            number = 2,
+            title = "v1.1.0",
+            state = "closed",
+            clearDueOn = true
+        ).getOrThrow()
+        assertEquals("closed", updatedMs.state)
+        assertNull(updatedMs.dueOn)
+        val msPatch = json.parseToJsonElement(patchBodies.last()).jsonObject
+        assertEquals(JsonNull, msPatch["due_on"])
+        assertEquals("closed", msPatch["state"]?.jsonPrimitive?.content)
+
+        repo.deleteRepoMilestone("octo", "app", 2).getOrThrow()
+        assertTrue("DELETE /repos/octo/app/milestones/2" in seenRequests)
+    }
 }
