@@ -26,6 +26,7 @@ class PullRequestChecksAndMergeTest {
         title = "Sample PR",
         body = "",
         state = IssueOrPullState.OPEN,
+        repoFullName = "octo/app",
         repoOwner = "octo",
         repoName = "app",
         author = UserSummary("alice", "", ""),

@@ -373,13 +373,13 @@ private fun IssuePullDetailPaneContent(
                         jobLogsText = null
                         container.repository.getJobLogs(actionsTarget.owner, actionsTarget.repo, matchedJob.id)
                             .onSuccess { jobLogsText = it }
-                            .onFailure { jobLogsText = strings.errorMessage(it, strings.actionsFailedLoadLogs) }
+                            .onFailure { jobLogsText = strings.errorMessage(it, strings.failedLoadLogs) }
                         jobLogsLoading = false
                     }
                 }
             }.onFailure { err ->
                 if (workflowRunError == null) {
-                    workflowRunError = strings.errorMessage(err, strings.actionsFailedLoadJobs)
+                    workflowRunError = strings.errorMessage(err, strings.failedLoadJobs)
                 }
             }
             workflowRunLoading = false
@@ -393,7 +393,7 @@ private fun IssuePullDetailPaneContent(
         scope.launch {
             container.repository.getJobLogs(actionsTarget.owner, actionsTarget.repo, job.id)
                 .onSuccess { jobLogsText = it }
-                .onFailure { jobLogsText = strings.errorMessage(it, strings.actionsFailedLoadLogs) }
+                .onFailure { jobLogsText = strings.errorMessage(it, strings.failedLoadLogs) }
             jobLogsLoading = false
         }
     }

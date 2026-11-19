@@ -6,6 +6,9 @@ import dev.maxxing.github.auth.SessionManager
 import dev.maxxing.github.auth.ThemePreferences
 import dev.maxxing.github.auth.TokenStore
 import dev.maxxing.github.model.AuthSession
+import dev.maxxing.github.model.NotificationReason
+import dev.maxxing.github.model.NotificationSubjectType
+import dev.maxxing.github.model.NotificationThread
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
