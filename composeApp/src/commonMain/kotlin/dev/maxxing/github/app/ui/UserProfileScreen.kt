@@ -144,6 +144,8 @@ fun UserProfileScreen(
 
     var isLoading by remember(login) { mutableStateOf(profile == null) }
     var tabLoading by remember(login) { mutableStateOf(false) }
+    // Only the latest tab request may update the tab state.
+    var tabRequestSeq by remember(login) { mutableStateOf(0) }
     var isRefreshing by remember(login) { mutableStateOf(false) }
     var errorMsg by remember(login) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -178,21 +180,22 @@ fun UserProfileScreen(
 
     fun loadActiveTab(tab: ProfileTab, forceRefresh: Boolean = false) {
         val currentProfile = profile ?: return
+        val reqSeq = ++tabRequestSeq
         scope.launch {
-            tabLoading = true
+            if (reqSeq == tabRequestSeq) tabLoading = true
             when (tab) {
                 ProfileTab.REPOS -> container.repository.getUserRepositories(login, currentProfile.isOrganization, forceRefresh)
-                    .onSuccess { repos = it }
+                    .onSuccess { if (reqSeq == tabRequestSeq) repos = it }
                 ProfileTab.STARRED -> container.repository.getUserStarredRepositories(login, forceRefresh)
-                    .onSuccess { starred = it }
+                    .onSuccess { if (reqSeq == tabRequestSeq) starred = it }
                 ProfileTab.ACTIVITY -> container.repository.getUserEvents(login, forceRefresh)
-                    .onSuccess { events = it }
+                    .onSuccess { if (reqSeq == tabRequestSeq) events = it }
                 ProfileTab.FOLLOWERS -> container.repository.getUserFollowers(login, forceRefresh)
-                    .onSuccess { followers = it }
+                    .onSuccess { if (reqSeq == tabRequestSeq) followers = it }
                 ProfileTab.FOLLOWING -> container.repository.getUserFollowing(login, forceRefresh)
-                    .onSuccess { following = it }
+                    .onSuccess { if (reqSeq == tabRequestSeq) following = it }
             }
-            tabLoading = false
+            if (reqSeq == tabRequestSeq) tabLoading = false
         }
     }
 

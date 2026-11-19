@@ -1220,6 +1220,9 @@ fun RepoDetailScreen(
     var pullsLoading by remember(repo.fullName) { mutableStateOf(false) }
     var issuesError by remember(repo.fullName) { mutableStateOf<String?>(null) }
     var pullsError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    // Only the latest issues/pulls request may update the state above.
+    var issuesRequestSeq by remember(repo.fullName) { mutableStateOf(0) }
+    var pullsRequestSeq by remember(repo.fullName) { mutableStateOf(0) }
     var issuesSection by remember(repo.fullName) { mutableStateOf(RepoIssuesSection.ISSUES) }
     var repoLabels by remember(repo.fullName) {
         mutableStateOf(container.repository.peekRepoLabels(repo.owner, repo.name))
@@ -1311,6 +1314,8 @@ fun RepoDetailScreen(
     }
     var actionsLoading by remember(repo.fullName) { mutableStateOf(false) }
     var actionsError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    // Only the latest actions request may update the workflow state.
+    var actionsRequestSeq by remember(repo.fullName) { mutableStateOf(0) }
     var openedRun by remember(repo.fullName) { mutableStateOf<WorkflowRunSummary?>(null) }
     var runJobs by remember(repo.fullName) { mutableStateOf<List<WorkflowJobSummary>?>(null) }
     var jobsLoading by remember(repo.fullName) { mutableStateOf(false) }
@@ -1322,6 +1327,8 @@ fun RepoDetailScreen(
     var releases by remember(repo.fullName) { mutableStateOf(container.repository.peekReleases(repo.owner, repo.name)) }
     var releasesLoading by remember(repo.fullName) { mutableStateOf(false) }
     var releasesError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    // Only the latest releases request may update the state above.
+    var releasesRequestSeq by remember(repo.fullName) { mutableStateOf(0) }
     var showCreateReleaseDialog by remember(repo.fullName) { mutableStateOf(false) }
     var creatingRelease by remember(repo.fullName) { mutableStateOf(false) }
     var createReleaseError by remember(repo.fullName) { mutableStateOf<String?>(null) }
@@ -1345,11 +1352,14 @@ fun RepoDetailScreen(
     }
     var securityLoading by remember(repo.fullName) { mutableStateOf(false) }
     var securityError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    // Only the latest security/insights requests may update the state above.
+    var securityRequestSeq by remember(repo.fullName) { mutableStateOf(0) }
     var insightsData by remember(repo.fullName) {
         mutableStateOf(container.repository.peekRepoInsights(repo.owner, repo.name))
     }
     var insightsLoading by remember(repo.fullName) { mutableStateOf(false) }
     var insightsError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    var insightsRequestSeq by remember(repo.fullName) { mutableStateOf(0) }
     var fullScreenDiffContext by remember(repo.fullName) { mutableStateOf<Pair<PullFileChange, List<PullFileChange>>?>(null) }
 
     fun loadDiscussions(categoryId: String? = selectedDiscussionCategoryId, forceRefresh: Boolean = false) {
@@ -1407,23 +1417,32 @@ fun RepoDetailScreen(
     }
 
     fun loadSecurityOverview(forceRefresh: Boolean = false) {
+        val reqSeq = ++securityRequestSeq
         scope.launch {
             val cached = container.repository.peekRepoSecurityOverview(repo.owner, repo.name)
             if (cached != null) {
-                securityOverview = cached
-                securityLoading = false
-            } else {
-                securityLoading = true
-            }
-            securityError = null
-            container.repository.getRepoSecurityOverview(repo.owner, repo.name, forceRefresh = forceRefresh)
-                .onSuccess {
-                    securityOverview = it
+                if (reqSeq == securityRequestSeq) {
+                    securityOverview = cached
                     securityLoading = false
                 }
+            } else if (reqSeq == securityRequestSeq) {
+                securityLoading = true
+            }
+            if (reqSeq == securityRequestSeq) {
+                securityError = null
+            }
+            container.repository.getRepoSecurityOverview(repo.owner, repo.name, forceRefresh = forceRefresh)
+                .onSuccess {
+                    if (reqSeq == securityRequestSeq) {
+                        securityOverview = it
+                        securityLoading = false
+                    }
+                }
                 .onFailure {
-                    securityError = strings.errorMessage(it, strings.failedLoadSecurity)
-                    securityLoading = false
+                    if (reqSeq == securityRequestSeq) {
+                        securityError = strings.errorMessage(it, strings.failedLoadSecurity)
+                        securityLoading = false
+                    }
                 }
         }
     }
@@ -1433,69 +1452,96 @@ fun RepoDetailScreen(
             ?: repo.owner.ifBlank { repo.fullName.substringBefore('/', "") }.trim()
         val targetRepo = detail?.summary?.name?.takeIf { it.isNotBlank() }
             ?: repo.name.ifBlank { repo.fullName.substringAfter('/', repo.name) }.trim()
+        val reqSeq = ++insightsRequestSeq
         scope.launch {
             val cached = container.repository.peekRepoInsights(targetOwner, targetRepo)
             if (cached != null) {
-                insightsData = cached
-                insightsLoading = false
-            } else {
-                insightsLoading = true
-            }
-            insightsError = null
-            container.repository.getRepoInsights(targetOwner, targetRepo, forceRefresh = forceRefresh)
-                .onSuccess {
-                    insightsData = it
+                if (reqSeq == insightsRequestSeq) {
+                    insightsData = cached
                     insightsLoading = false
                 }
+            } else if (reqSeq == insightsRequestSeq) {
+                insightsLoading = true
+            }
+            if (reqSeq == insightsRequestSeq) {
+                insightsError = null
+            }
+            container.repository.getRepoInsights(targetOwner, targetRepo, forceRefresh = forceRefresh)
+                .onSuccess {
+                    if (reqSeq == insightsRequestSeq) {
+                        insightsData = it
+                        insightsLoading = false
+                    }
+                }
                 .onFailure {
-                    insightsError = strings.errorMessage(it, strings.failedLoadInsights)
-                    insightsLoading = false
+                    if (reqSeq == insightsRequestSeq) {
+                        insightsError = strings.errorMessage(it, strings.failedLoadInsights)
+                        insightsLoading = false
+                    }
                 }
         }
     }
 
     fun loadReleases(forceRefresh: Boolean = false) {
+        val reqSeq = ++releasesRequestSeq
         scope.launch {
             val cached = container.repository.peekReleases(repo.owner, repo.name)
             if (cached != null) {
-                releases = cached
-                releasesLoading = false
-            } else {
-                releasesLoading = true
-            }
-            releasesError = null
-            container.repository.getReleases(repo.owner, repo.name, forceRefresh = forceRefresh)
-                .onSuccess {
-                    releases = it
+                if (reqSeq == releasesRequestSeq) {
+                    releases = cached
                     releasesLoading = false
                 }
+            } else if (reqSeq == releasesRequestSeq) {
+                releasesLoading = true
+            }
+            if (reqSeq == releasesRequestSeq) {
+                releasesError = null
+            }
+            container.repository.getReleases(repo.owner, repo.name, forceRefresh = forceRefresh)
+                .onSuccess {
+                    if (reqSeq == releasesRequestSeq) {
+                        releases = it
+                        releasesLoading = false
+                    }
+                }
                 .onFailure {
-                    releasesError = strings.errorMessage(it, strings.failedLoadReleases)
-                    releasesLoading = false
+                    if (reqSeq == releasesRequestSeq) {
+                        releasesError = strings.errorMessage(it, strings.failedLoadReleases)
+                        releasesLoading = false
+                    }
                 }
         }
     }
 
     fun loadActions(workflowId: Long? = selectedWorkflowId, forceRefresh: Boolean = false) {
+        val reqSeq = ++actionsRequestSeq
         scope.launch {
             val cached = container.repository.peekWorkflowRuns(repo.owner, repo.name, workflowId)
             if (cached != null) {
-                workflowRuns = cached
-                actionsLoading = false
-            } else {
-                actionsLoading = true
-            }
-            actionsError = null
-            container.repository.getWorkflows(repo.owner, repo.name, forceRefresh = forceRefresh)
-                .onSuccess { workflows = it }
-            container.repository.getWorkflowRuns(repo.owner, repo.name, workflowId, forceRefresh = forceRefresh)
-                .onSuccess {
-                    workflowRuns = it
+                if (reqSeq == actionsRequestSeq) {
+                    workflowRuns = cached
                     actionsLoading = false
                 }
+            } else if (reqSeq == actionsRequestSeq) {
+                actionsLoading = true
+            }
+            if (reqSeq == actionsRequestSeq) {
+                actionsError = null
+            }
+            container.repository.getWorkflows(repo.owner, repo.name, forceRefresh = forceRefresh)
+                .onSuccess { if (reqSeq == actionsRequestSeq) workflows = it }
+            container.repository.getWorkflowRuns(repo.owner, repo.name, workflowId, forceRefresh = forceRefresh)
+                .onSuccess {
+                    if (reqSeq == actionsRequestSeq) {
+                        workflowRuns = it
+                        actionsLoading = false
+                    }
+                }
                 .onFailure {
-                    actionsError = strings.errorMessage(it, strings.failedLoadActions)
-                    actionsLoading = false
+                    if (reqSeq == actionsRequestSeq) {
+                        actionsError = strings.errorMessage(it, strings.failedLoadActions)
+                        actionsLoading = false
+                    }
                 }
         }
     }
@@ -1708,27 +1754,36 @@ fun RepoDetailScreen(
     }
 
     fun loadRepoIssues(filter: IssueStateFilter, forceRefresh: Boolean = false) {
+        val reqSeq = ++issuesRequestSeq
         scope.launch {
             val cached = container.repository.peekRepoIssuesOrPulls(repo.owner, repo.name, pullRequests = false, stateFilter = filter)
             if (cached != null) {
-                repoIssues = cached
-                issuesLoading = false
-            } else {
+                if (reqSeq == issuesRequestSeq) {
+                    repoIssues = cached
+                    issuesLoading = false
+                }
+            } else if (reqSeq == issuesRequestSeq) {
                 repoIssues = null
                 issuesLoading = true
             }
-            issuesError = null
+            if (reqSeq == issuesRequestSeq) {
+                issuesError = null
+            }
             container.repository.getRepoIssuesOrPulls(repo.owner, repo.name, pullRequests = false, stateFilter = filter, forceRefresh = forceRefresh)
                 .onSuccess { loaded ->
-                    repoIssues = loaded
-                    issuesLoading = false
-                    container.prefetchIssuePullTargets(
-                        loaded.take(3).map { IssuePullTarget(repo.owner, repo.name, it.number, it.title) }
-                    )
+                    if (reqSeq == issuesRequestSeq) {
+                        repoIssues = loaded
+                        issuesLoading = false
+                        container.prefetchIssuePullTargets(
+                            loaded.take(3).map { IssuePullTarget(repo.owner, repo.name, it.number, it.title) }
+                        )
+                    }
                 }
                 .onFailure {
-                    issuesError = strings.errorMessage(it, strings.failedLoadIssues)
-                    issuesLoading = false
+                    if (reqSeq == issuesRequestSeq) {
+                        issuesError = strings.errorMessage(it, strings.failedLoadIssues)
+                        issuesLoading = false
+                    }
                 }
         }
     }
@@ -1780,27 +1835,36 @@ fun RepoDetailScreen(
     }
 
     fun loadRepoPulls(filter: IssueStateFilter, forceRefresh: Boolean = false) {
+        val reqSeq = ++pullsRequestSeq
         scope.launch {
             val cached = container.repository.peekRepoIssuesOrPulls(repo.owner, repo.name, pullRequests = true, stateFilter = filter)
             if (cached != null) {
-                repoPulls = cached
-                pullsLoading = false
-            } else {
+                if (reqSeq == pullsRequestSeq) {
+                    repoPulls = cached
+                    pullsLoading = false
+                }
+            } else if (reqSeq == pullsRequestSeq) {
                 repoPulls = null
                 pullsLoading = true
             }
-            pullsError = null
+            if (reqSeq == pullsRequestSeq) {
+                pullsError = null
+            }
             container.repository.getRepoIssuesOrPulls(repo.owner, repo.name, pullRequests = true, stateFilter = filter, forceRefresh = forceRefresh)
                 .onSuccess { loaded ->
-                    repoPulls = loaded
-                    pullsLoading = false
-                    container.prefetchIssuePullTargets(
-                        loaded.take(3).map { IssuePullTarget(repo.owner, repo.name, it.number, it.title) }
-                    )
+                    if (reqSeq == pullsRequestSeq) {
+                        repoPulls = loaded
+                        pullsLoading = false
+                        container.prefetchIssuePullTargets(
+                            loaded.take(3).map { IssuePullTarget(repo.owner, repo.name, it.number, it.title) }
+                        )
+                    }
                 }
                 .onFailure {
-                    pullsError = strings.errorMessage(it, strings.failedLoadPulls)
-                    pullsLoading = false
+                    if (reqSeq == pullsRequestSeq) {
+                        pullsError = strings.errorMessage(it, strings.failedLoadPulls)
+                        pullsLoading = false
+                    }
                 }
         }
     }
@@ -2437,15 +2501,9 @@ fun RepoDetailScreen(
                             onClick = {
                                 activeTab = tab
                                 headerCollapseTracker.expand()
-                                if (tab != RepoDetailTab.CODE) {
-                                    showCommitsView = false
-                                    showCompareView = false
-                                    openedCommitSha = null
-                                } else {
-                                    showCommitsView = false
-                                    showCompareView = false
-                                    openedCommitSha = null
-                                }
+                                showCommitsView = false
+                                showCompareView = false
+                                openedCommitSha = null
                                 if (tab != RepoDetailTab.ACTIONS) {
                                     openedRun = null
                                     openedLogJob = null
@@ -3886,7 +3944,7 @@ fun RepoDetailScreen(
             branches = detail?.branches.orEmpty().map { it.name }.ifEmpty { listOf(currentRef) },
             defaultBranch = currentRef,
             busy = actionsBusy,
-            onDismiss = { showDispatchDialog = false },
+            onDismiss = { if (!actionsBusy) showDispatchDialog = false },
             onDispatch = { workflowId, ref, inputs ->
                 actionsBusy = true
                 scope.launch {

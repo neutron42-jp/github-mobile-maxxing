@@ -221,25 +221,27 @@ private fun IssuePullDetailPaneContent(
     var errorMsg by remember(target) { mutableStateOf<String?>(null) }
     var selectedTab by remember(target) { mutableStateOf(DetailTab.CONVERSATION) }
 
-    var showCommentDialog by remember { mutableStateOf(false) }
-    var commentDraft by remember { mutableStateOf("") }
-    var showReviewDialog by remember { mutableStateOf(false) }
-    var reviewBody by remember { mutableStateOf("") }
-    var reviewEvent by remember { mutableStateOf(ReviewEvent.APPROVE) }
-    var selectedMergeMethod by remember { mutableStateOf(MergeMethod.SQUASH) }
-    var actionBusy by remember { mutableStateOf(false) }
+    // Draft/editing state is keyed to the target: switching to another issue/PR in the
+    // two-pane layout must not keep the previous ticket's drafts, open editors or busy state.
+    var showCommentDialog by remember(target) { mutableStateOf(false) }
+    var commentDraft by remember(target) { mutableStateOf("") }
+    var showReviewDialog by remember(target) { mutableStateOf(false) }
+    var reviewBody by remember(target) { mutableStateOf("") }
+    var reviewEvent by remember(target) { mutableStateOf(ReviewEvent.APPROVE) }
+    var selectedMergeMethod by remember(target) { mutableStateOf(MergeMethod.SQUASH) }
+    var actionBusy by remember(target) { mutableStateOf(false) }
 
-    var showLabelsDialog by remember { mutableStateOf(false) }
+    var showLabelsDialog by remember(target) { mutableStateOf(false) }
     var availableLabels by remember(target) { mutableStateOf<List<LabelTag>>(emptyList()) }
     var selectedLabelNames by remember(target) { mutableStateOf<Set<String>>(emptySet()) }
-    var newLabelName by remember { mutableStateOf("") }
-    var newLabelColor by remember { mutableStateOf("6E40C9") }
+    var newLabelName by remember(target) { mutableStateOf("") }
+    var newLabelColor by remember(target) { mutableStateOf("6E40C9") }
 
-    var showAssigneesDialog by remember { mutableStateOf(false) }
+    var showAssigneesDialog by remember(target) { mutableStateOf(false) }
     var availableAssignees by remember(target) { mutableStateOf<List<UserSummary>>(emptyList()) }
     var selectedAssigneeLogins by remember(target) { mutableStateOf<Set<String>>(emptySet()) }
 
-    var showMilestoneDialog by remember { mutableStateOf(false) }
+    var showMilestoneDialog by remember(target) { mutableStateOf(false) }
     var availableMilestones by remember(target) { mutableStateOf<List<MilestoneSummary>>(emptyList()) }
     var selectedMilestoneNumber by remember(target) { mutableStateOf<Int?>(null) }
 
@@ -247,14 +249,14 @@ private fun IssuePullDetailPaneContent(
     val strings = appStrings()
 
     var pendingDiffCommentTarget by remember(target) { mutableStateOf<Triple<String, Int?, String>?>(null) }
-    var diffCommentBody by remember { mutableStateOf("") }
+    var diffCommentBody by remember(target) { mutableStateOf("") }
     var fullScreenDiffFile by remember(target) { mutableStateOf<PullFileChange?>(null) }
-    var editingComment by remember { mutableStateOf<TimelineEvent.CommentEvent?>(null) }
-    var editingCommentBody by remember { mutableStateOf("") }
-    var deletingComment by remember { mutableStateOf<TimelineEvent.CommentEvent?>(null) }
-    var showReviewersDialog by remember { mutableStateOf(false) }
-    var selectedReviewerLogins by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var customReviewerLogin by remember { mutableStateOf("") }
+    var editingComment by remember(target) { mutableStateOf<TimelineEvent.CommentEvent?>(null) }
+    var editingCommentBody by remember(target) { mutableStateOf("") }
+    var deletingComment by remember(target) { mutableStateOf<TimelineEvent.CommentEvent?>(null) }
+    var showReviewersDialog by remember(target) { mutableStateOf(false) }
+    var selectedReviewerLogins by remember(target) { mutableStateOf<Set<String>>(emptySet()) }
+    var customReviewerLogin by remember(target) { mutableStateOf("") }
 
     fun loadChecks(ref: String, forceRefresh: Boolean, silent: Boolean = false) {
         if (checksLoadedRef != ref) {
