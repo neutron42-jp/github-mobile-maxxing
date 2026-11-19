@@ -201,62 +201,63 @@ private fun IssuePullDetailPaneContent(
     onBack: () -> Unit,
     onMessage: (String) -> Unit
 ) {
-    var detail by remember(target) {
+    val targetKey = remember(target.owner, target.repo, target.number) { issuePullIdentityKey(target) }
+    var detail by remember(targetKey) {
         mutableStateOf(container.repository.peekIssueOrPullDetail(target.owner, target.repo, target.number))
     }
-    var files by remember(target) {
+    var files by remember(targetKey) {
         mutableStateOf(container.repository.peekPullFiles(target.owner, target.repo, target.number).orEmpty())
     }
-    var isLoading by remember(target) { mutableStateOf(detail == null) }
-    var filesLoading by remember(target) { mutableStateOf(false) }
-    var checkRuns by remember(target) { mutableStateOf<List<CheckRunSummary>?>(null) }
-    var checksLoading by remember(target) { mutableStateOf(false) }
-    var checksError by remember(target) { mutableStateOf<String?>(null) }
+    var isLoading by remember(targetKey) { mutableStateOf(detail == null) }
+    var filesLoading by remember(targetKey) { mutableStateOf(false) }
+    var checkRuns by remember(targetKey) { mutableStateOf<List<CheckRunSummary>?>(null) }
+    var checksLoading by remember(targetKey) { mutableStateOf(false) }
+    var checksError by remember(targetKey) { mutableStateOf<String?>(null) }
     // Ref (head SHA or branch) that checkRuns belong to; null until the first load.
-    var checksLoadedRef by remember(target) { mutableStateOf<String?>(null) }
+    var checksLoadedRef by remember(targetKey) { mutableStateOf<String?>(null) }
     // Only the latest check-runs request may update the state above.
-    var checksRequestId by remember(target) { mutableIntStateOf(0) }
+    var checksRequestId by remember(targetKey) { mutableIntStateOf(0) }
     // Polls spent on this PR; the cap holds across tab switches and returns from the background.
-    var checksPollsUsed by remember(target) { mutableIntStateOf(0) }
-    var errorMsg by remember(target) { mutableStateOf<String?>(null) }
-    var selectedTab by remember(target) { mutableStateOf(DetailTab.CONVERSATION) }
+    var checksPollsUsed by remember(targetKey) { mutableIntStateOf(0) }
+    var errorMsg by remember(targetKey) { mutableStateOf<String?>(null) }
+    var selectedTab by remember(targetKey) { mutableStateOf(DetailTab.CONVERSATION) }
 
-    // Draft/editing state is keyed to the target: switching to another issue/PR in the
-    // two-pane layout must not keep the previous ticket's drafts, open editors or busy state.
-    var showCommentDialog by remember(target) { mutableStateOf(false) }
-    var commentDraft by remember(target) { mutableStateOf("") }
-    var showReviewDialog by remember(target) { mutableStateOf(false) }
-    var reviewBody by remember(target) { mutableStateOf("") }
-    var reviewEvent by remember(target) { mutableStateOf(ReviewEvent.APPROVE) }
-    var selectedMergeMethod by remember(target) { mutableStateOf(MergeMethod.SQUASH) }
-    var actionBusy by remember(target) { mutableStateOf(false) }
+    // Draft/editing state is keyed to targetKey (owner/repo/number, ignoring hintTitle):
+    // switching to another issue/PR drops drafts, while hintTitle updates keep them intact.
+    var showCommentDialog by remember(targetKey) { mutableStateOf(false) }
+    var commentDraft by remember(targetKey) { mutableStateOf("") }
+    var showReviewDialog by remember(targetKey) { mutableStateOf(false) }
+    var reviewBody by remember(targetKey) { mutableStateOf("") }
+    var reviewEvent by remember(targetKey) { mutableStateOf(ReviewEvent.APPROVE) }
+    var selectedMergeMethod by remember(targetKey) { mutableStateOf(MergeMethod.SQUASH) }
+    var actionBusy by remember(targetKey) { mutableStateOf(false) }
 
-    var showLabelsDialog by remember(target) { mutableStateOf(false) }
-    var availableLabels by remember(target) { mutableStateOf<List<LabelTag>>(emptyList()) }
-    var selectedLabelNames by remember(target) { mutableStateOf<Set<String>>(emptySet()) }
-    var newLabelName by remember(target) { mutableStateOf("") }
-    var newLabelColor by remember(target) { mutableStateOf("6E40C9") }
+    var showLabelsDialog by remember(targetKey) { mutableStateOf(false) }
+    var availableLabels by remember(targetKey) { mutableStateOf<List<LabelTag>>(emptyList()) }
+    var selectedLabelNames by remember(targetKey) { mutableStateOf<Set<String>>(emptySet()) }
+    var newLabelName by remember(targetKey) { mutableStateOf("") }
+    var newLabelColor by remember(targetKey) { mutableStateOf("6E40C9") }
 
-    var showAssigneesDialog by remember(target) { mutableStateOf(false) }
-    var availableAssignees by remember(target) { mutableStateOf<List<UserSummary>>(emptyList()) }
-    var selectedAssigneeLogins by remember(target) { mutableStateOf<Set<String>>(emptySet()) }
+    var showAssigneesDialog by remember(targetKey) { mutableStateOf(false) }
+    var availableAssignees by remember(targetKey) { mutableStateOf<List<UserSummary>>(emptyList()) }
+    var selectedAssigneeLogins by remember(targetKey) { mutableStateOf<Set<String>>(emptySet()) }
 
-    var showMilestoneDialog by remember(target) { mutableStateOf(false) }
-    var availableMilestones by remember(target) { mutableStateOf<List<MilestoneSummary>>(emptyList()) }
-    var selectedMilestoneNumber by remember(target) { mutableStateOf<Int?>(null) }
+    var showMilestoneDialog by remember(targetKey) { mutableStateOf(false) }
+    var availableMilestones by remember(targetKey) { mutableStateOf<List<MilestoneSummary>>(emptyList()) }
+    var selectedMilestoneNumber by remember(targetKey) { mutableStateOf<Int?>(null) }
 
     val scope = rememberCoroutineScope()
     val strings = appStrings()
 
-    var pendingDiffCommentTarget by remember(target) { mutableStateOf<Triple<String, Int?, String>?>(null) }
-    var diffCommentBody by remember(target) { mutableStateOf("") }
-    var fullScreenDiffFile by remember(target) { mutableStateOf<PullFileChange?>(null) }
-    var editingComment by remember(target) { mutableStateOf<TimelineEvent.CommentEvent?>(null) }
-    var editingCommentBody by remember(target) { mutableStateOf("") }
-    var deletingComment by remember(target) { mutableStateOf<TimelineEvent.CommentEvent?>(null) }
-    var showReviewersDialog by remember(target) { mutableStateOf(false) }
-    var selectedReviewerLogins by remember(target) { mutableStateOf<Set<String>>(emptySet()) }
-    var customReviewerLogin by remember(target) { mutableStateOf("") }
+    var pendingDiffCommentTarget by remember(targetKey) { mutableStateOf<Triple<String, Int?, String>?>(null) }
+    var diffCommentBody by remember(targetKey) { mutableStateOf("") }
+    var fullScreenDiffFile by remember(targetKey) { mutableStateOf<PullFileChange?>(null) }
+    var editingComment by remember(targetKey) { mutableStateOf<TimelineEvent.CommentEvent?>(null) }
+    var editingCommentBody by remember(targetKey) { mutableStateOf("") }
+    var deletingComment by remember(targetKey) { mutableStateOf<TimelineEvent.CommentEvent?>(null) }
+    var showReviewersDialog by remember(targetKey) { mutableStateOf(false) }
+    var selectedReviewerLogins by remember(targetKey) { mutableStateOf<Set<String>>(emptySet()) }
+    var customReviewerLogin by remember(targetKey) { mutableStateOf("") }
 
     fun loadChecks(ref: String, forceRefresh: Boolean, silent: Boolean = false) {
         if (checksLoadedRef != ref) {
@@ -325,13 +326,13 @@ private fun IssuePullDetailPaneContent(
         }
     }
 
-    LaunchedEffect(target) {
+    LaunchedEffect(targetKey) {
         loadDetail(forceRefresh = false)
     }
 
     // Head ref whose runs were last seen unfinished. When they all finish, reload the PR so
     // the header CI rollup and the head commit catch up with the Checks tab.
-    var checksPendingRef by remember(target) { mutableStateOf<String?>(null) }
+    var checksPendingRef by remember(targetKey) { mutableStateOf<String?>(null) }
     LaunchedEffect(checkRuns) {
         val runs = checkRuns ?: return@LaunchedEffect
         val ref = checksLoadedRef
@@ -767,7 +768,7 @@ private fun IssuePullDetailPaneContent(
                             }
                         }
                     } else {
-                        val expandedFiles = remember(target, files) {
+                        val expandedFiles = remember(targetKey, files) {
                             mutableStateMapOf<String, Boolean>().apply {
                                 val defaultOpen = files.size <= 6
                                 files.forEach { put(it.filename, defaultOpen) }
@@ -811,8 +812,8 @@ private fun IssuePullDetailPaneContent(
                     }
                 }
 
-                var pendingMergeConfirmMethod by remember(target) { mutableStateOf<MergeMethod?>(null) }
-                var pendingStateConfirmOpen by remember(target) { mutableStateOf<Boolean?>(null) }
+                var pendingMergeConfirmMethod by remember(targetKey) { mutableStateOf<MergeMethod?>(null) }
+                var pendingStateConfirmOpen by remember(targetKey) { mutableStateOf<Boolean?>(null) }
 
                 val primaryAction = prPrimaryAction(
                     isPr = isPr,

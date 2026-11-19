@@ -1221,8 +1221,8 @@ fun RepoDetailScreen(
     var issuesError by remember(repo.fullName) { mutableStateOf<String?>(null) }
     var pullsError by remember(repo.fullName) { mutableStateOf<String?>(null) }
     // Only the latest issues/pulls request may update the state above.
-    var issuesRequestSeq by remember(repo.fullName) { mutableStateOf(0) }
-    var pullsRequestSeq by remember(repo.fullName) { mutableStateOf(0) }
+    val issuesRequestGuard = remember(repo.fullName) { LatestRequestGuard() }
+    val pullsRequestGuard = remember(repo.fullName) { LatestRequestGuard() }
     var issuesSection by remember(repo.fullName) { mutableStateOf(RepoIssuesSection.ISSUES) }
     var repoLabels by remember(repo.fullName) {
         mutableStateOf(container.repository.peekRepoLabels(repo.owner, repo.name))
@@ -1315,7 +1315,7 @@ fun RepoDetailScreen(
     var actionsLoading by remember(repo.fullName) { mutableStateOf(false) }
     var actionsError by remember(repo.fullName) { mutableStateOf<String?>(null) }
     // Only the latest actions request may update the workflow state.
-    var actionsRequestSeq by remember(repo.fullName) { mutableStateOf(0) }
+    val actionsRequestGuard = remember(repo.fullName) { LatestRequestGuard() }
     var openedRun by remember(repo.fullName) { mutableStateOf<WorkflowRunSummary?>(null) }
     var runJobs by remember(repo.fullName) { mutableStateOf<List<WorkflowJobSummary>?>(null) }
     var jobsLoading by remember(repo.fullName) { mutableStateOf(false) }
@@ -1328,7 +1328,7 @@ fun RepoDetailScreen(
     var releasesLoading by remember(repo.fullName) { mutableStateOf(false) }
     var releasesError by remember(repo.fullName) { mutableStateOf<String?>(null) }
     // Only the latest releases request may update the state above.
-    var releasesRequestSeq by remember(repo.fullName) { mutableStateOf(0) }
+    val releasesRequestGuard = remember(repo.fullName) { LatestRequestGuard() }
     var showCreateReleaseDialog by remember(repo.fullName) { mutableStateOf(false) }
     var creatingRelease by remember(repo.fullName) { mutableStateOf(false) }
     var createReleaseError by remember(repo.fullName) { mutableStateOf<String?>(null) }
@@ -1353,13 +1353,13 @@ fun RepoDetailScreen(
     var securityLoading by remember(repo.fullName) { mutableStateOf(false) }
     var securityError by remember(repo.fullName) { mutableStateOf<String?>(null) }
     // Only the latest security/insights requests may update the state above.
-    var securityRequestSeq by remember(repo.fullName) { mutableStateOf(0) }
+    val securityRequestGuard = remember(repo.fullName) { LatestRequestGuard() }
     var insightsData by remember(repo.fullName) {
         mutableStateOf(container.repository.peekRepoInsights(repo.owner, repo.name))
     }
     var insightsLoading by remember(repo.fullName) { mutableStateOf(false) }
     var insightsError by remember(repo.fullName) { mutableStateOf<String?>(null) }
-    var insightsRequestSeq by remember(repo.fullName) { mutableStateOf(0) }
+    val insightsRequestGuard = remember(repo.fullName) { LatestRequestGuard() }
     var fullScreenDiffContext by remember(repo.fullName) { mutableStateOf<Pair<PullFileChange, List<PullFileChange>>?>(null) }
 
     fun loadDiscussions(categoryId: String? = selectedDiscussionCategoryId, forceRefresh: Boolean = false) {
@@ -1417,29 +1417,29 @@ fun RepoDetailScreen(
     }
 
     fun loadSecurityOverview(forceRefresh: Boolean = false) {
-        val reqSeq = ++securityRequestSeq
+        val reqSeq = securityRequestGuard.next()
         scope.launch {
             val cached = container.repository.peekRepoSecurityOverview(repo.owner, repo.name)
             if (cached != null) {
-                if (reqSeq == securityRequestSeq) {
+                if (securityRequestGuard.isLatest(reqSeq)) {
                     securityOverview = cached
                     securityLoading = false
                 }
-            } else if (reqSeq == securityRequestSeq) {
+            } else if (securityRequestGuard.isLatest(reqSeq)) {
                 securityLoading = true
             }
-            if (reqSeq == securityRequestSeq) {
+            if (securityRequestGuard.isLatest(reqSeq)) {
                 securityError = null
             }
             container.repository.getRepoSecurityOverview(repo.owner, repo.name, forceRefresh = forceRefresh)
                 .onSuccess {
-                    if (reqSeq == securityRequestSeq) {
+                    if (securityRequestGuard.isLatest(reqSeq)) {
                         securityOverview = it
                         securityLoading = false
                     }
                 }
                 .onFailure {
-                    if (reqSeq == securityRequestSeq) {
+                    if (securityRequestGuard.isLatest(reqSeq)) {
                         securityError = strings.errorMessage(it, strings.failedLoadSecurity)
                         securityLoading = false
                     }
@@ -1452,29 +1452,29 @@ fun RepoDetailScreen(
             ?: repo.owner.ifBlank { repo.fullName.substringBefore('/', "") }.trim()
         val targetRepo = detail?.summary?.name?.takeIf { it.isNotBlank() }
             ?: repo.name.ifBlank { repo.fullName.substringAfter('/', repo.name) }.trim()
-        val reqSeq = ++insightsRequestSeq
+        val reqSeq = insightsRequestGuard.next()
         scope.launch {
             val cached = container.repository.peekRepoInsights(targetOwner, targetRepo)
             if (cached != null) {
-                if (reqSeq == insightsRequestSeq) {
+                if (insightsRequestGuard.isLatest(reqSeq)) {
                     insightsData = cached
                     insightsLoading = false
                 }
-            } else if (reqSeq == insightsRequestSeq) {
+            } else if (insightsRequestGuard.isLatest(reqSeq)) {
                 insightsLoading = true
             }
-            if (reqSeq == insightsRequestSeq) {
+            if (insightsRequestGuard.isLatest(reqSeq)) {
                 insightsError = null
             }
             container.repository.getRepoInsights(targetOwner, targetRepo, forceRefresh = forceRefresh)
                 .onSuccess {
-                    if (reqSeq == insightsRequestSeq) {
+                    if (insightsRequestGuard.isLatest(reqSeq)) {
                         insightsData = it
                         insightsLoading = false
                     }
                 }
                 .onFailure {
-                    if (reqSeq == insightsRequestSeq) {
+                    if (insightsRequestGuard.isLatest(reqSeq)) {
                         insightsError = strings.errorMessage(it, strings.failedLoadInsights)
                         insightsLoading = false
                     }
@@ -1483,29 +1483,29 @@ fun RepoDetailScreen(
     }
 
     fun loadReleases(forceRefresh: Boolean = false) {
-        val reqSeq = ++releasesRequestSeq
+        val reqSeq = releasesRequestGuard.next()
         scope.launch {
             val cached = container.repository.peekReleases(repo.owner, repo.name)
             if (cached != null) {
-                if (reqSeq == releasesRequestSeq) {
+                if (releasesRequestGuard.isLatest(reqSeq)) {
                     releases = cached
                     releasesLoading = false
                 }
-            } else if (reqSeq == releasesRequestSeq) {
+            } else if (releasesRequestGuard.isLatest(reqSeq)) {
                 releasesLoading = true
             }
-            if (reqSeq == releasesRequestSeq) {
+            if (releasesRequestGuard.isLatest(reqSeq)) {
                 releasesError = null
             }
             container.repository.getReleases(repo.owner, repo.name, forceRefresh = forceRefresh)
                 .onSuccess {
-                    if (reqSeq == releasesRequestSeq) {
+                    if (releasesRequestGuard.isLatest(reqSeq)) {
                         releases = it
                         releasesLoading = false
                     }
                 }
                 .onFailure {
-                    if (reqSeq == releasesRequestSeq) {
+                    if (releasesRequestGuard.isLatest(reqSeq)) {
                         releasesError = strings.errorMessage(it, strings.failedLoadReleases)
                         releasesLoading = false
                     }
@@ -1514,31 +1514,31 @@ fun RepoDetailScreen(
     }
 
     fun loadActions(workflowId: Long? = selectedWorkflowId, forceRefresh: Boolean = false) {
-        val reqSeq = ++actionsRequestSeq
+        val reqSeq = actionsRequestGuard.next()
         scope.launch {
             val cached = container.repository.peekWorkflowRuns(repo.owner, repo.name, workflowId)
             if (cached != null) {
-                if (reqSeq == actionsRequestSeq) {
+                if (actionsRequestGuard.isLatest(reqSeq)) {
                     workflowRuns = cached
                     actionsLoading = false
                 }
-            } else if (reqSeq == actionsRequestSeq) {
+            } else if (actionsRequestGuard.isLatest(reqSeq)) {
                 actionsLoading = true
             }
-            if (reqSeq == actionsRequestSeq) {
+            if (actionsRequestGuard.isLatest(reqSeq)) {
                 actionsError = null
             }
             container.repository.getWorkflows(repo.owner, repo.name, forceRefresh = forceRefresh)
-                .onSuccess { if (reqSeq == actionsRequestSeq) workflows = it }
+                .onSuccess { if (actionsRequestGuard.isLatest(reqSeq)) workflows = it }
             container.repository.getWorkflowRuns(repo.owner, repo.name, workflowId, forceRefresh = forceRefresh)
                 .onSuccess {
-                    if (reqSeq == actionsRequestSeq) {
+                    if (actionsRequestGuard.isLatest(reqSeq)) {
                         workflowRuns = it
                         actionsLoading = false
                     }
                 }
                 .onFailure {
-                    if (reqSeq == actionsRequestSeq) {
+                    if (actionsRequestGuard.isLatest(reqSeq)) {
                         actionsError = strings.errorMessage(it, strings.failedLoadActions)
                         actionsLoading = false
                     }
@@ -1754,24 +1754,24 @@ fun RepoDetailScreen(
     }
 
     fun loadRepoIssues(filter: IssueStateFilter, forceRefresh: Boolean = false) {
-        val reqSeq = ++issuesRequestSeq
+        val reqSeq = issuesRequestGuard.next()
         scope.launch {
             val cached = container.repository.peekRepoIssuesOrPulls(repo.owner, repo.name, pullRequests = false, stateFilter = filter)
             if (cached != null) {
-                if (reqSeq == issuesRequestSeq) {
+                if (issuesRequestGuard.isLatest(reqSeq)) {
                     repoIssues = cached
                     issuesLoading = false
                 }
-            } else if (reqSeq == issuesRequestSeq) {
+            } else if (issuesRequestGuard.isLatest(reqSeq)) {
                 repoIssues = null
                 issuesLoading = true
             }
-            if (reqSeq == issuesRequestSeq) {
+            if (issuesRequestGuard.isLatest(reqSeq)) {
                 issuesError = null
             }
             container.repository.getRepoIssuesOrPulls(repo.owner, repo.name, pullRequests = false, stateFilter = filter, forceRefresh = forceRefresh)
                 .onSuccess { loaded ->
-                    if (reqSeq == issuesRequestSeq) {
+                    if (issuesRequestGuard.isLatest(reqSeq)) {
                         repoIssues = loaded
                         issuesLoading = false
                         container.prefetchIssuePullTargets(
@@ -1780,7 +1780,7 @@ fun RepoDetailScreen(
                     }
                 }
                 .onFailure {
-                    if (reqSeq == issuesRequestSeq) {
+                    if (issuesRequestGuard.isLatest(reqSeq)) {
                         issuesError = strings.errorMessage(it, strings.failedLoadIssues)
                         issuesLoading = false
                     }
@@ -1835,24 +1835,24 @@ fun RepoDetailScreen(
     }
 
     fun loadRepoPulls(filter: IssueStateFilter, forceRefresh: Boolean = false) {
-        val reqSeq = ++pullsRequestSeq
+        val reqSeq = pullsRequestGuard.next()
         scope.launch {
             val cached = container.repository.peekRepoIssuesOrPulls(repo.owner, repo.name, pullRequests = true, stateFilter = filter)
             if (cached != null) {
-                if (reqSeq == pullsRequestSeq) {
+                if (pullsRequestGuard.isLatest(reqSeq)) {
                     repoPulls = cached
                     pullsLoading = false
                 }
-            } else if (reqSeq == pullsRequestSeq) {
+            } else if (pullsRequestGuard.isLatest(reqSeq)) {
                 repoPulls = null
                 pullsLoading = true
             }
-            if (reqSeq == pullsRequestSeq) {
+            if (pullsRequestGuard.isLatest(reqSeq)) {
                 pullsError = null
             }
             container.repository.getRepoIssuesOrPulls(repo.owner, repo.name, pullRequests = true, stateFilter = filter, forceRefresh = forceRefresh)
                 .onSuccess { loaded ->
-                    if (reqSeq == pullsRequestSeq) {
+                    if (pullsRequestGuard.isLatest(reqSeq)) {
                         repoPulls = loaded
                         pullsLoading = false
                         container.prefetchIssuePullTargets(
@@ -1861,7 +1861,7 @@ fun RepoDetailScreen(
                     }
                 }
                 .onFailure {
-                    if (reqSeq == pullsRequestSeq) {
+                    if (pullsRequestGuard.isLatest(reqSeq)) {
                         pullsError = strings.errorMessage(it, strings.failedLoadPulls)
                         pullsLoading = false
                     }
@@ -3948,14 +3948,17 @@ fun RepoDetailScreen(
             onDispatch = { workflowId, ref, inputs ->
                 actionsBusy = true
                 scope.launch {
-                    container.repository.dispatchWorkflow(repo.owner, repo.name, workflowId, ref, inputs)
-                        .onSuccess {
-                            showDispatchDialog = false
-                            onMessage(strings.actionsDispatchedMessage(ref))
-                            loadActions(selectedWorkflowId, forceRefresh = true)
-                        }
-                        .onFailure { onMessage(strings.errorMessage(it, strings.actionsDispatchFailed)) }
-                    actionsBusy = false
+                    try {
+                        container.repository.dispatchWorkflow(repo.owner, repo.name, workflowId, ref, inputs)
+                            .onSuccess {
+                                showDispatchDialog = false
+                                onMessage(strings.actionsDispatchedMessage(ref))
+                                loadActions(selectedWorkflowId, forceRefresh = true)
+                            }
+                            .onFailure { onMessage(strings.errorMessage(it, strings.actionsDispatchFailed)) }
+                    } finally {
+                        actionsBusy = false
+                    }
                 }
             }
         )
