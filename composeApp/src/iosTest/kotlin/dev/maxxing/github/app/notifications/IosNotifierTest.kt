@@ -212,6 +212,53 @@ class IosNotifierTest {
         assertEquals(listOf("gh_notif_t1"), gateway.removed)
     }
 
+    @Test
+    fun disabledApnsFeatureSuppressesBlockedStatusAndNotificationsWhileInboxSyncKeepsWorking() = runTest {
+        assertFalse(IosPushFeature.APNS_ENABLED)
+        assertFalse(IosPushFeature.isApnsEnabled)
+
+        // Even before OS notification permission is determined, blocked-state warning and
+        // NotificationMonitor marker hold-back are suppressed while APNS_ENABLED is false.
+        assertFalse(PlatformNotifier.areOsNotificationsBlocked())
+        assertFalse(PlatformNotifier.showTestNotification())
+        assertFalse(PlatformNotifier.openOsNotificationSettings())
+        PlatformNotifier.ensureInitialized()
+        PlatformNotifier.syncBackgroundSchedule(true)
+        PlatformNotifier.showGitHubNotifications(listOf(thread("t0", number = 1)))
+
+        val sessionManager = SessionManager(tokenStore = FakeTokenStore())
+        sessionManager.initialize()
+        var requestIndex = 0
+        val engineHttp = MockEngine {
+            val id = if (requestIndex++ == 0) "t1" else "t2"
+            respond(
+                content = notificationJson(id),
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val repository = GitHubRepository(
+            sessionManager = sessionManager,
+            networkConfig = GitHubNetworkConfig(sessionManager, baseUrl = "https://example.test"),
+            httpClient = HttpClient(engineHttp),
+        )
+        // Use the real PlatformNotifier callbacks to confirm Inbox sync still runs cleanly.
+        val container = AppContainer(
+            sessionManager = sessionManager,
+            repository = repository,
+        )
+
+        assertTrue(container.syncNotifications().isSuccess)
+        assertEquals(listOf("t1"), container.unreadThreads.value?.map { it.id })
+        assertEquals(1, container.unreadNotificationCount.value)
+
+        val secondCheck = container.syncNotifications().getOrThrow()
+        assertEquals(listOf("t2"), secondCheck.allUnread.map { it.id })
+        assertEquals(listOf("t2"), secondCheck.newlyArrivedForOs.map { it.id })
+        assertEquals(listOf("t2"), container.unreadThreads.value?.map { it.id })
+        assertEquals(1, container.unreadNotificationCount.value)
+    }
+
     private fun notificationJson(id: String): String = """
         [
           {

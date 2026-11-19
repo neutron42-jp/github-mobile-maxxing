@@ -11,5 +11,6 @@ class PlatformCapabilitiesIosTest {
         assertFalse(platformCapabilities.supportsDynamicColorToggle)
         assertFalse(platformCapabilities.supportsCustomFonts)
         assertTrue(platformCapabilities.avoidsKeyboardOnSignIn)
+        assertFalse(platformCapabilities.supportsOsNotifications)
     }
 }

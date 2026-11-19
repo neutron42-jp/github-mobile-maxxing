@@ -306,10 +306,46 @@ class IosNotificationActionsTest {
     }
 
     @Test
-    fun handleTapRecordsThreadAndInboxRequests() {
+    fun handleTapRecordsThreadAndInboxRequestsWhenEnabled() {
         clearDeepLinkBridge()
+        IosPushFeature.enabledOverrideForTesting = true
+        try {
+            assertTrue(
+                IosNotificationActions.handleTap(
+                    deepLink = "githubmaxxing://thread/o/r/7",
+                    owner = null,
+                    repo = null,
+                    subjectNumber = null,
+                    threadId = "t1",
+                )
+            )
+            val thread = dev.maxxing.github.app.IosDeepLinkBridge.pending.value
+                as dev.maxxing.github.app.PendingNavigation.Thread
+            assertEquals("o", thread.target.owner)
+            assertEquals(7, thread.target.number)
 
-        assertTrue(
+            clearDeepLinkBridge()
+            assertTrue(
+                IosNotificationActions.handleTap(
+                    deepLink = null,
+                    owner = null,
+                    repo = null,
+                    subjectNumber = null,
+                    threadId = "t1",
+                )
+            )
+            assertTrue(dev.maxxing.github.app.IosDeepLinkBridge.pending.value is dev.maxxing.github.app.PendingNavigation.Inbox)
+        } finally {
+            IosPushFeature.enabledOverrideForTesting = null
+            clearDeepLinkBridge()
+        }
+    }
+
+    @Test
+    fun disabledApnsSuppressesTapRoutingAndActions() {
+        clearDeepLinkBridge()
+        kotlin.test.assertFalse(IosPushFeature.isApnsEnabled)
+        kotlin.test.assertFalse(
             IosNotificationActions.handleTap(
                 deepLink = "githubmaxxing://thread/o/r/7",
                 owner = null,
@@ -318,23 +354,11 @@ class IosNotificationActionsTest {
                 threadId = "t1",
             )
         )
-        val thread = dev.maxxing.github.app.IosDeepLinkBridge.pending.value
-            as dev.maxxing.github.app.PendingNavigation.Thread
-        assertEquals("o", thread.target.owner)
-        assertEquals(7, thread.target.number)
+        assertNull(dev.maxxing.github.app.IosDeepLinkBridge.pending.value)
 
-        clearDeepLinkBridge()
-        assertTrue(
-            IosNotificationActions.handleTap(
-                deepLink = null,
-                owner = null,
-                repo = null,
-                subjectNumber = null,
-                threadId = "t1",
-            )
-        )
-        assertTrue(dev.maxxing.github.app.IosDeepLinkBridge.pending.value is dev.maxxing.github.app.PendingNavigation.Inbox)
-        clearDeepLinkBridge()
+        var completions = 0
+        IosNotificationActions.handle(ACTION_MARK_READ, "t1") { completions++ }
+        assertEquals(1, completions)
     }
 
     // ---- helpers ---------------------------------------------------------

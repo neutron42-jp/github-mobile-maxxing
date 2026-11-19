@@ -328,7 +328,7 @@ internal object IosNotifier {
             gateway = UNUserNotificationGateway(),
             // APNs is the display path only when a push server is configured;
             // otherwise local notifications are the only way a new thread is shown.
-            pushDeliveryActiveProvider = { IosPushBridge.isServerConfigured },
+            pushDeliveryActiveProvider = { IosPushFeature.isApnsEnabled && IosPushBridge.isServerConfigured },
             onAuthorizationResult = {
                 // Permission just changed; let the APNs bridge converge.
                 IosPushBridge.onNotificationAuthorizationChanged()
@@ -339,14 +339,19 @@ internal object IosNotifier {
 
 actual object PlatformNotifier {
     actual fun ensureInitialized() {
+        if (!IosPushFeature.isApnsEnabled) return
         IosNotifier.engine.ensureInitialized()
     }
 
     actual fun showGitHubNotifications(threads: List<NotificationThread>) {
+        if (!IosPushFeature.isApnsEnabled) return
         IosNotifier.engine.showGitHubNotifications(threads)
     }
 
-    actual fun showTestNotification(): Boolean = IosNotifier.engine.showTestNotification()
+    actual fun showTestNotification(): Boolean {
+        if (!IosPushFeature.isApnsEnabled) return false
+        return IosNotifier.engine.showTestNotification()
+    }
 
     actual fun updateLanguage(language: AppLanguage) {
         // Local notifications (test notification, foreground fallback) are English-only for now; APNs
@@ -355,17 +360,24 @@ actual object PlatformNotifier {
     }
 
     /** True when iOS will not show this app's notifications (permission denied or not yet granted). */
-    actual fun areOsNotificationsBlocked(): Boolean = when (IosNotifier.engine.authorization) {
-        IosNotificationAuthorization.DENIED,
-        IosNotificationAuthorization.NOT_DETERMINED,
-        -> true
+    actual fun areOsNotificationsBlocked(): Boolean {
+        if (!IosPushFeature.isApnsEnabled) return false
+        return when (IosNotifier.engine.authorization) {
+            IosNotificationAuthorization.DENIED,
+            IosNotificationAuthorization.NOT_DETERMINED,
+            -> true
 
-        else -> false
+            else -> false
+        }
     }
 
-    actual fun openOsNotificationSettings(): Boolean = openIosAppSettings()
+    actual fun openOsNotificationSettings(): Boolean {
+        if (!IosPushFeature.isApnsEnabled) return false
+        return openIosAppSettings()
+    }
 
     actual fun syncBackgroundSchedule(enabled: Boolean) {
+        if (!IosPushFeature.isApnsEnabled) return
         // No BGTask / BGAppRefreshTask is used. Only the APNs registration state
         // follows the notification preference.
         IosNotifier.engine.refreshAuthorizationStatus()

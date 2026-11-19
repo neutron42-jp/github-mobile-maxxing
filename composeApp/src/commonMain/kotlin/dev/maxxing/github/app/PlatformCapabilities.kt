@@ -22,6 +22,11 @@ data class PlatformCapabilities(
      * space above it). iOS needs this; Android and Desktop keep their existing layout.
      */
     val avoidsKeyboardOnSignIn: Boolean = false,
+    /**
+     * Whether OS-level push/local notification alerts and their Settings controls are active.
+     * Android and Desktop keep `true`; iOS ties this to [IosPushFeature.isApnsEnabled].
+     */
+    val supportsOsNotifications: Boolean = true,
 )
 
 expect val platformCapabilities: PlatformCapabilities

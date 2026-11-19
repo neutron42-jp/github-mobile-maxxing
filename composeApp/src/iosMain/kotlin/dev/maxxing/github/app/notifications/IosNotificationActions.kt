@@ -161,6 +161,10 @@ object IosNotificationActions {
     }
 
     fun handle(actionId: String, threadId: String, completion: () -> Unit) {
+        if (!IosPushFeature.isApnsEnabled) {
+            completion()
+            return
+        }
         handler.handle(actionId, threadId, completion)
     }
 
@@ -195,8 +199,10 @@ object IosNotificationActions {
         )
 
     /** Routes a notification tap from a raw `userInfo` dictionary. */
-    fun handleTap(userInfo: Map<Any?, *>): Boolean =
-        route(parseNotificationTapAction(userInfo))
+    fun handleTap(userInfo: Map<Any?, *>): Boolean {
+        if (!IosPushFeature.isApnsEnabled) return false
+        return route(parseNotificationTapAction(userInfo))
+    }
 
     /** Routes a notification tap. Returns true when a navigation was recorded. */
     fun handleTap(
@@ -205,7 +211,10 @@ object IosNotificationActions {
         repo: String?,
         subjectNumber: Int?,
         threadId: String?,
-    ): Boolean = route(parseNotificationTapAction(deepLink, owner, repo, subjectNumber, threadId))
+    ): Boolean {
+        if (!IosPushFeature.isApnsEnabled) return false
+        return route(parseNotificationTapAction(deepLink, owner, repo, subjectNumber, threadId))
+    }
 
     private fun route(target: NotificationTapTarget): Boolean = when (target) {
         is NotificationTapTarget.Thread -> IosDeepLinkBridge.handleTarget(target.target)
@@ -219,6 +228,7 @@ object IosNotificationActions {
 
     /** Refreshes the cached OS notification permission on foreground return. */
     fun refreshAuthorizationStatus() {
+        if (!IosPushFeature.isApnsEnabled) return
         IosNotifier.engine.refreshAuthorizationStatus()
     }
 }

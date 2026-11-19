@@ -282,9 +282,9 @@ object IosPushBridge {
     @Volatile
     var serverClient: PushServerClient = NoOpPushServerClient
 
-    /** True once a real [PushServerClient] has been installed. */
+    /** True once APNs is enabled and a real [PushServerClient] has been installed. */
     val isServerConfigured: Boolean
-        get() = serverClient !== NoOpPushServerClient
+        get() = IosPushFeature.isApnsEnabled && serverClient !== NoOpPushServerClient
 
     private val manager: IosPushManager by lazy {
         val container = IosAppGraph.container
@@ -323,32 +323,39 @@ object IosPushBridge {
      * the device token (defaults to development).
      */
     fun setApnsEnvironment(environment: String) {
+        if (!IosPushFeature.isApnsEnabled) return
         apnsEnvironment = environment.trim().ifEmpty { APNS_ENVIRONMENT_DEVELOPMENT }
     }
 
     fun onDeviceTokenReceived(tokenHex: String) {
+        if (!IosPushFeature.isApnsEnabled) return
         cachedToken = tokenHex
         scope.launch { manager.onDeviceTokenReceived(tokenHex) }
     }
 
     fun onRegistrationFailed(errorMessage: String) {
+        if (!IosPushFeature.isApnsEnabled) return
         scope.launch { manager.onRegistrationFailed(errorMessage) }
     }
 
     fun onNotificationPreferenceChanged(enabled: Boolean) {
+        if (!IosPushFeature.isApnsEnabled) return
         scope.launch { manager.onNotificationPreferenceChanged(enabled) }
     }
 
     fun onForegroundResume() {
+        if (!IosPushFeature.isApnsEnabled) return
         scope.launch { manager.onForegroundResume() }
     }
 
     fun onAccountOrSessionChanged() {
+        if (!IosPushFeature.isApnsEnabled) return
         scope.launch { manager.onAccountOrSessionChanged() }
     }
 
     /** Called after the OS notification permission changes. */
     fun onNotificationAuthorizationChanged() {
+        if (!IosPushFeature.isApnsEnabled) return
         scope.launch { manager.onForegroundResume() }
     }
 }

@@ -35,6 +35,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 
     func sceneDidBecomeActive(_ scene: UIScene) {
+        guard IosPushFeature.shared.isApnsEnabled else { return }
         // Re-evaluate the APNs registration (permission or account may have changed) and ask for a
         // fresh device token, as Apple recommends doing on each launch.
         // The user may have changed the notification permission in the Settings app.

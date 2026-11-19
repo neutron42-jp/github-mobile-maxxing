@@ -15,6 +15,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        guard IosPushFeature.shared.isApnsEnabled else {
+            return true
+        }
         // The delegate must be set before launch finishes so a notification tap or action that
         // cold-starts the app is delivered.
         UNUserNotificationCenter.current().delegate = self
@@ -39,6 +42,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
     // MARK: APNs registration
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        guard IosPushFeature.shared.isApnsEnabled else { return }
         let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
         // Length only: the token itself is not logged.
         NSLog("APNs device token received (%d bytes, environment %@)", deviceToken.count, apnsEnvironment)
@@ -46,6 +50,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        guard IosPushFeature.shared.isApnsEnabled else { return }
         // Expected on the simulator / without the entitlement; the app stays fully usable.
         NSLog("APNs registration failed: %@", (error as NSError).description)
         IosPushBridge.shared.onRegistrationFailed(errorMessage: error.localizedDescription)
@@ -58,6 +63,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        guard IosPushFeature.shared.isApnsEnabled else {
+            completionHandler([])
+            return
+        }
         completionHandler([.banner, .list, .sound])
     }
 
@@ -66,6 +75,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        guard IosPushFeature.shared.isApnsEnabled else {
+            completionHandler()
+            return
+        }
         let userInfo = response.notification.request.content.userInfo
         switch response.actionIdentifier {
         case UNNotificationDefaultActionIdentifier:

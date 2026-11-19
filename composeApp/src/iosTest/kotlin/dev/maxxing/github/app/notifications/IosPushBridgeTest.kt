@@ -346,6 +346,30 @@ class IosPushBridgeTest {
         assertTrue(fixture.client.calls.isEmpty())
     }
 
+    @Test
+    fun disabledApnsSwitchGatesBridgeCalls() = runTest {
+        val fakeClient = FakePushServerClient()
+        val previousClient = IosPushBridge.serverClient
+        try {
+            IosPushBridge.serverClient = fakeClient
+            // Master switch is false by default, so the bridge never treats a client as active
+            // and drops APNs registration callbacks without invoking the server client.
+            kotlin.test.assertFalse(IosPushFeature.isApnsEnabled)
+            kotlin.test.assertFalse(IosPushBridge.isServerConfigured)
+            IosPushBridge.setApnsEnvironment("production")
+            IosPushBridge.onDeviceTokenReceived(tokenA)
+            IosPushBridge.onRegistrationFailed("ignored")
+            IosPushBridge.onNotificationPreferenceChanged(true)
+            IosPushBridge.onForegroundResume()
+            IosPushBridge.onAccountOrSessionChanged()
+            IosPushBridge.onNotificationAuthorizationChanged()
+            advanceUntilIdle()
+            assertTrue(fakeClient.calls.isEmpty())
+        } finally {
+            IosPushBridge.serverClient = previousClient
+        }
+    }
+
     private inner class Fixture(
         var login: String? = "alice",
         var enabled: Boolean = true,

@@ -970,66 +970,68 @@ private fun NotificationsSettingsPage(
                     Text(strings.osNotificationsTitle, style = MaterialTheme.typography.titleMedium)
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(strings.enableOsAlerts, style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            if (platformCapabilities.usesIosCopy) strings.enableOsAlertsDescIos else strings.enableOsAlertsDesc,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = notifPrefs.osNotificationsEnabled,
-                        onCheckedChange = { enabled ->
-                            onUpdateNotifPrefs(notifPrefs.copy(osNotificationsEnabled = enabled))
-                        }
-                    )
-                }
-
-                if (notifPrefs.osNotificationsEnabled && osNotificationsBlocked) {
-                    Text(
-                        strings.osNotificationsBlockedWarning,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                    OutlinedButton(
-                        onClick = {
-                            if (!PlatformNotifier.openOsNotificationSettings()) {
-                                onMessage(strings.failedOpenNotificationSettings)
-                            }
-                        }
+                if (platformCapabilities.supportsOsNotifications) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Lucide.ExternalLink, contentDescription = null, modifier = Modifier.size(15.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(strings.openNotificationSettings)
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(strings.urgentOnly, style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            strings.urgentOnlyDesc,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(strings.enableOsAlerts, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                if (platformCapabilities.usesIosCopy) strings.enableOsAlertsDescIos else strings.enableOsAlertsDesc,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = notifPrefs.osNotificationsEnabled,
+                            onCheckedChange = { enabled ->
+                                onUpdateNotifPrefs(notifPrefs.copy(osNotificationsEnabled = enabled))
+                            }
                         )
                     }
-                    Switch(
-                        checked = notifPrefs.urgentOnly,
-                        enabled = notifPrefs.osNotificationsEnabled,
-                        onCheckedChange = { urgent ->
-                            onUpdateNotifPrefs(notifPrefs.copy(urgentOnly = urgent))
+
+                    if (notifPrefs.osNotificationsEnabled && osNotificationsBlocked) {
+                        Text(
+                            strings.osNotificationsBlockedWarning,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                if (!PlatformNotifier.openOsNotificationSettings()) {
+                                    onMessage(strings.failedOpenNotificationSettings)
+                                }
+                            }
+                        ) {
+                            Icon(Lucide.ExternalLink, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(strings.openNotificationSettings)
                         }
-                    )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(strings.urgentOnly, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                strings.urgentOnlyDesc,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = notifPrefs.urgentOnly,
+                            enabled = notifPrefs.osNotificationsEnabled,
+                            onCheckedChange = { urgent ->
+                                onUpdateNotifPrefs(notifPrefs.copy(urgentOnly = urgent))
+                            }
+                        )
+                    }
                 }
 
                 val currentPoll = PollIntervalOption.entries.firstOrNull {
@@ -1055,19 +1057,21 @@ private fun NotificationsSettingsPage(
                     )
                 }
 
-                FilledTonalButton(
-                    onClick = {
-                        val sent = PlatformNotifier.showTestNotification()
-                        onMessage(
-                            if (sent) strings.testNotificationSent
-                            else if (platformCapabilities.usesIosCopy) strings.testNotificationBlockedIos
-                            else strings.testNotificationBlocked
-                        )
+                if (platformCapabilities.supportsOsNotifications) {
+                    FilledTonalButton(
+                        onClick = {
+                            val sent = PlatformNotifier.showTestNotification()
+                            onMessage(
+                                if (sent) strings.testNotificationSent
+                                else if (platformCapabilities.usesIosCopy) strings.testNotificationBlockedIos
+                                else strings.testNotificationBlocked
+                            )
+                        }
+                    ) {
+                        Icon(Lucide.Bell, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(strings.sendTestNotification)
                     }
-                ) {
-                    Icon(Lucide.Bell, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(strings.sendTestNotification)
                 }
             }
         }
