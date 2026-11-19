@@ -236,6 +236,13 @@ private suspend inline fun <T> runMutationCancellable(
     return result
 }
 
+/**
+ * Background prefetch (e.g. from notification polling) skips the changed-files list for pull requests
+ * larger than this, so a huge PR does not trigger up to [MAX_PULL_FILES_PAGES] requests nobody asked for.
+ * Such files are still fetched when the PR is actually opened. 300 = 3 pages of [PULL_FILES_PER_PAGE].
+ */
+internal const val PREFETCH_PULL_FILES_MAX_COUNT = 300
+
 class GitHubRepository(
     private val sessionManager: SessionManager,
     private val networkConfig: GitHubNetworkConfig = GitHubNetworkConfig(sessionManager),
@@ -637,7 +644,11 @@ class GitHubRepository(
 
     suspend fun prefetchIssueOrPull(owner: String, repo: String, number: Int) {
         val detail = getIssueOrPullDetail(owner, repo, number, forceRefresh = false).getOrNull() ?: return
-        if (detail.kind == IssueOrPullKind.PULL_REQUEST && peekPullFiles(owner, repo, number) == null) {
+        if (
+            detail.kind == IssueOrPullKind.PULL_REQUEST &&
+            detail.changedFilesCount <= PREFETCH_PULL_FILES_MAX_COUNT &&
+            peekPullFiles(owner, repo, number) == null
+        ) {
             getPullFiles(owner, repo, number, forceRefresh = false)
         }
     }

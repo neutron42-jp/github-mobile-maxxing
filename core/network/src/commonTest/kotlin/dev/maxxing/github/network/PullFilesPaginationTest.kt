@@ -6,6 +6,7 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.Url
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.test.runTest
@@ -56,38 +57,68 @@ class PullFilesPaginationTest {
         assertNull(parseNextLinkUrl(listOf("""<https://api.github.com/files?page=1>; rel="prev""""), base))
     }
 
-    @Test
-    fun fetchPullFilesPaginatesUpToThreePagesAndStops() = runTest {
-        val requestedUrls = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            val url = request.url.toString()
-            requestedUrls.add(url)
-            val page = request.url.parameters["page"]?.toIntOrNull() ?: 1
-            val nextHeader = if (page < 5) {
-                """<https://api.github.com/repos/octo/app/pulls/9/files?per_page=100&page=${page + 1}>; rel="next""""
-            } else {
-                ""
-            }
-            val headers = if (nextHeader.isNotEmpty()) {
-                headersOf(
-                    HttpHeaders.ContentType to listOf("application/json"),
-                    HttpHeaders.Link to listOf(nextHeader)
+    /**
+     * Serves one file per page. [nextPageFor] returns the page number advertised as `rel="next"`
+     * for the given page, or null to end pagination.
+     */
+    private fun pagingEngine(requestedUrls: MutableList<String>, nextPageFor: (Int) -> Int?) = MockEngine { request ->
+        requestedUrls.add(request.url.toString())
+        val page = request.url.parameters["page"]?.toIntOrNull() ?: 1
+        val next = nextPageFor(page)
+        val headers = if (next != null) {
+            headersOf(
+                HttpHeaders.ContentType to listOf("application/json"),
+                HttpHeaders.Link to listOf(
+                    """<https://api.github.com/repos/octo/app/pulls/9/files?per_page=100&page=$next>; rel="next""""
                 )
-            } else {
-                headersOf(HttpHeaders.ContentType, "application/json")
-            }
-            respond(
-                content = """[{"filename":"file_$page.kt","status":"modified","additions":1,"deletions":0}]""",
-                status = HttpStatusCode.OK,
-                headers = headers
             )
+        } else {
+            headersOf(HttpHeaders.ContentType, "application/json")
         }
+        respond(
+            content = """[{"filename":"file_$page.kt","status":"modified","additions":1,"deletions":0}]""",
+            status = HttpStatusCode.OK,
+            headers = headers
+        )
+    }
+
+    @Test
+    fun fetchPullFilesFollowsNextLinksUntilExhausted() = runTest {
+        val requestedUrls = mutableListOf<String>()
+        val engine = pagingEngine(requestedUrls) { page -> if (page < 5) page + 1 else null }
 
         val rest = GitHubRestService(createClient(engine), baseUrl = "https://api.github.com")
         val files = rest.fetchPullFiles("octo", "app", 9)
 
-        assertEquals(listOf("file_1.kt", "file_2.kt", "file_3.kt"), files.map { it.filename })
-        assertEquals(3, requestedUrls.size)
+        assertEquals((1..5).map { "file_$it.kt" }, files.map { it.filename })
+        assertEquals(5, requestedUrls.size)
+        assertEquals("100", Url(requestedUrls.first()).parameters["per_page"])
+    }
+
+    @Test
+    fun fetchPullFilesStopsAtPageCapWhenNextNeverEnds() = runTest {
+        val requestedUrls = mutableListOf<String>()
+        val engine = pagingEngine(requestedUrls) { page -> page + 1 }
+
+        val rest = GitHubRestService(createClient(engine), baseUrl = "https://api.github.com")
+        val files = rest.fetchPullFiles("octo", "app", 9)
+
+        assertEquals(30, MAX_PULL_FILES_PAGES)
+        assertEquals(MAX_PULL_FILES_PAGES, requestedUrls.size)
+        assertEquals((1..MAX_PULL_FILES_PAGES).map { "file_$it.kt" }, files.map { it.filename })
+    }
+
+    @Test
+    fun fetchPullFilesStopsWhenNextLinkRepeatsAVisitedUrl() = runTest {
+        val requestedUrls = mutableListOf<String>()
+        // Every page (including page 2 itself) claims page 2 is next.
+        val engine = pagingEngine(requestedUrls) { 2 }
+
+        val rest = GitHubRestService(createClient(engine), baseUrl = "https://api.github.com")
+        val files = rest.fetchPullFiles("octo", "app", 9)
+
+        assertEquals(listOf("file_1.kt", "file_2.kt"), files.map { it.filename })
+        assertEquals(2, requestedUrls.size)
     }
 
     @Test

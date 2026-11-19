@@ -792,6 +792,15 @@ internal fun parseNextLinkUrl(linkHeaders: List<String>, baseUrl: String): Strin
     return null
 }
 
+/** Page size requested for `GET /repos/{owner}/{repo}/pulls/{number}/files` (the API maximum). */
+internal const val PULL_FILES_PER_PAGE = 100
+
+/**
+ * Upper bound on pages fetched for a pull request's changed files. The GitHub REST API lists at most
+ * 3000 files per pull request, i.e. 30 pages of [PULL_FILES_PER_PAGE], so a real response never needs more.
+ */
+internal const val MAX_PULL_FILES_PAGES = 30
+
 class GitHubRestService(
     private val httpClient: HttpClient,
     private val baseUrl: String = "https://api.github.com"
@@ -870,15 +879,17 @@ class GitHubRestService(
     }
 
     suspend fun fetchPullFiles(owner: String, repo: String, number: Int): List<PullFileChange> {
-        // Follow Link (rel="next") pagination, bounded to 3 pages (up to 300 files) to avoid runaway loops.
-        val maxPages = 3
+        // Follow Link (rel="next") pagination until it runs out. The page cap and the revisit guard only
+        // protect against a misbehaving server; GitHub itself never serves more than MAX_PULL_FILES_PAGES pages.
         val files = mutableListOf<PullFileChange>()
+        val visitedUrls = mutableSetOf<String>()
         var nextUrl: String? = "$baseUrl/repos/$owner/$repo/pulls/$number/files"
         var fetchedPages = 0
-        while (fetchedPages < maxPages) {
+        while (fetchedPages < MAX_PULL_FILES_PAGES) {
             val currentUrl = nextUrl ?: break
+            if (!visitedUrls.add(currentUrl)) break
             val res = httpClient.get(currentUrl) {
-                if (fetchedPages == 0) parameter("per_page", 100)
+                if (fetchedPages == 0) parameter("per_page", PULL_FILES_PER_PAGE)
             }
             if (!res.status.isSuccess()) {
                 throw GitHubApiException(res.status.value, "Failed to load PR files (${res.status.value})")
