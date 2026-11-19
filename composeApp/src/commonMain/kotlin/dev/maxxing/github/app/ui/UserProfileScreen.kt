@@ -155,6 +155,7 @@ fun UserProfileScreen(
     fun loadProfile(forceRefresh: Boolean = false) {
         val reqSeq = profileRequestGuard.next()
         scope.launch {
+            if (!profileRequestGuard.isLatest(reqSeq)) return@launch
             if (profile == null) isLoading = true
             if (forceRefresh) isRefreshing = true
             errorMsg = null
@@ -192,7 +193,8 @@ fun UserProfileScreen(
         val currentProfile = profile ?: return
         val reqSeq = tabRequestGuard.next()
         scope.launch {
-            if (tabRequestGuard.isLatest(reqSeq)) tabLoading = true
+            if (!tabRequestGuard.isLatest(reqSeq)) return@launch
+            tabLoading = true
             when (tab) {
                 ProfileTab.REPOS -> container.repository.getUserRepositories(login, currentProfile.isOrganization, forceRefresh)
                     .onSuccess { if (tabRequestGuard.isLatest(reqSeq)) repos = it }
