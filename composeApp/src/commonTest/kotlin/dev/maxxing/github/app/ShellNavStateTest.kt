@@ -72,4 +72,59 @@ class ShellNavStateTest {
         assertEquals(ShellNavState(currentDestination = ShellDestination.SETTINGS), ShellNavStateSaver.restore(saved!!))
         assertEquals(ShellNavState(), ShellNavStateSaver.restore("REMOVED_TAB"))
     }
+
+    @Test
+    fun settingsSectionNavigatesAndPopsBeforeReturningHome() {
+        var state = ShellNavState(currentDestination = ShellDestination.SETTINGS)
+            .openSettingsSection(SettingsSection.APPEARANCE)
+
+        assertEquals(ShellDestination.SETTINGS, state.currentDestination)
+        assertEquals(SettingsSection.APPEARANCE, state.settingsSection)
+        assertFalse(state.hasOverlay)
+
+        // Back inside a settings sub-page returns to the Settings hub first.
+        state = state.popBackOrReturnHome()
+        assertEquals(ShellDestination.SETTINGS, state.currentDestination)
+        assertNull(state.settingsSection)
+
+        // Next back from the Settings hub returns to Home.
+        state = state.popBackOrReturnHome()
+        assertEquals(ShellDestination.HOME, state.currentDestination)
+        assertNull(state.settingsSection)
+    }
+
+    @Test
+    fun bottomDestinationSelectionClearsSettingsSectionAndResetsTab() {
+        val inSection = ShellNavState(currentDestination = ShellDestination.SETTINGS)
+            .openSettingsSection(SettingsSection.NOTIFICATIONS)
+
+        val reselected = inSection.selectBottomDestination(ShellDestination.SETTINGS)
+        assertEquals(ShellDestination.SETTINGS, reselected.currentDestination)
+        assertNull(reselected.settingsSection)
+        assertEquals(inSection.tabReselectNonce + 1, reselected.tabReselectNonce)
+
+        val switchedHome = inSection.selectBottomDestination(ShellDestination.HOME)
+        assertEquals(ShellDestination.HOME, switchedHome.currentDestination)
+        assertNull(switchedHome.settingsSection)
+    }
+
+    @Test
+    fun saverRoundTripsActiveSettingsSectionAndHandlesUnknownSection() {
+        val scope = SaverScope { true }
+        val state = ShellNavState(currentDestination = ShellDestination.SETTINGS)
+            .openSettingsSection(SettingsSection.APPEARANCE)
+        val saved = with(ShellNavStateSaver) { scope.save(state) }
+        assertEquals("SETTINGS:APPEARANCE", saved)
+        assertEquals(
+            ShellNavState(
+                currentDestination = ShellDestination.SETTINGS,
+                settingsSection = SettingsSection.APPEARANCE
+            ),
+            ShellNavStateSaver.restore(saved!!)
+        )
+        assertEquals(
+            ShellNavState(currentDestination = ShellDestination.SETTINGS, settingsSection = null),
+            ShellNavStateSaver.restore("SETTINGS:UNKNOWN_SECTION")
+        )
+    }
 }

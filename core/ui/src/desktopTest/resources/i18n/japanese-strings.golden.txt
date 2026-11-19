@@ -116,6 +116,12 @@ addReviewerDesc	レビュアーを追加
 addedInlineDiffComment	差分にインラインコメントを追加しました
 allNotificationsMarkedRead	すべての通知を既読にしました
 apiRateLimit	GitHub API レート制限
+appInfoBuildLabel	ビルド
+appInfoCommitLabel	コミット
+appInfoCopiedBuildInfo	ビルド情報をコピーしました
+appInfoCopyBuildInfo	ビルド情報をコピー
+appInfoVersionLabel	バージョン
+appInfoViewRepository	GitHub で見る
 appearanceDark	ダーク
 appearanceLabel	外観モード
 appearanceLight	ライト
@@ -818,6 +824,16 @@ selectPrimaryFontTitle	メインフォントを選択
 selectedOption	選択済み
 sendCommentDesc	コメントを送信
 sendTestNotification	テスト通知を送信
+settingsCategoryAppInfo	アプリ情報
+settingsCategoryAppearance	外観
+settingsCategoryGeneral	一般
+settingsCategoryNotifications	通知
+settingsSummaryDynamicColor	ダイナミックカラー
+settingsSummaryLinksEnabled	github.com リンク有効
+settingsSummaryLinksOff	github.com リンク無効
+settingsSummaryNotificationsBlocked	システムでブロック中
+settingsSummaryNotificationsOff	オフ
+settingsSummaryNotificationsOn	オン
 settingsTitle	設定と外観
 severityCritical	緊急
 severityHigh	高

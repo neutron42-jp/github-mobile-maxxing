@@ -329,7 +329,9 @@ private fun MainAuthenticatedShell(
         ) { innerPadding ->
             Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
                 MaxxingPredictiveBackContainer(
-                    enabled = !navState.hasOverlay && navState.currentDestination != ShellDestination.HOME,
+                    enabled = !navState.hasOverlay &&
+                        navState.currentDestination != ShellDestination.HOME &&
+                        navState.settingsSection == null,
                     onBack = { navState = navState.popBackOrReturnHome() },
                     modifier = Modifier.fillMaxSize()
                 ) {
@@ -364,6 +366,14 @@ private fun MainAuthenticatedShell(
                         )
                         ShellDestination.SETTINGS -> SettingsScreen(
                             container = container,
+                            activeSection = navState.settingsSection,
+                            onSelectSection = { section ->
+                                navState = if (section != null) {
+                                    navState.openSettingsSection(section)
+                                } else {
+                                    navState.popSettingsSection()
+                                }
+                            },
                             onOpenUser = openUserProfile,
                             onSignedOut = { navState = navState.selectBottomDestination(ShellDestination.HOME) },
                             onMessage = showMessage

@@ -11,8 +11,16 @@ enum class ShellDestination {
     SETTINGS
 }
 
+enum class SettingsSection {
+    APPEARANCE,
+    NOTIFICATIONS,
+    GENERAL,
+    APP_INFO
+}
+
 data class ShellNavState(
     val currentDestination: ShellDestination = ShellDestination.HOME,
+    val settingsSection: SettingsSection? = null,
     val profileBackStack: List<String> = emptyList(),
     val repoBackStack: List<RepoSummary> = emptyList(),
     val overlayRepo: RepoSummary? = null,
@@ -32,12 +40,13 @@ data class ShellNavState(
     fun selectBottomDestination(destination: ShellDestination): ShellNavState {
         val cleared = copy(
             currentDestination = destination,
+            settingsSection = null,
             profileBackStack = emptyList(),
             repoBackStack = emptyList(),
             overlayRepo = null,
             overlayIssue = null,
             overlayGistsUser = null,
-            tabReselectNonce = if (currentDestination == destination || hasOverlay) {
+            tabReselectNonce = if (currentDestination == destination || hasOverlay || settingsSection != null) {
                 tabReselectNonce + 1
             } else {
                 tabReselectNonce
@@ -45,6 +54,13 @@ data class ShellNavState(
         )
         return cleared
     }
+
+    fun openSettingsSection(section: SettingsSection): ShellNavState = copy(
+        currentDestination = ShellDestination.SETTINGS,
+        settingsSection = section
+    )
+
+    fun popSettingsSection(): ShellNavState = copy(settingsSection = null)
 
     fun openUserProfile(login: String): ShellNavState {
         if (login.isBlank()) return this
@@ -84,21 +100,37 @@ data class ShellNavState(
         overlayIssue != null -> copy(overlayIssue = null)
         activeRepo != null -> popRepo()
         profileBackStack.isNotEmpty() -> copy(profileBackStack = profileBackStack.dropLast(1))
+        currentDestination == ShellDestination.SETTINGS && settingsSection != null -> copy(settingsSection = null)
         currentDestination != ShellDestination.HOME -> copy(currentDestination = ShellDestination.HOME)
         else -> this
     }
 }
 
 /**
- * Saves only the bottom destination, so the app comes back on the same tab after Android recreates
- * the process (for example while the system file picker is open from Settings, whose result is then
- * still delivered). Back stacks and overlays start empty. An unknown name restores HOME.
+ * Saves the bottom destination and active Settings sub-page, so the app comes back on the same
+ * Settings view after Android recreates the process (for example while the system file picker is
+ * open from Appearance Settings, whose result is then still delivered). Back stacks and overlays
+ * start empty. An unknown name restores HOME.
  */
 internal val ShellNavStateSaver: Saver<ShellNavState, String> = Saver(
-    save = { it.currentDestination.name },
-    restore = { name ->
+    save = { state ->
+        if (state.currentDestination == ShellDestination.SETTINGS && state.settingsSection != null) {
+            "${state.currentDestination.name}:${state.settingsSection.name}"
+        } else {
+            state.currentDestination.name
+        }
+    },
+    restore = { raw ->
+        val parts = raw.split(':', limit = 2)
+        val destination = ShellDestination.entries.firstOrNull { it.name == parts[0] } ?: ShellDestination.HOME
+        val section = if (destination == ShellDestination.SETTINGS && parts.size == 2) {
+            SettingsSection.entries.firstOrNull { it.name == parts[1] }
+        } else {
+            null
+        }
         ShellNavState(
-            currentDestination = ShellDestination.entries.firstOrNull { it.name == name } ?: ShellDestination.HOME
+            currentDestination = destination,
+            settingsSection = section
         )
     }
 )

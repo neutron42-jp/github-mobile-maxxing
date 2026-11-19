@@ -115,6 +115,22 @@ failedOpenAppLinkSettings,,Could not open app link settings,アプリリンク�
 oauthConfigTitle,,OAuth Client Configuration,OAuth クライアント設定
 oauthClientIdLabel,,GitHub OAuth Client ID,GitHub OAuth クライアント ID
 savedClientId,,Saved Client ID,クライアント ID を保存しました
+settingsCategoryAppearance,,Appearance,外観
+settingsCategoryNotifications,,Notifications,通知
+settingsCategoryGeneral,,General,一般
+settingsCategoryAppInfo,,App Info,アプリ情報
+settingsSummaryDynamicColor,,Dynamic Color,ダイナミックカラー
+settingsSummaryNotificationsOn,,On,オン
+settingsSummaryNotificationsOff,,Off,オフ
+settingsSummaryNotificationsBlocked,,Blocked by system,システムでブロック中
+settingsSummaryLinksEnabled,,github.com links on,github.com リンク有効
+settingsSummaryLinksOff,,github.com links off,github.com リンク無効
+appInfoVersionLabel,,Version,バージョン
+appInfoCommitLabel,,Commit,コミット
+appInfoBuildLabel,,Build,ビルド
+appInfoCopyBuildInfo,,Copy build info,ビルド情報をコピー
+appInfoCopiedBuildInfo,,Copied build info,ビルド情報をコピーしました
+appInfoViewRepository,,View on GitHub,GitHub で見る
 # Home screen
 loadingHome,,Loading GitHub home...,GitHub ホームを読み込み中...
 failedLoadActivity,,Failed to load activity feed,アクティビティフィードの読み込みに失敗しました

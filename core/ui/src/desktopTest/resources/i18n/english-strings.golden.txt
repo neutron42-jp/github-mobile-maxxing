@@ -116,6 +116,12 @@ addReviewerDesc	Add reviewer
 addedInlineDiffComment	Added inline diff comment
 allNotificationsMarkedRead	All notifications marked read
 apiRateLimit	GitHub API Rate Limit
+appInfoBuildLabel	Build
+appInfoCommitLabel	Commit
+appInfoCopiedBuildInfo	Copied build info
+appInfoCopyBuildInfo	Copy build info
+appInfoVersionLabel	Version
+appInfoViewRepository	View on GitHub
 appearanceDark	Dark
 appearanceLabel	Appearance
 appearanceLight	Light
@@ -818,6 +824,16 @@ selectPrimaryFontTitle	Select Primary Font
 selectedOption	Selected
 sendCommentDesc	Send comment
 sendTestNotification	Send Test Notification
+settingsCategoryAppInfo	App Info
+settingsCategoryAppearance	Appearance
+settingsCategoryGeneral	General
+settingsCategoryNotifications	Notifications
+settingsSummaryDynamicColor	Dynamic Color
+settingsSummaryLinksEnabled	github.com links on
+settingsSummaryLinksOff	github.com links off
+settingsSummaryNotificationsBlocked	Blocked by system
+settingsSummaryNotificationsOff	Off
+settingsSummaryNotificationsOn	On
 settingsTitle	Settings & Appearance
 severityCritical	CRITICAL
 severityHigh	HIGH
