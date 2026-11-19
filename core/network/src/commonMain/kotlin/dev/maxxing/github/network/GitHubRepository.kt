@@ -1367,6 +1367,27 @@ class GitHubRepository(
         }
     }
 
+    suspend fun getWorkflowRun(
+        owner: String,
+        repo: String,
+        runId: Long,
+        forceRefresh: Boolean = false
+    ): Result<WorkflowRunSummary> {
+        val repoKeyVal = repoKey(owner, repo)
+        if (!forceRefresh) {
+            workflowRunsCache.entriesSnapshot()
+                .filterKeys { it.owner == repoKeyVal.owner && it.repo == repoKeyVal.repo }
+                .values
+                .asSequence()
+                .flatten()
+                .firstOrNull { it.id == runId }
+                ?.let { return Result.success(it) }
+        }
+        return runCatchingCancellable {
+            restService.fetchWorkflowRun(owner, repo, runId)
+        }
+    }
+
     suspend fun getWorkflowRunJobs(
         owner: String,
         repo: String,

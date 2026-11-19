@@ -284,6 +284,7 @@ class GitHubGraphQlService(
                     deletions
                     changedFiles
                     mergeable
+                    mergeStateStatus
                     reviewDecision
                     author { login avatarUrl url }
                     labels(first: 10) { nodes { name color description } }
@@ -475,6 +476,7 @@ class GitHubGraphQlService(
             deletions = item.int("deletions") ?: 0,
             changedFilesCount = item.int("changedFiles") ?: 0,
             mergeable = item.str("mergeable"),
+            mergeStateStatus = item.str("mergeStateStatus"),
             reviewDecision = item.str("reviewDecision"),
             checkRollup = statusState?.let { CheckRollupSummary(state = it) },
             htmlUrl = item.str("url") ?: "",

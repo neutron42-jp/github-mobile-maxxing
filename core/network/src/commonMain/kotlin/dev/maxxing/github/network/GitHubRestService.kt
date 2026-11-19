@@ -948,6 +948,23 @@ class GitHubRestService(
         }
     }
 
+    private fun RestWorkflowRunDto.toSummary(): WorkflowRunSummary = WorkflowRunSummary(
+        id = id,
+        runNumber = runNumber,
+        name = name.orEmpty().ifBlank { displayTitle.orEmpty() },
+        displayTitle = displayTitle.orEmpty().ifBlank { name.orEmpty() },
+        headBranch = headBranch.orEmpty(),
+        headSha = headSha,
+        event = event,
+        status = status,
+        conclusion = conclusion,
+        actorLogin = actor?.login.orEmpty(),
+        actorAvatarUrl = actor?.avatarUrl.orEmpty(),
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+        htmlUrl = htmlUrl
+    )
+
     suspend fun fetchWorkflowRuns(
         owner: String,
         repo: String,
@@ -967,24 +984,17 @@ class GitHubRestService(
         if (!res.status.isSuccess()) {
             throw GitHubApiException(res.status.value, "Failed to load workflow runs (${res.status.value})")
         }
-        return res.bodyOrDefaultOnEmpty<RestWorkflowRunsResponse> { RestWorkflowRunsResponse() }.workflowRuns.map {
-            WorkflowRunSummary(
-                id = it.id,
-                runNumber = it.runNumber,
-                name = it.name.orEmpty().ifBlank { it.displayTitle.orEmpty() },
-                displayTitle = it.displayTitle.orEmpty().ifBlank { it.name.orEmpty() },
-                headBranch = it.headBranch.orEmpty(),
-                headSha = it.headSha,
-                event = it.event,
-                status = it.status,
-                conclusion = it.conclusion,
-                actorLogin = it.actor?.login.orEmpty(),
-                actorAvatarUrl = it.actor?.avatarUrl.orEmpty(),
-                createdAt = it.createdAt,
-                updatedAt = it.updatedAt,
-                htmlUrl = it.htmlUrl
-            )
+        return res.bodyOrDefaultOnEmpty<RestWorkflowRunsResponse> { RestWorkflowRunsResponse() }
+            .workflowRuns
+            .map { it.toSummary() }
+    }
+
+    suspend fun fetchWorkflowRun(owner: String, repo: String, runId: Long): WorkflowRunSummary {
+        val res = httpClient.get("${repoPath(owner, repo)}/actions/runs/$runId")
+        if (!res.status.isSuccess()) {
+            throw GitHubApiException(res.status.value, "Failed to load workflow run #$runId (${res.status.value})")
         }
+        return res.body<RestWorkflowRunDto>().toSummary()
     }
 
     suspend fun fetchWorkflowRunJobs(owner: String, repo: String, runId: Long): List<WorkflowJobSummary> {
@@ -1347,7 +1357,18 @@ class GitHubRestService(
             setBody(MergePullRequest(mergeMethod = method.apiValue, commitTitle = commitTitle))
         }
         if (!res.status.isSuccess()) {
-            throw GitHubApiException(res.status.value, "Merge failed (${res.status.value})")
+            val rawBody = runCatching { res.bodyAsText() }.getOrNull().orEmpty()
+            val apiMsg = runCatching {
+                restJson.parseToJsonElement(rawBody).let { el ->
+                    (el as? JsonObject)?.get("message")?.jsonPrimitive?.contentOrNull
+                }
+            }.getOrNull()?.takeIf { it.isNotBlank() }
+            val message = if (apiMsg != null) {
+                "$apiMsg (${res.status.value})"
+            } else {
+                "Merge failed (${res.status.value})"
+            }
+            throw GitHubApiException(res.status.value, message)
         }
     }
 

@@ -161,6 +161,7 @@ data class IssueOrPullDetail(
     val deletions: Int = 0,
     val changedFilesCount: Int = 0,
     val mergeable: String? = null, // MERGEABLE, CONFLICTING, UNKNOWN
+    val mergeStateStatus: String? = null, // CLEAN, BLOCKED, BEHIND, DIRTY, DRAFT, HAS_HOOKS, UNKNOWN, UNSTABLE
     val reviewDecision: String? = null,
     val checkRollup: CheckRollupSummary? = null,
     val htmlUrl: String = "",

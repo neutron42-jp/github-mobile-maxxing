@@ -474,6 +474,10 @@ insightsTopContributors	主なコントリビューター
 insightsWeeklyPulse	週間コミット推移（16 週間）
 issueAssigneesCount	アサイン (7301)
 issueAssigneesUpdated	アサインを更新しました
+issueCheckFailedLoadRun	ワークフロー実行の読み込みに失敗しました
+issueCheckLoadingRun	ワークフロー実行を読み込み中...
+issueCheckOpenInBrowser	ブラウザで開く
+issueCheckOpenRunInApp	CI の詳細を開く
 issueCheckRunCountOne	チェック 7301 件
 issueCheckRunCountOther	チェック 7301 件
 issueCloseAction	クローズ
@@ -503,6 +507,11 @@ issueLoadingNumber	#7301 を読み込み中...
 issueManageAssigneesTitle	アサインを管理
 issueManageLabelsTitle	ラベルを管理
 issueMergeAction	マージ
+issueMergeBlockedBehind	ベースブランチの変更が取り込まれていません。ブランチを更新してからマージしてください。
+issueMergeBlockedConflicts	コンフリクトがあるためマージできません。先に競合を解消してください。
+issueMergeBlockedPendingChecks	CI チェックが実行中です。完了してからマージしてください。
+issueMergeBlockedPolicy	リポジトリの保護ルールまたは必須チェックによりマージがブロックされています。
+issueMergeBlockedReview	承認レビューが必要なためまだマージできません。
 issueMergeConfirmTitle	#7301 をマージしますか？
 issueMergeFailed	マージに失敗しました
 issueMergedMerge	#7301 をマージしました（マージコミットを作成）

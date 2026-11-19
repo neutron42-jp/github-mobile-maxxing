@@ -28,6 +28,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -38,10 +39,15 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import coil3.ImageLoader
 import coil3.compose.setSingletonImageLoaderFactory
 import coil3.memory.MemoryCache
@@ -188,18 +194,29 @@ fun GitHubMaxxingApp(
         )
     }
 
-    // Immediate sync whenever app returns to foreground (ON_RESUME)
+    // Keep foreground flag synced so WorkManager / foreground syncs never post OS alerts while open,
+    // while still updating seen markers on resume/foreground polls so viewed items stay suppressed.
     DisposableEffect(lifecycleOwner, session) {
-        if (session == null) return@DisposableEffect onDispose {}
+        val currentState = lifecycleOwner.lifecycle.currentState
+        container.setAppInForeground(currentState.isAtLeast(Lifecycle.State.STARTED))
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                appScope.launch {
-                    container.syncNotifications()
+            when (event) {
+                Lifecycle.Event.ON_START -> container.setAppInForeground(true)
+                Lifecycle.Event.ON_RESUME -> {
+                    container.setAppInForeground(true)
+                    if (session != null) {
+                        appScope.launch {
+                            container.syncNotifications(suppressOsAlerts = true)
+                        }
+                    }
                 }
+                Lifecycle.Event.ON_STOP -> container.setAppInForeground(false)
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            container.setAppInForeground(false)
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
@@ -208,7 +225,9 @@ fun GitHubMaxxingApp(
     LaunchedEffect(session, notifPrefs) {
         if (session == null) return@LaunchedEffect
         while (isActive) {
-            container.syncNotifications()
+            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                container.syncNotifications(suppressOsAlerts = true)
+            }
             val intervalMs = (notifPrefs.pollIntervalMinutes.coerceAtLeast(1)) * 60_000L
             delay(intervalMs)
         }
@@ -328,7 +347,13 @@ private fun MainAuthenticatedShell(
     onConsumeInboxRequest: () -> Unit
 ) {
     var navState by rememberSaveable(stateSaver = ShellNavStateSaver) { mutableStateOf(ShellNavState()) }
+    var visitedDestinations by remember { mutableStateOf(setOf(navState.currentDestination)) }
+    var tabResetEpochs by remember { mutableStateOf(emptyMap<ShellDestination, Int>()) }
     var notificationDeepLinkTarget by remember { mutableStateOf<IssuePullTarget?>(null) }
+
+    LaunchedEffect(navState.currentDestination) {
+        visitedDestinations = visitedDestinations + navState.currentDestination
+    }
     val unreadCount by container.unreadNotificationCount.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -417,7 +442,13 @@ private fun MainAuthenticatedShell(
                         )
                     },
                     selected = !navState.hasOverlay && navState.currentDestination == dest.shell,
-                    onClick = { navState = navState.selectBottomDestination(dest.shell) }
+                    onClick = {
+                        val wasSameActiveTab = !navState.hasOverlay && navState.currentDestination == dest.shell
+                        navState = navState.selectBottomDestination(dest.shell)
+                        if (wasSameActiveTab) {
+                            tabResetEpochs = tabResetEpochs + (dest.shell to ((tabResetEpochs[dest.shell] ?: 0) + 1))
+                        }
+                    }
                 )
             }
         }
@@ -435,49 +466,90 @@ private fun MainAuthenticatedShell(
                     onBack = { navState = navState.popBackOrReturnHome() },
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    when (navState.currentDestination) {
-                        ShellDestination.HOME -> HomeScreen(
-                            container = container,
-                            unreadCount = unreadCount,
-                            onNavigateInbox = { navState = navState.selectBottomDestination(ShellDestination.INBOX) },
-                            onNavigateIssuesPrs = { navState = navState.selectBottomDestination(ShellDestination.ISSUES_PRS) },
-                            onNavigateRepos = { navState = navState.selectBottomDestination(ShellDestination.REPOS) },
-                            onOpenGists = { navState = navState.copy(overlayGistsUser = "") },
-                            onOpenUser = openUserProfile,
-                            onMessage = showMessage
-                        )
-                        ShellDestination.INBOX -> NotificationsScreen(
-                            container = container,
-                            deepLinkTarget = notificationDeepLinkTarget,
-                            onConsumeDeepLink = {
-                                notificationDeepLinkTarget = null
-                                onConsumeDeepLink()
-                            },
-                            onMessage = showMessage
-                        )
-                        ShellDestination.ISSUES_PRS -> IssuesPullsScreen(
-                            container = container,
-                            onMessage = showMessage
-                        )
-                        ShellDestination.REPOS -> ReposScreen(
-                            container = container,
-                            onOpenUser = openUserProfile,
-                            onMessage = showMessage
-                        )
-                        ShellDestination.SETTINGS -> SettingsScreen(
-                            container = container,
-                            activeSection = navState.settingsSection,
-                            onSelectSection = { section ->
-                                navState = if (section != null) {
-                                    navState.openSettingsSection(section)
-                                } else {
-                                    navState.popSettingsSection()
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        val renderedDestinations = visitedDestinations + navState.currentDestination
+                        if (renderedDestinations.size > 1) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .zIndex(0.5f)
+                                    .pointerInput(Unit) {
+                                        awaitPointerEventScope {
+                                            while (true) {
+                                                awaitPointerEvent().changes.forEach { it.consume() }
+                                            }
+                                        }
+                                    }
+                            )
+                        }
+                        renderedDestinations.forEach { dest ->
+                            val isCurrentTab = dest == navState.currentDestination
+                            val isTabActive = isCurrentTab && !navState.hasOverlay
+                            val tabModifier = Modifier
+                                .fillMaxSize()
+                                .zIndex(if (isCurrentTab) 1f else 0f)
+                                .graphicsLayer { alpha = if (isCurrentTab) 1f else 0f }
+                                .then(
+                                    if (isCurrentTab) {
+                                        Modifier
+                                    } else {
+                                        Modifier
+                                            .focusProperties { canFocus = false }
+                                            .clearAndSetSemantics {}
+                                    }
+                                )
+                            Box(modifier = tabModifier) {
+                                key(dest, tabResetEpochs[dest] ?: 0) {
+                                    when (dest) {
+                                        ShellDestination.HOME -> HomeScreen(
+                                            container = container,
+                                            unreadCount = unreadCount,
+                                            onNavigateInbox = { navState = navState.selectBottomDestination(ShellDestination.INBOX) },
+                                            onNavigateIssuesPrs = { navState = navState.selectBottomDestination(ShellDestination.ISSUES_PRS) },
+                                            onNavigateRepos = { navState = navState.selectBottomDestination(ShellDestination.REPOS) },
+                                            onOpenGists = { navState = navState.copy(overlayGistsUser = "") },
+                                            onOpenUser = openUserProfile,
+                                            onMessage = showMessage
+                                        )
+                                        ShellDestination.INBOX -> NotificationsScreen(
+                                            container = container,
+                                            deepLinkTarget = notificationDeepLinkTarget,
+                                            onConsumeDeepLink = {
+                                                notificationDeepLinkTarget = null
+                                                onConsumeDeepLink()
+                                            },
+                                            isTabActive = isTabActive,
+                                            onMessage = showMessage
+                                        )
+                                        ShellDestination.ISSUES_PRS -> IssuesPullsScreen(
+                                            container = container,
+                                            isTabActive = isTabActive,
+                                            onMessage = showMessage
+                                        )
+                                        ShellDestination.REPOS -> ReposScreen(
+                                            container = container,
+                                            isTabActive = isTabActive,
+                                            onOpenUser = openUserProfile,
+                                            onMessage = showMessage
+                                        )
+                                        ShellDestination.SETTINGS -> SettingsScreen(
+                                            container = container,
+                                            activeSection = navState.settingsSection,
+                                            onSelectSection = { section ->
+                                                navState = if (section != null) {
+                                                    navState.openSettingsSection(section)
+                                                } else {
+                                                    navState.popSettingsSection()
+                                                }
+                                            },
+                                            onOpenUser = openUserProfile,
+                                            onSignedOut = { navState = navState.selectBottomDestination(ShellDestination.HOME) },
+                                            onMessage = showMessage
+                                        )
+                                    }
                                 }
-                            },
-                            onOpenUser = openUserProfile,
-                            onSignedOut = { navState = navState.selectBottomDestination(ShellDestination.HOME) },
-                            onMessage = showMessage
-                        )
+                            }
+                        }
                     }
                 }
 

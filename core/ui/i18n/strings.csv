@@ -585,6 +585,15 @@ issueMilestoneCleared,,Cleared milestone,マイルストーンを解除しまし
 failedUpdateMilestone,,Failed to update milestone,マイルストーンの更新に失敗しました
 milestoneDue,String,Due {0},期限: {0}
 failedLoadCiChecks,,Failed to load CI checks,CI チェックの読み込みに失敗しました
+issueMergeBlockedPendingChecks,,CI checks are still running. Wait for checks to finish before merging.,CI チェックが実行中です。完了してからマージしてください。
+issueMergeBlockedConflicts,,This pull request has merge conflicts that must be resolved before merging.,コンフリクトがあるためマージできません。先に競合を解消してください。
+issueMergeBlockedBehind,,This branch is out of date with the base branch. Update the branch before merging.,ベースブランチの変更が取り込まれていません。ブランチを更新してからマージしてください。
+issueMergeBlockedReview,,Review approval is required before this pull request can be merged.,承認レビューが必要なためまだマージできません。
+issueMergeBlockedPolicy,,Merging is currently blocked by repository rules or required status checks.,リポジトリの保護ルールまたは必須チェックによりマージがブロックされています。
+issueCheckOpenRunInApp,,Open CI run,CI の詳細を開く
+issueCheckOpenInBrowser,,Open in browser,ブラウザで開く
+issueCheckLoadingRun,,Loading workflow run...,ワークフロー実行を読み込み中...
+issueCheckFailedLoadRun,,Failed to load workflow run details,ワークフロー実行の読み込みに失敗しました
 failedUpdateDraftState,,Failed to update draft state,下書き状態の更新に失敗しました
 reactionFailed,,Reaction failed,リアクションに失敗しました
 addReactionDesc,,Add reaction,リアクションを追加

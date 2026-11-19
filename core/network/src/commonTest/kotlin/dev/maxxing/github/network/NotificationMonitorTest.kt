@@ -335,4 +335,78 @@ class NotificationMonitorTest {
         val second = monitor.checkForNewNotifications().getOrThrow()
         assertEquals(listOf("t_first"), second.newlyArrivedForOs.map { it.id })
     }
+
+    @Test
+    fun foregroundCheckAndMarkThreadsSeenSuppressSubsequentBackgroundAlerts() = runTest {
+        var callCount = 0
+        val engine = MockEngine {
+            callCount++
+            val payload = when (callCount) {
+                1 -> "[]"
+                else -> """
+                    [
+                      {
+                        "id": "t_seen_in_app",
+                        "unread": true,
+                        "reason": "mention",
+                        "updated_at": "2026-11-19T10:00:00Z",
+                        "subject": { "title": "Seen in app", "type": "Issue", "url": "https://api.github.com/repos/a/b/issues/12" },
+                        "repository": { "name": "b", "full_name": "a/b", "owner": { "login": "a" } }
+                      }
+                    ]
+                """.trimIndent()
+            }
+            respond(
+                content = payload,
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+
+        val store = InMemoryTokenStore()
+        val sessionManager = SessionManager(
+            tokenStore = store,
+            deviceFlowClient = DeviceFlowClient(HttpClient(engine))
+        )
+        sessionManager.initialize()
+
+        val httpClient = HttpClient(engine) {
+            install(ContentNegotiation) {
+                json(Json { ignoreUnknownKeys = true; isLenient = true })
+            }
+        }
+        val repo = GitHubRepository(sessionManager = sessionManager, httpClient = httpClient)
+        val monitor = NotificationMonitor(sessionManager, repo)
+
+        // Establish baseline
+        monitor.checkForNewNotifications().getOrThrow()
+
+        // While app is open (foreground), notifications arrive and are viewed:
+        // no OS alert should fire now, AND markers advance so background check won't re-alert later.
+        val foregroundResult = monitor.checkForNewNotifications(suppressOsAlerts = true).getOrThrow()
+        assertEquals(listOf("t_seen_in_app"), foregroundResult.allUnread.map { it.id })
+        assertTrue(foregroundResult.newlyArrivedForOs.isEmpty())
+
+        val subsequentBackground = monitor.checkForNewNotifications(suppressOsAlerts = false).getOrThrow()
+        assertTrue(subsequentBackground.newlyArrivedForOs.isEmpty())
+
+        // Also test explicit markThreadsSeen from Inbox cache/display path
+        val newerUnread = listOf(
+            NotificationThread(
+                id = "t_inbox_viewed",
+                unread = true,
+                reason = NotificationReason.COMMENT,
+                updatedAt = "2026-11-19T11:00:00Z",
+                subjectTitle = "Viewed in inbox",
+                subjectType = NotificationSubjectType.ISSUE,
+                subjectUrl = "https://api.github.com/repos/a/b/issues/13",
+                latestCommentUrl = null,
+                repoFullName = "a/b",
+                repoOwner = "a",
+                repoName = "b"
+            )
+        )
+        monitor.markThreadsSeen(newerUnread)
+        assertEquals("2026-11-19T11:00:00Z", store.loadSeenNotificationMarkers()["t_inbox_viewed"])
+    }
 }

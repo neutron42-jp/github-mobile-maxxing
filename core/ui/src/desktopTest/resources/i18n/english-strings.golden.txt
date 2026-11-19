@@ -474,6 +474,10 @@ insightsTopContributors	Top Contributors
 insightsWeeklyPulse	Weekly Commit Pulse (16w)
 issueAssigneesCount	Assignees (7301)
 issueAssigneesUpdated	Updated assignees
+issueCheckFailedLoadRun	Failed to load workflow run details
+issueCheckLoadingRun	Loading workflow run...
+issueCheckOpenInBrowser	Open in browser
+issueCheckOpenRunInApp	Open CI run
 issueCheckRunCountOne	7301 check run
 issueCheckRunCountOther	7301 check runs
 issueCloseAction	Close
@@ -503,6 +507,11 @@ issueLoadingNumber	Loading #7301...
 issueManageAssigneesTitle	Manage Assignees
 issueManageLabelsTitle	Manage Labels
 issueMergeAction	Merge
+issueMergeBlockedBehind	This branch is out of date with the base branch. Update the branch before merging.
+issueMergeBlockedConflicts	This pull request has merge conflicts that must be resolved before merging.
+issueMergeBlockedPendingChecks	CI checks are still running. Wait for checks to finish before merging.
+issueMergeBlockedPolicy	Merging is currently blocked by repository rules or required status checks.
+issueMergeBlockedReview	Review approval is required before this pull request can be merged.
 issueMergeConfirmTitle	Merge #7301?
 issueMergeFailed	Merge failed
 issueMergedMerge	Merged #7301 (merge)
