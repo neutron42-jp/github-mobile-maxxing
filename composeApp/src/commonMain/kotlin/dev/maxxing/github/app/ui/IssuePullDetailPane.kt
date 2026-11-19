@@ -132,6 +132,8 @@ import dev.maxxing.github.ui.components.diffFileLazyItems
 import dev.maxxing.github.ui.i18n.AppStrings
 import dev.maxxing.github.ui.i18n.appStrings
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -374,39 +376,66 @@ private fun IssuePullDetailPaneContent(
         openedActionsTarget = actionsTarget
         workflowRunError = null
         workflowRunLoading = true
+        val requestedJobId = actionsTarget.jobId
+        val shouldPrefetchLogs = requestedJobId != null && openedLogJob == null && !forceRefresh
+        if (shouldPrefetchLogs) {
+            jobLogsLoading = true
+            jobLogsText = null
+        }
         scope.launch {
-            container.repository.getWorkflowRun(
-                owner = actionsTarget.owner,
-                repo = actionsTarget.repo,
-                runId = actionsTarget.runId,
-                forceRefresh = forceRefresh
-            ).onSuccess { run ->
-                openedWorkflowRun = run
-            }.onFailure { err ->
-                workflowRunError = strings.errorMessage(err, strings.issueCheckFailedLoadRun)
-            }
-            container.repository.getWorkflowRunJobs(
-                owner = actionsTarget.owner,
-                repo = actionsTarget.repo,
-                runId = actionsTarget.runId,
-                forceRefresh = forceRefresh
-            ).onSuccess { jobs ->
-                openedWorkflowJobs = jobs
-                val requestedJobId = actionsTarget.jobId
-                if (requestedJobId != null && openedLogJob == null && !forceRefresh) {
-                    jobs.firstOrNull { it.id == requestedJobId }?.let { matchedJob ->
-                        openedLogJob = matchedJob
-                        jobLogsLoading = true
-                        jobLogsText = null
-                        container.repository.getJobLogs(actionsTarget.owner, actionsTarget.repo, matchedJob.id)
-                            .onSuccess { jobLogsText = it }
-                            .onFailure { jobLogsText = strings.errorMessage(it, strings.failedLoadLogs) }
+            coroutineScope {
+                val runJob = async {
+                    container.repository.getWorkflowRun(
+                        owner = actionsTarget.owner,
+                        repo = actionsTarget.repo,
+                        runId = actionsTarget.runId,
+                        forceRefresh = forceRefresh
+                    )
+                }
+                val jobsJob = async {
+                    container.repository.getWorkflowRunJobs(
+                        owner = actionsTarget.owner,
+                        repo = actionsTarget.repo,
+                        runId = actionsTarget.runId,
+                        forceRefresh = forceRefresh
+                    )
+                }
+                val logsJob = if (shouldPrefetchLogs) {
+                    async {
+                        container.repository.getJobLogs(actionsTarget.owner, actionsTarget.repo, requestedJobId)
+                    }
+                } else null
+
+                runJob.await().onSuccess { run ->
+                    openedWorkflowRun = run
+                }.onFailure { err ->
+                    workflowRunError = strings.errorMessage(err, strings.issueCheckFailedLoadRun)
+                }
+
+                jobsJob.await().onSuccess { jobs ->
+                    openedWorkflowJobs = jobs
+                    if (shouldPrefetchLogs) {
+                        val matched = jobs.firstOrNull { it.id == requestedJobId }
+                        if (matched != null) {
+                            openedLogJob = matched
+                        } else {
+                            jobLogsLoading = false
+                        }
+                    }
+                }.onFailure { err ->
+                    if (workflowRunError == null) {
+                        workflowRunError = strings.errorMessage(err, strings.failedLoadJobs)
+                    }
+                    if (shouldPrefetchLogs) {
                         jobLogsLoading = false
                     }
                 }
-            }.onFailure { err ->
-                if (workflowRunError == null) {
-                    workflowRunError = strings.errorMessage(err, strings.failedLoadJobs)
+
+                if (logsJob != null) {
+                    logsJob.await()
+                        .onSuccess { jobLogsText = it }
+                        .onFailure { jobLogsText = strings.errorMessage(it, strings.failedLoadLogs) }
+                    jobLogsLoading = false
                 }
             }
             workflowRunLoading = false
@@ -467,28 +496,54 @@ private fun IssuePullDetailPaneContent(
                 isLoading = true
             }
             errorMsg = null
-            container.repository.getIssueOrPullDetail(target.owner, target.repo, target.number, forceRefresh = forceRefresh)
-                .onSuccess { loaded ->
-                    detail = loaded
-                    isLoading = false
-                    if (loaded.kind == IssueOrPullKind.PULL_REQUEST && (files.isEmpty() || forceRefresh)) {
-                        filesLoading = files.isEmpty()
+            val expectPull = (detail?.kind ?: cached?.kind ?: target.kindHint) == IssueOrPullKind.PULL_REQUEST
+            val shouldFetchFilesUpfront = expectPull && (files.isEmpty() || forceRefresh)
+            if (shouldFetchFilesUpfront && files.isEmpty()) {
+                filesLoading = true
+            }
+            coroutineScope {
+                val detailJob = async {
+                    container.repository.getIssueOrPullDetail(target.owner, target.repo, target.number, forceRefresh = forceRefresh)
+                }
+                val parallelFilesJob = if (shouldFetchFilesUpfront) {
+                    async {
                         container.repository.getPullFiles(target.owner, target.repo, target.number, forceRefresh = forceRefresh)
-                            .onSuccess { files = it }
-                        filesLoading = false
                     }
-                    if (forceRefresh && loaded.kind == IssueOrPullKind.PULL_REQUEST && checksLoadedRef != null) {
-                        resolveChecksRef(loaded.headRefOid, loaded.headRefName)?.let {
-                            // Silent: a reload triggered by an unrelated action (reaction, comment, ...)
-                            // must not pop a check-runs error snackbar; an empty tab still shows the error.
-                            loadChecks(it, forceRefresh = true, silent = true)
+                } else null
+
+                detailJob.await()
+                    .onSuccess { loaded ->
+                        detail = loaded
+                        isLoading = false
+                        if (loaded.kind == IssueOrPullKind.PULL_REQUEST) {
+                            if (parallelFilesJob != null) {
+                                parallelFilesJob.await().onSuccess { files = it }
+                                filesLoading = false
+                            } else if (files.isEmpty() || forceRefresh) {
+                                filesLoading = files.isEmpty()
+                                container.repository.getPullFiles(target.owner, target.repo, target.number, forceRefresh = forceRefresh)
+                                    .onSuccess { files = it }
+                                filesLoading = false
+                            }
+                        } else {
+                            parallelFilesJob?.cancel()
+                            filesLoading = false
+                        }
+                        if (forceRefresh && loaded.kind == IssueOrPullKind.PULL_REQUEST && checksLoadedRef != null) {
+                            resolveChecksRef(loaded.headRefOid, loaded.headRefName)?.let {
+                                // Silent: a reload triggered by an unrelated action (reaction, comment, ...)
+                                // must not pop a check-runs error snackbar; an empty tab still shows the error.
+                                loadChecks(it, forceRefresh = true, silent = true)
+                            }
                         }
                     }
-                }
-                .onFailure {
-                    errorMsg = strings.errorMessage(it, strings.failedLoadDetails)
-                    isLoading = false
-                }
+                    .onFailure {
+                        parallelFilesJob?.cancel()
+                        filesLoading = false
+                        errorMsg = strings.errorMessage(it, strings.failedLoadDetails)
+                        isLoading = false
+                    }
+            }
         }
     }
 

@@ -3,6 +3,8 @@ package dev.maxxing.github.auth
 import dev.maxxing.github.model.AuthSession
 import dev.maxxing.github.model.DeviceCodeState
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,18 +42,27 @@ class SessionManager(
     val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
 
     suspend fun initialize() {
-        val savedClientId = tokenStore.loadClientId()
-        if (!savedClientId.isNullOrBlank()) {
-            _clientId.value = savedClientId
+        coroutineScope {
+            val clientIdDeferred = async { tokenStore.loadClientId() }
+            val themeDeferred = async { tokenStore.loadThemePreferences() }
+            val notifDeferred = async { tokenStore.loadNotificationPreferences() }
+            val updateDeferred = async { tokenStore.loadUpdatePreferences() }
+            val pinnedDeferred = async { tokenStore.loadPinnedRepos() }
+            val sessionDeferred = async { tokenStore.loadSession() }
+
+            val savedClientId = clientIdDeferred.await()
+            if (!savedClientId.isNullOrBlank()) {
+                _clientId.value = savedClientId
+            }
+            _themePreferences.value = themeDeferred.await()
+            _notificationPreferences.value = notifDeferred.await()
+            _updatePreferences.value = updateDeferred.await()
+            _pinnedRepos.value = pinnedDeferred.await()
+                .map { it.trim() }
+                .filter { '/' in it }
+                .distinct()
+            _session.value = sessionDeferred.await()
         }
-        _themePreferences.value = tokenStore.loadThemePreferences()
-        _notificationPreferences.value = tokenStore.loadNotificationPreferences()
-        _updatePreferences.value = tokenStore.loadUpdatePreferences()
-        _pinnedRepos.value = tokenStore.loadPinnedRepos()
-            .map { it.trim() }
-            .filter { '/' in it }
-            .distinct()
-        _session.value = tokenStore.loadSession()
         _isInitialized.value = true
     }
 

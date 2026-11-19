@@ -10,6 +10,7 @@ import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.plugins.DefaultRequest
 import io.ktor.client.plugins.HttpResponseValidator
 import io.ktor.client.plugins.HttpSend
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.plugin
 import io.ktor.client.request.HttpRequestBuilder
@@ -56,13 +57,18 @@ class GitHubNetworkConfig(
      * expiring OAuth token can be refreshed before it expires and once more after an HTTP 401.
      */
     fun createHttpClient(engine: HttpClientEngine? = null): HttpClient {
-        val client = if (engine != null) HttpClient(engine) { configure() } else HttpClient { configure() }
+        val client = if (engine != null) HttpClient(engine) { configure() } else createDefaultPlatformHttpClient { configure() }
         return client.apply { installAuthorization() }
     }
 
     private fun HttpClientConfig<*>.configure() {
         install(ContentNegotiation) {
             json(json)
+        }
+        install(HttpTimeout) {
+            connectTimeoutMillis = 10_000L
+            socketTimeoutMillis = 30_000L
+            requestTimeoutMillis = 30_000L
         }
         install(DefaultRequest) {
             header(HttpHeaders.Accept, "application/vnd.github+json")

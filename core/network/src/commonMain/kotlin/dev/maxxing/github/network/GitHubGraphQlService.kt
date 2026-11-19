@@ -567,7 +567,7 @@ class GitHubGraphQlService(
             query {
               viewer {
                 repositories(first: 40, orderBy: { field: UPDATED_AT, direction: DESC }, ownerAffiliations: [OWNER, COLLABORATOR, ORGANIZATION_MEMBER]) {
-                  nodes { $REPO_FIELDS }
+                  nodes { $REPO_LIST_FIELDS }
                 }
               }
             }
@@ -584,7 +584,7 @@ class GitHubGraphQlService(
             query {
               viewer {
                 starredRepositories(first: 40, orderBy: { field: STARRED_AT, direction: DESC }) {
-                  nodes { $REPO_FIELDS }
+                  nodes { $REPO_LIST_CORE_FIELDS }
                 }
               }
             }
@@ -592,7 +592,9 @@ class GitHubGraphQlService(
         )
         val nodes = data.obj("viewer")?.obj("starredRepositories")?.arr("nodes")
             ?: return emptyList()
-        return nodes.mapNotNull { (it as? JsonObject)?.let(::parseRepoSummary) }
+        return nodes.mapNotNull { el ->
+            (el as? JsonObject)?.let { parseRepoSummary(it, defaultViewerHasStarred = true) }
+        }
     }
 
     suspend fun searchRepositories(query: String): List<RepoSummary> {
@@ -601,7 +603,7 @@ class GitHubGraphQlService(
                 query(${'$'}q: String!) {
                   search(query: ${'$'}q, type: REPOSITORY, first: 30) {
                     nodes {
-                      ... on Repository { $REPO_FIELDS }
+                      ... on Repository { $REPO_LIST_FIELDS }
                     }
                   }
                 }
@@ -791,7 +793,10 @@ class GitHubGraphQlService(
         }
     }
 
-    private fun parseRepoSummary(obj: JsonObject): RepoSummary {
+    private fun parseRepoSummary(
+        obj: JsonObject,
+        defaultViewerHasStarred: Boolean = false
+    ): RepoSummary {
         val ownerObj = obj.obj("owner")
         val langObj = obj.obj("primaryLanguage")
         val defaultBranch = obj.obj("defaultBranchRef")?.str("name") ?: "main"
@@ -829,7 +834,7 @@ class GitHubGraphQlService(
             defaultBranch = defaultBranch,
             updatedAt = obj.str("updatedAt") ?: "",
             ownerAvatarUrl = ownerObj?.str("avatarUrl") ?: "",
-            viewerHasStarred = obj.bool("viewerHasStarred") ?: false,
+            viewerHasStarred = obj.bool("viewerHasStarred") ?: defaultViewerHasStarred,
             viewerPermission = viewerPermission,
             hasKnownPermission = hasPermField,
             isArchived = obj.bool("isArchived") ?: false,
@@ -1165,7 +1170,7 @@ class GitHubGraphQlService(
             "THUMBS_UP", "THUMBS_DOWN", "LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"
         )
 
-        private const val REPO_FIELDS = """
+        private const val REPO_LIST_CORE_FIELDS = """
             id
             name
             nameWithOwner
@@ -1174,14 +1179,23 @@ class GitHubGraphQlService(
             isFork
             isArchived
             hasIssuesEnabled
-            viewerPermission
             stargazerCount
             forkCount
             updatedAt
-            viewerHasStarred
             owner { login avatarUrl }
             primaryLanguage { name color }
             defaultBranchRef { name }
+        """
+
+        private const val REPO_LIST_FIELDS = """
+            $REPO_LIST_CORE_FIELDS
+            viewerHasStarred
+        """
+
+        private const val REPO_FIELDS = """
+            $REPO_LIST_CORE_FIELDS
+            viewerPermission
+            viewerHasStarred
             issues(states: OPEN) { totalCount }
             pullRequests(states: OPEN) { totalCount }
         """

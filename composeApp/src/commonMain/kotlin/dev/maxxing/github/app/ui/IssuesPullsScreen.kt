@@ -142,7 +142,9 @@ fun IssuesPullsScreen(
                     isLoading = false
                     isRefreshing = false
                     container.prefetchIssuePullTargets(
-                        loaded.take(3).map { IssuePullTarget(it.repoOwner, it.repoName, it.number, it.title) }
+                        loaded.take(3).map {
+                            IssuePullTarget(it.repoOwner, it.repoName, it.number, it.title, kindHint = it.kind)
+                        }
                     )
                 }
                 .onFailure {
@@ -320,7 +322,8 @@ fun IssuesPullsScreen(
                                         owner = summary.repoOwner,
                                         repo = summary.repoName,
                                         number = summary.number,
-                                        hintTitle = summary.title
+                                        hintTitle = summary.title,
+                                        kindHint = summary.kind
                                     )
                                     val summaryKey = summaryTarget.toPaneKey()
                                     val isSelected = navigator.currentDestination?.contentKey == summaryKey

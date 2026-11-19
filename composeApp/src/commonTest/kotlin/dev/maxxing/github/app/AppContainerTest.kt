@@ -9,6 +9,7 @@ import dev.maxxing.github.model.NotificationThread
 import dev.maxxing.github.network.GitHubNetworkConfig
 import dev.maxxing.github.network.GitHubRepository
 import dev.maxxing.github.network.NotificationMonitor
+import dev.maxxing.github.network.PersistentCacheStore
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -126,6 +127,100 @@ class AppContainerTest {
         assertEquals(1, container.unreadNotificationCount.value)
         assertEquals(1, notified.size)
         assertEquals(listOf("thread-2"), notified.single().map { it.id })
+    }
+
+    @Test
+    fun hydrateFromDiskRestoresProfileUnreadAndRepositoriesImmediately() = runTest {
+        val store = FakeTokenStore()
+        val sessionManager = SessionManager(tokenStore = store)
+        sessionManager.initialize()
+
+        val disk = object : PersistentCacheStore {
+            val map = LinkedHashMap<String, String>()
+            override suspend fun read(key: String): String? = map[key]
+            override suspend fun write(key: String, payload: String) {
+                map[key] = payload
+            }
+            override suspend fun clearAll() {
+                map.clear()
+            }
+        }
+        val engine = MockEngine { request ->
+            when (request.url.encodedPath) {
+                "/notifications" -> respond(
+                    content = notificationJson("thread-disk"),
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(HttpHeaders.ContentType, "application/json")
+                )
+                "/graphql" -> respond(
+                    content = """
+                        {
+                          "data": {
+                            "viewer": {
+                              "login": "octo",
+                              "name": "Octocat",
+                              "avatarUrl": "",
+                              "followers": { "totalCount": 1 },
+                              "following": { "totalCount": 2 },
+                              "repositories": {
+                                "totalCount": 1,
+                                "nodes": [
+                                  {
+                                    "id": "R_d1",
+                                    "name": "fast-app",
+                                    "nameWithOwner": "octo/fast-app",
+                                    "isPrivate": false,
+                                    "isFork": false,
+                                    "stargazerCount": 10,
+                                    "forkCount": 1,
+                                    "updatedAt": "2026-11-19T00:00:00Z",
+                                    "viewerHasStarred": false,
+                                    "owner": { "login": "octo", "avatarUrl": "" }
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                    """.trimIndent(),
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(HttpHeaders.ContentType, "application/json")
+                )
+                else -> error("Unexpected path: ${request.url.encodedPath}")
+            }
+        }
+        val writerConfig = GitHubNetworkConfig(sessionManager, baseUrl = "https://example.test")
+        val writerRepo = GitHubRepository(
+            sessionManager = sessionManager,
+            networkConfig = writerConfig,
+            httpClient = writerConfig.createHttpClient(engine),
+            diskCache = disk,
+            diskPersistScope = this
+        )
+        writerRepo.getViewerProfile().getOrThrow()
+        writerRepo.getViewerRepositories().getOrThrow()
+        writerRepo.getNotifications(all = false, participating = false, forceRefresh = true).getOrThrow()
+        testScheduler.advanceUntilIdle()
+
+        val coldConfig = GitHubNetworkConfig(sessionManager, baseUrl = "https://example.test")
+        val coldRepo = GitHubRepository(
+            sessionManager = sessionManager,
+            networkConfig = coldConfig,
+            httpClient = coldConfig.createHttpClient(MockEngine { error("Network must not be called during hydrateFromDisk") }),
+            diskCache = disk,
+            diskPersistScope = this
+        )
+        val container = AppContainer(
+            sessionManager = sessionManager,
+            repository = coldRepo,
+            notificationMonitor = NotificationMonitor(sessionManager, coldRepo)
+        )
+
+        container.hydrateFromDisk("octo")
+        assertEquals("octo", container.viewerProfile.value?.login)
+        assertEquals(listOf("thread-disk"), container.unreadThreads.value?.map { it.id })
+        assertEquals(1, container.unreadNotificationCount.value)
+        assertEquals(listOf("octo/fast-app"), coldRepo.peekViewerRepositories()?.map { it.fullName })
     }
 
     private fun notificationJson(id: String): String = """

@@ -80,6 +80,7 @@ import com.composables.icons.lucide.UserCheck
 import com.composables.icons.lucide.X
 import dev.maxxing.github.app.AppContainer
 import dev.maxxing.github.app.IssuePullTarget
+import dev.maxxing.github.model.IssueOrPullKind
 import dev.maxxing.github.model.NotificationReason
 import dev.maxxing.github.model.NotificationSubjectType
 import dev.maxxing.github.model.NotificationThread
@@ -216,7 +217,12 @@ fun NotificationsScreen(
     fun prefetchVisible(loaded: List<NotificationThread>) {
         val targets = loaded.mapNotNull { thread ->
             thread.subjectNumber?.let { num ->
-                IssuePullTarget(thread.repoOwner, thread.repoName, num, thread.subjectTitle)
+                val hint = when (thread.subjectType) {
+                    NotificationSubjectType.PULL_REQUEST -> IssueOrPullKind.PULL_REQUEST
+                    NotificationSubjectType.ISSUE -> IssueOrPullKind.ISSUE
+                    else -> null
+                }
+                IssuePullTarget(thread.repoOwner, thread.repoName, num, thread.subjectTitle, kindHint = hint)
             }
         }
         container.prefetchIssuePullTargets(targets)
@@ -313,7 +319,7 @@ fun NotificationsScreen(
             threads = cached
             isLoading = false
         }
-        loadNotifications(forceRefresh = true)
+        loadNotifications(forceRefresh = cached == null)
     }
 
     val visibleThreads = remember(threads, reasonFilter, searchQuery) {
@@ -640,7 +646,12 @@ fun NotificationsScreen(
                                                                 owner = thread.repoOwner,
                                                                 repo = thread.repoName,
                                                                 number = num,
-                                                                hintTitle = thread.subjectTitle
+                                                                hintTitle = thread.subjectTitle,
+                                                                kindHint = if (thread.subjectType == NotificationSubjectType.PULL_REQUEST) {
+                                                                    IssueOrPullKind.PULL_REQUEST
+                                                                } else {
+                                                                    IssueOrPullKind.ISSUE
+                                                                }
                                                             )
                                                         )
                                                     } else {

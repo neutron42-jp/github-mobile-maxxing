@@ -132,15 +132,25 @@ fun UserProfileScreen(
 
     var profile by remember(login) { mutableStateOf(container.repository.peekUserProfile(login)) }
     var isFollowing by remember(login) { mutableStateOf(profile?.viewerIsFollowing ?: false) }
-    var orgs by remember(login) { mutableStateOf<List<OrganizationSummary>>(emptyList()) }
+    var orgs by remember(login) {
+        mutableStateOf(container.repository.peekUserOrganizations(login).orEmpty())
+    }
     var calendar by remember(login) { mutableStateOf(container.repository.peekContributionCalendar(login)) }
     var activeTab by remember(login) { mutableStateOf(ProfileTab.REPOS) }
 
     var repos by remember(login) { mutableStateOf(container.repository.peekUserRepositories(login).orEmpty()) }
-    var starred by remember(login) { mutableStateOf<List<RepoSummary>>(emptyList()) }
-    var events by remember(login) { mutableStateOf<List<ActivityEvent>>(emptyList()) }
-    var followers by remember(login) { mutableStateOf<List<UserSummary>>(emptyList()) }
-    var following by remember(login) { mutableStateOf<List<UserSummary>>(emptyList()) }
+    var starred by remember(login) {
+        mutableStateOf(container.repository.peekUserStarredRepositories(login).orEmpty())
+    }
+    var events by remember(login) {
+        mutableStateOf(container.repository.peekUserEvents(login).orEmpty())
+    }
+    var followers by remember(login) {
+        mutableStateOf(container.repository.peekUserFollowers(login).orEmpty())
+    }
+    var following by remember(login) {
+        mutableStateOf(container.repository.peekUserFollowing(login).orEmpty())
+    }
 
     var isLoading by remember(login) { mutableStateOf(profile == null) }
     var tabLoading by remember(login) { mutableStateOf(false) }
@@ -192,9 +202,16 @@ fun UserProfileScreen(
     fun loadActiveTab(tab: ProfileTab, forceRefresh: Boolean = false) {
         val currentProfile = profile ?: return
         val reqSeq = tabRequestGuard.next()
+        val cached = when (tab) {
+            ProfileTab.REPOS -> container.repository.peekUserRepositories(login)?.also { repos = it }
+            ProfileTab.STARRED -> container.repository.peekUserStarredRepositories(login)?.also { starred = it }
+            ProfileTab.ACTIVITY -> container.repository.peekUserEvents(login)?.also { events = it }
+            ProfileTab.FOLLOWERS -> container.repository.peekUserFollowers(login)?.also { followers = it }
+            ProfileTab.FOLLOWING -> container.repository.peekUserFollowing(login)?.also { following = it }
+        }
         scope.launch {
             if (!tabRequestGuard.isLatest(reqSeq)) return@launch
-            tabLoading = true
+            tabLoading = cached == null
             when (tab) {
                 ProfileTab.REPOS -> container.repository.getUserRepositories(login, currentProfile.isOrganization, forceRefresh)
                     .onSuccess { if (tabRequestGuard.isLatest(reqSeq)) repos = it }

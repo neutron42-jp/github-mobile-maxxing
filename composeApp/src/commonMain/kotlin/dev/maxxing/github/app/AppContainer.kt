@@ -9,25 +9,32 @@ import dev.maxxing.github.auth.SessionManager
 import dev.maxxing.github.auth.openUrlInBrowser
 import dev.maxxing.github.model.AppBranding
 import dev.maxxing.github.model.IssueFilterPreset
+import dev.maxxing.github.model.IssueOrPullKind
 import dev.maxxing.github.model.IssueStateFilter
+import dev.maxxing.github.model.NotificationSubjectType
 import dev.maxxing.github.model.NotificationThread
 import dev.maxxing.github.model.ViewerProfile
 import dev.maxxing.github.network.GitHubRepository
 import dev.maxxing.github.network.NotificationCheckResult
 import dev.maxxing.github.network.NotificationMonitor
+import dev.maxxing.github.network.createDefaultPersistentCacheStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlin.concurrent.Volatile
 import kotlin.time.TimeSource
 
@@ -35,7 +42,8 @@ data class IssuePullTarget(
     val owner: String,
     val repo: String,
     val number: Int,
-    val hintTitle: String? = null
+    val hintTitle: String? = null,
+    val kindHint: IssueOrPullKind? = null
 )
 
 sealed interface AppUpdateCheckState {
@@ -63,7 +71,10 @@ class AppContainer(
     val sessionManager: SessionManager = SessionManager(
         defaultClientId = MaxxingBuildConfig.DEFAULT_GITHUB_CLIENT_ID.ifBlank { AppBranding.DEFAULT_OAUTH_CLIENT_ID }
     ),
-    val repository: GitHubRepository = GitHubRepository(sessionManager),
+    val repository: GitHubRepository = GitHubRepository(
+        sessionManager = sessionManager,
+        diskCache = createDefaultPersistentCacheStore()
+    ),
     val notificationMonitor: NotificationMonitor = NotificationMonitor(sessionManager, repository) {
         !PlatformNotifier.areOsNotificationsBlocked()
     },
@@ -101,6 +112,8 @@ class AppContainer(
 
     private var updateCheckJob: Job? = null
     private var updateDownloadJob: Job? = null
+    private var warmUpJob: Job? = null
+    private var warmUpLogin: String? = null
 
     @Volatile
     var isAppInForeground: Boolean = false
@@ -208,11 +221,35 @@ class AppContainer(
                 }
                 val topTargets = reconciled.mapNotNull { thread ->
                     thread.subjectNumber?.let { num ->
-                        IssuePullTarget(thread.repoOwner, thread.repoName, num, thread.subjectTitle)
+                        val hint = when (thread.subjectType) {
+                            NotificationSubjectType.PULL_REQUEST -> IssueOrPullKind.PULL_REQUEST
+                            NotificationSubjectType.ISSUE -> IssueOrPullKind.ISSUE
+                            else -> null
+                        }
+                        IssuePullTarget(thread.repoOwner, thread.repoName, num, thread.subjectTitle, kindHint = hint)
                     }
                 }.take(3)
                 prefetchIssuePullTargets(topTargets)
                 check.copy(allUnread = reconciled)
+            }
+        }
+    }
+
+    suspend fun hydrateFromDisk(loginHint: String?) {
+        repository.hydrateDiskCache(loginHint)
+        if (_viewerProfile.value == null) {
+            repository.peekViewerProfile()?.let { _viewerProfile.value = it }
+        }
+        if (trackerState.value.currentThreads == null) {
+            repository.peekNotifications(all = false, participating = false)?.let { cachedUnread ->
+                val nowMs = trackerNowMs()
+                updateTracker {
+                    it.reconcileFromServer(
+                        fetchedUnread = cachedUnread,
+                        syncStartedAtMs = nowMs,
+                        nowMs = nowMs
+                    )
+                }
             }
         }
     }
@@ -226,40 +263,75 @@ class AppContainer(
     }
 
     fun warmUpWorkspace(login: String?) {
-        backgroundScope.launch {
-            // 1. Inbox tabs (Unread, All, Participating)
-            launch { repository.getNotifications(all = false, participating = false, forceRefresh = false) }
-            launch { repository.getNotifications(all = true, participating = false, forceRefresh = false) }
-            launch { repository.getNotifications(all = false, participating = true, forceRefresh = false) }
-            // 2. Repos tabs (My Repos, Starred, Explore Trending)
-            launch { repository.getViewerRepositories(forceRefresh = false) }
-            launch { repository.getStarredRepositories(forceRefresh = false) }
-            launch { repository.getTrendingRepositories(language = null, forceRefresh = false) }
-            if (!login.isNullOrBlank()) {
-                // 3. Home feed tabs + Profile
-                launch { repository.getContributionCalendar(login, forceRefresh = false) }
-                launch { repository.getReceivedEvents(login, forceRefresh = false) }
-                launch { repository.getUserEvents(login, forceRefresh = false) }
-                launch { repository.getUserProfile(login, forceRefresh = false) }
-                launch { repository.getUserOrganizations(login, forceRefresh = false) }
-                // 4. Issues & PRs presets (Created, Assigned, Review Requested, Mentioned)
-                IssueFilterPreset.entries.forEach { preset ->
-                    launch {
-                        repository.getMyIssuesAndPulls(
-                            preset = preset,
-                            viewerLogin = login,
-                            stateFilter = IssueStateFilter.OPEN,
-                            forceRefresh = false
-                        ).onSuccess { list ->
-                            if (preset == IssueFilterPreset.CREATED) {
-                                prefetchIssuePullTargets(
-                                    list.take(3).map { IssuePullTarget(it.repoOwner, it.repoName, it.number, it.title) }
-                                )
-                            }
+        val cleanLogin = login?.trim()?.takeIf { it.isNotEmpty() }
+        if (warmUpJob?.isActive == true && warmUpLogin.equals(cleanLogin, ignoreCase = true)) {
+            return
+        }
+        warmUpJob?.cancel()
+        warmUpLogin = cleanLogin
+        warmUpJob = backgroundScope.launch {
+            val gate = Semaphore(permits = 4)
+            suspend fun throttled(block: suspend () -> Unit) {
+                gate.withPermit { block() }
+            }
+
+            var createdList: List<dev.maxxing.github.model.IssueOrPullSummary>? = null
+
+            // Tier 1: Critical first-paint & primary repo/inbox tabs
+            coroutineScope {
+                val jobs = mutableListOf<Job>()
+                jobs += launch { throttled { repository.getViewerRepositories(forceRefresh = false) } }
+                jobs += launch { throttled { repository.getStarredRepositories(forceRefresh = false) } }
+                jobs += launch { throttled { repository.getNotifications(all = false, participating = false, forceRefresh = false) } }
+                if (cleanLogin != null) {
+                    jobs += launch { throttled { repository.getContributionCalendar(cleanLogin, forceRefresh = false) } }
+                    jobs += launch { throttled { repository.getReceivedEvents(cleanLogin, forceRefresh = false) } }
+                    jobs += launch {
+                        throttled {
+                            createdList = repository.getMyIssuesAndPulls(
+                                preset = IssueFilterPreset.CREATED,
+                                viewerLogin = cleanLogin,
+                                stateFilter = IssueStateFilter.OPEN,
+                                forceRefresh = false
+                            ).getOrNull()
                         }
                     }
                 }
+                jobs.joinAll()
             }
+
+            // Tier 2: Secondary tabs & filter presets
+            coroutineScope {
+                val jobs = mutableListOf<Job>()
+                jobs += launch { throttled { repository.getNotifications(all = true, participating = false, forceRefresh = false) } }
+                jobs += launch { throttled { repository.getNotifications(all = false, participating = true, forceRefresh = false) } }
+                jobs += launch { throttled { repository.getTrendingRepositories(language = null, forceRefresh = false) } }
+                if (cleanLogin != null) {
+                    jobs += launch { throttled { repository.getUserEvents(cleanLogin, forceRefresh = false) } }
+                    jobs += launch { throttled { repository.getUserProfile(cleanLogin, forceRefresh = false) } }
+                    jobs += launch { throttled { repository.getUserOrganizations(cleanLogin, forceRefresh = false) } }
+                    IssueFilterPreset.entries
+                        .filter { it != IssueFilterPreset.CREATED }
+                        .forEach { preset ->
+                            jobs += launch {
+                                throttled {
+                                    repository.getMyIssuesAndPulls(
+                                        preset = preset,
+                                        viewerLogin = cleanLogin,
+                                        stateFilter = IssueStateFilter.OPEN,
+                                        forceRefresh = false
+                                    )
+                                }
+                            }
+                        }
+                }
+                jobs.joinAll()
+            }
+
+            // Tier 3: Speculative issue/PR detail prefetch for top items
+            createdList?.take(3)?.map {
+                IssuePullTarget(it.repoOwner, it.repoName, it.number, it.title, kindHint = it.kind)
+            }?.let { prefetchIssuePullTargets(it) }
         }
     }
 
@@ -270,6 +342,9 @@ class AppContainer(
     }
 
     fun clearCachedProfile() {
+        warmUpJob?.cancel()
+        warmUpJob = null
+        warmUpLogin = null
         _viewerProfile.value = null
         updateTracker { UnreadNotificationTrackerState() }
         backgroundScope.launch {

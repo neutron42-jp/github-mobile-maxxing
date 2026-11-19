@@ -50,13 +50,22 @@ import dev.maxxing.github.model.WorkflowSummary
 import dev.maxxing.github.model.computeLanguageShares
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableJob
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -69,7 +78,8 @@ import kotlin.time.TimeSource
 
 private data class CacheEntry<V>(
     val value: V,
-    val recordedAt: TimeMark = TimeSource.Monotonic.markNow()
+    val recordedAt: TimeMark = TimeSource.Monotonic.markNow(),
+    val isStale: Boolean = false
 )
 
 private class LruMemoryCache<K, V>(
@@ -90,7 +100,7 @@ private class LruMemoryCache<K, V>(
             if (snapshot.isEmpty()) return
             val next = LinkedHashMap<K, CacheEntry<V>>(snapshot.size)
             for ((k, entry) in snapshot) {
-                next[k] = CacheEntry(transform(k, entry.value), entry.recordedAt)
+                next[k] = CacheEntry(transform(k, entry.value), entry.recordedAt, entry.isStale)
             }
             snapshot = next
         }
@@ -98,16 +108,33 @@ private class LruMemoryCache<K, V>(
 
     fun peekIfFresh(key: K): V? {
         val entry = snapshot[key] ?: return null
+        if (entry.isStale) return null
         return if (entry.recordedAt.elapsedNow() < ttl) entry.value else null
     }
 
-    suspend fun put(key: K, value: V) {
+    suspend fun put(key: K, value: V, isStale: Boolean = false) {
         mutex.withLock {
             val next = LinkedHashMap<K, CacheEntry<V>>(snapshot.size + 1)
             for ((k, v) in snapshot) {
                 if (k != key) next[k] = v
             }
-            next[key] = CacheEntry(value)
+            next[key] = CacheEntry(value, isStale = isStale)
+            while (next.size > maxEntries) {
+                val eldest = next.keys.firstOrNull() ?: break
+                next.remove(eldest)
+            }
+            snapshot = next
+        }
+    }
+
+    suspend fun putStaleIfAbsent(key: K, value: V) {
+        mutex.withLock {
+            if (key in snapshot) return
+            val next = LinkedHashMap<K, CacheEntry<V>>(snapshot.size + 1)
+            for ((k, v) in snapshot) {
+                next[k] = v
+            }
+            next[key] = CacheEntry(value, isStale = true)
             while (next.size > maxEntries) {
                 val eldest = next.keys.firstOrNull() ?: break
                 next.remove(eldest)
@@ -141,6 +168,81 @@ private class LruMemoryCache<K, V>(
     suspend fun clear() {
         mutex.withLock {
             snapshot = emptyMap()
+        }
+    }
+}
+
+private data class FlightKey(val namespace: String, val key: Any)
+
+/**
+ * Deduplicates concurrent identical non-forced reads while preserving cancellation semantics:
+ * - Each caller awaits the shared execution on its own coroutine context.
+ * - If a single caller is cancelled, the underlying work is cancelled immediately.
+ * - If multiple callers share an in-flight call and one is cancelled, the others keep waiting.
+ */
+private class SingleFlightGroup {
+    private class Flight<V>(
+        val job: CompletableJob,
+        val deferred: Deferred<Result<V>>,
+        var waiters: Int = 0
+    )
+
+    private val mutex = Mutex()
+    private val flights = HashMap<FlightKey, Flight<*>>()
+
+    @Suppress("UNCHECKED_CAST")
+    suspend fun <V> run(key: FlightKey, block: suspend () -> Result<V>): Result<V> {
+        val flight: Flight<V>
+        val isOwner: Boolean
+        mutex.withLock {
+            val existing = flights[key] as? Flight<V>
+            if (existing != null && existing.deferred.isActive) {
+                existing.waiters += 1
+                flight = existing
+                isOwner = false
+            } else {
+                val job = Job()
+                val scope = CoroutineScope(currentCoroutineContext().minusKey(Job) + job)
+                val deferred = scope.async(start = CoroutineStart.LAZY) {
+                    try {
+                        block()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        Result.failure(e)
+                    } finally {
+                        job.complete()
+                    }
+                }
+                val created = Flight(job = job, deferred = deferred, waiters = 1)
+                flights[key] = created
+                flight = created
+                isOwner = true
+            }
+        }
+        return try {
+            if (isOwner) {
+                flight.deferred.start()
+            }
+            flight.deferred.await()
+        } finally {
+            withContext(NonCancellable) {
+                var cancelFlight = false
+                mutex.withLock {
+                    flight.waiters -= 1
+                    if (flight.waiters <= 0) {
+                        if (flights[key] === flight) {
+                            flights.remove(key)
+                        }
+                        if (flight.deferred.isActive) {
+                            cancelFlight = true
+                        }
+                    }
+                }
+                if (cancelFlight) {
+                    flight.job.cancel()
+                }
+            }
         }
     }
 }
@@ -248,13 +350,131 @@ class GitHubRepository(
     private val networkConfig: GitHubNetworkConfig = GitHubNetworkConfig(sessionManager),
     private val httpClient: HttpClient = networkConfig.createHttpClient(),
     private val restService: GitHubRestService = GitHubRestService(httpClient, networkConfig.baseUrl),
-    private val graphQlService: GitHubGraphQlService = GitHubGraphQlService(httpClient, networkConfig.baseUrl)
+    private val graphQlService: GitHubGraphQlService = GitHubGraphQlService(httpClient, networkConfig.baseUrl),
+    private val diskCache: PersistentCacheStore = NoOpPersistentCacheStore,
+    private val diskPersistScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) {
     val rateLimit: StateFlow<RateLimitInfo> = networkConfig.rateLimit
 
     /** Releases the underlying HttpClient. Only for short-lived instances that own their client. */
     fun close() {
         httpClient.close()
+    }
+
+    private val singleFlight = SingleFlightGroup()
+    @Volatile
+    private var cacheGeneration: Long = 0L
+
+    private fun currentAccountScope(): String =
+        sessionManager.session.value?.userLogin?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: "_viewer"
+
+    private fun diskKey(namespace: String, id: String = "default"): String =
+        "${currentAccountScope()}__${namespace}__$id"
+
+    private inline fun <reified T> persistToDiskAsync(namespace: String, id: String = "default", value: T) {
+        if (diskCache === NoOpPersistentCacheStore) return
+        val key = diskKey(namespace, id)
+        val generation = cacheGeneration
+        diskPersistScope.launch {
+            if (generation != cacheGeneration) return@launch
+            val payload = encodeSwrPayload(value) ?: return@launch
+            if (generation == cacheGeneration) {
+                diskCache.write(key, payload)
+            }
+        }
+    }
+
+    private suspend fun <K : Any, V> cachedFetch(
+        cache: LruMemoryCache<K, V>,
+        cacheKey: K,
+        flightNamespace: String,
+        forceRefresh: Boolean,
+        shouldCache: (V) -> Boolean = { true },
+        onCached: suspend (V) -> Unit = {},
+        loader: suspend () -> V
+    ): Result<V> {
+        if (!forceRefresh) {
+            cache.peekIfFresh(cacheKey)?.let { return Result.success(it) }
+        }
+        val fetchBlock: suspend () -> Result<V> = {
+            val generation = cacheGeneration
+            runCatchingCancellable { loader() }.onSuccess { value ->
+                if (generation == cacheGeneration && shouldCache(value)) {
+                    cache.put(cacheKey, value)
+                    onCached(value)
+                }
+            }
+        }
+        return if (forceRefresh) {
+            fetchBlock()
+        } else {
+            singleFlight.run(FlightKey(flightNamespace, cacheKey), fetchBlock)
+        }
+    }
+
+    /**
+     * Hydrates the most latency-sensitive cold-start caches from [diskCache] as stale entries so
+     * UI screens render immediately at startup while fresh network responses load in the background.
+     */
+    suspend fun hydrateDiskCache(loginHint: String? = null) {
+        if (diskCache === NoOpPersistentCacheStore) return
+        val generation = cacheGeneration
+        val resolvedLogin = loginHint?.trim()?.takeIf { it.isNotEmpty() }
+            ?: sessionManager.session.value?.userLogin?.trim()?.takeIf { it.isNotEmpty() }
+
+        coroutineScope {
+            val profileJob = async {
+                diskCache.read(diskKey("viewer_profile"))?.let { decodeSwrPayload<ViewerProfile>(it) }
+            }
+            val unreadNotifsJob = async {
+                diskCache.read(diskKey("notifications", "unread"))?.let { decodeSwrPayload<List<NotificationThread>>(it) }
+            }
+            val myReposJob = async {
+                diskCache.read(diskKey("viewer_repos", "MY"))?.let { decodeSwrPayload<List<RepoSummary>>(it) }
+            }
+            val starredReposJob = async {
+                diskCache.read(diskKey("viewer_repos", "STARRED"))?.let { decodeSwrPayload<List<RepoSummary>>(it) }
+            }
+            val trendingJob = async {
+                diskCache.read(diskKey("trending_repos", "all"))?.let { decodeSwrPayload<List<RepoSummary>>(it) }
+            }
+            val calJob = async {
+                resolvedLogin?.let { l ->
+                    diskCache.read(diskKey("calendar", l.lowercase()))?.let { decodeSwrPayload<ContributionCalendar>(it) }
+                }
+            }
+            val receivedJob = async {
+                resolvedLogin?.let { l ->
+                    diskCache.read(diskKey("received_events", l.lowercase()))?.let { decodeSwrPayload<List<ActivityEvent>>(it) }
+                }
+            }
+            val userEventsJob = async {
+                resolvedLogin?.let { l ->
+                    diskCache.read(diskKey("user_events", l.lowercase()))?.let { decodeSwrPayload<List<ActivityEvent>>(it) }
+                }
+            }
+            val createdIssuesJob = async {
+                resolvedLogin?.let { l ->
+                    diskCache.read(diskKey("my_issues", "${IssueFilterPreset.CREATED.name}:${l.lowercase()}:${IssueStateFilter.OPEN.name}"))
+                        ?.let { decodeSwrPayload<List<IssueOrPullSummary>>(it) }
+                }
+            }
+
+            if (generation != cacheGeneration) return@coroutineScope
+            profileJob.await()?.let { profileCache.putStaleIfAbsent("viewer", it) }
+            unreadNotifsJob.await()?.let { notificationsCache.putStaleIfAbsent(NotificationsKey(all = false, participating = false, page = 1), it) }
+            myReposJob.await()?.let { viewerReposCache.putStaleIfAbsent("MY", it) }
+            starredReposJob.await()?.let { viewerReposCache.putStaleIfAbsent("STARRED", it) }
+            trendingJob.await()?.let { trendingReposCache.putStaleIfAbsent("", it) }
+            if (resolvedLogin != null) {
+                calJob.await()?.let { contributionCache.putStaleIfAbsent(resolvedLogin, it) }
+                receivedJob.await()?.let { receivedEventsCache.putStaleIfAbsent(resolvedLogin, it) }
+                userEventsJob.await()?.let { userEventsCache.putStaleIfAbsent(resolvedLogin, it) }
+                createdIssuesJob.await()?.let {
+                    myIssuesCache.putStaleIfAbsent(MyIssuesKey(IssueFilterPreset.CREATED, resolvedLogin, IssueStateFilter.OPEN), it)
+                }
+            }
+        }
     }
 
     private val issueOverridesMutex = Mutex()
@@ -270,7 +490,7 @@ class GitHubRepository(
     private val myIssuesCache = LruMemoryCache<MyIssuesKey, List<IssueOrPullSummary>>(ttl = 60.seconds, maxEntries = 24)
     private val issueDetailCache = LruMemoryCache<IssuePullKey, IssueOrPullDetail>(ttl = 45.seconds, maxEntries = 64)
     private val pullFilesCache = LruMemoryCache<IssuePullKey, List<PullFileChange>>(ttl = 60.seconds, maxEntries = 48)
-    private val viewerReposCache = LruMemoryCache<String, List<RepoSummary>>(ttl = 120.seconds, maxEntries = 4)
+    private val viewerReposCache = LruMemoryCache<String, List<RepoSummary>>(ttl = 300.seconds, maxEntries = 4)
     private val searchReposCache = LruMemoryCache<String, List<RepoSummary>>(ttl = 90.seconds, maxEntries = 16)
     private val repoDetailCache = LruMemoryCache<RepoKey, RepoDetail>(ttl = 120.seconds, maxEntries = 32)
     private val repoIssuesCache = LruMemoryCache<RepoIssuesKey, List<IssueOrPullSummary>>(ttl = 60.seconds, maxEntries = 48)
@@ -280,12 +500,12 @@ class GitHubRepository(
     private val contributionCache = LruMemoryCache<String, ContributionCalendar>(ttl = 300.seconds, maxEntries = 12)
     private val receivedEventsCache = LruMemoryCache<String, List<ActivityEvent>>(ttl = 60.seconds, maxEntries = 8)
     private val userEventsCache = LruMemoryCache<String, List<ActivityEvent>>(ttl = 60.seconds, maxEntries = 12)
-    private val userProfileCache = LruMemoryCache<String, UserProfile>(ttl = 180.seconds, maxEntries = 24)
-    private val userReposCache = LruMemoryCache<String, List<RepoSummary>>(ttl = 120.seconds, maxEntries = 24)
-    private val userStarredCache = LruMemoryCache<String, List<RepoSummary>>(ttl = 120.seconds, maxEntries = 24)
-    private val userOrgsCache = LruMemoryCache<String, List<OrganizationSummary>>(ttl = 180.seconds, maxEntries = 24)
-    private val userFollowersCache = LruMemoryCache<String, List<UserSummary>>(ttl = 120.seconds, maxEntries = 24)
-    private val userFollowingCache = LruMemoryCache<String, List<UserSummary>>(ttl = 120.seconds, maxEntries = 24)
+    private val userProfileCache = LruMemoryCache<String, UserProfile>(ttl = 300.seconds, maxEntries = 24)
+    private val userReposCache = LruMemoryCache<String, List<RepoSummary>>(ttl = 300.seconds, maxEntries = 24)
+    private val userStarredCache = LruMemoryCache<String, List<RepoSummary>>(ttl = 300.seconds, maxEntries = 24)
+    private val userOrgsCache = LruMemoryCache<String, List<OrganizationSummary>>(ttl = 300.seconds, maxEntries = 24)
+    private val userFollowersCache = LruMemoryCache<String, List<UserSummary>>(ttl = 300.seconds, maxEntries = 24)
+    private val userFollowingCache = LruMemoryCache<String, List<UserSummary>>(ttl = 300.seconds, maxEntries = 24)
     private val searchIssuesCache = LruMemoryCache<String, List<IssueOrPullSummary>>(ttl = 90.seconds, maxEntries = 16)
     private val searchCodeCache = LruMemoryCache<String, List<CodeSearchHit>>(ttl = 90.seconds, maxEntries = 16)
     private val searchUsersCache = LruMemoryCache<String, List<UserSummary>>(ttl = 90.seconds, maxEntries = 16)
@@ -295,7 +515,7 @@ class GitHubRepository(
     private val repoMilestonesCache = LruMemoryCache<RepoMilestonesKey, List<MilestoneSummary>>(ttl = 180.seconds, maxEntries = 32)
     private val repoAssigneesCache = LruMemoryCache<RepoKey, List<UserSummary>>(ttl = 180.seconds, maxEntries = 32)
     private val commitsCache = LruMemoryCache<RepoPathKey, List<CommitSummary>>(ttl = 60.seconds, maxEntries = 48)
-    private val commitDetailCache = LruMemoryCache<RepoCommitKey, CommitDetail>(ttl = 180.seconds, maxEntries = 48)
+    private val commitDetailCache = LruMemoryCache<RepoCommitKey, CommitDetail>(ttl = 1800.seconds, maxEntries = 48)
     private val tagsCache = LruMemoryCache<RepoKey, List<TagRef>>(ttl = 180.seconds, maxEntries = 32)
     private val compareCache = LruMemoryCache<RepoCompareKey, BranchCompareResult>(ttl = 60.seconds, maxEntries = 32)
     private val workflowsCache = LruMemoryCache<RepoKey, List<WorkflowSummary>>(ttl = 180.seconds, maxEntries = 32)
@@ -311,6 +531,9 @@ class GitHubRepository(
     private val gistDetailCache = LruMemoryCache<String, GistDetail>(ttl = 60.seconds, maxEntries = 32)
 
     suspend fun clearCache() {
+        cacheGeneration += 1L
+        restService.clearConditionalCache()
+        diskCache.clearAll()
         profileCache.clear()
         notificationsCache.clear()
         myIssuesCache.clear()
@@ -360,6 +583,9 @@ class GitHubRepository(
     }
 
     // ---- Synchronous lock-free cache peeks for instant UI rendering ----
+
+    fun peekViewerProfile(): ViewerProfile? =
+        profileCache.peek("viewer")
 
     fun peekNotifications(all: Boolean = false, participating: Boolean = false, page: Int = 1): List<NotificationThread>? =
         notificationsCache.peek(NotificationsKey(all, participating, page))
@@ -415,31 +641,48 @@ class GitHubRepository(
     fun peekUserRepositories(login: String): List<RepoSummary>? =
         userReposCache.peek(login)
 
+    fun peekUserStarredRepositories(login: String): List<RepoSummary>? =
+        userStarredCache.peek(login)
+
+    fun peekUserOrganizations(login: String): List<OrganizationSummary>? =
+        userOrgsCache.peek(login)
+
+    fun peekUserFollowers(login: String): List<UserSummary>? =
+        userFollowersCache.peek(login)
+
+    fun peekUserFollowing(login: String): List<UserSummary>? =
+        userFollowingCache.peek(login)
+
     // ---- Cached / Parallel Network Operations ----
 
-    suspend fun getViewerProfile(forceRefresh: Boolean = false): Result<ViewerProfile> {
-        if (!forceRefresh) {
-            profileCache.peekIfFresh("viewer")?.let { return Result.success(it) }
+    suspend fun getViewerProfile(forceRefresh: Boolean = false): Result<ViewerProfile> =
+        cachedFetch(
+            cache = profileCache,
+            cacheKey = "viewer",
+            flightNamespace = "viewerProfile",
+            forceRefresh = forceRefresh,
+            onCached = { persistToDiskAsync("viewer_profile", value = it) }
+        ) {
+            graphQlService.fetchViewerProfile()
         }
-        return runCatchingCancellable { graphQlService.fetchViewerProfile() }
-            .onSuccess { profileCache.put("viewer", it) }
-    }
 
     suspend fun getNotifications(
         all: Boolean = false,
         participating: Boolean = false,
         page: Int = 1,
         forceRefresh: Boolean = true
-    ): Result<List<NotificationThread>> {
-        val key = NotificationsKey(all, participating, page)
-        if (!forceRefresh) {
-            notificationsCache.peekIfFresh(key)?.let { return Result.success(it) }
+    ): Result<List<NotificationThread>> = cachedFetch(
+        cache = notificationsCache,
+        cacheKey = NotificationsKey(all, participating, page),
+        flightNamespace = "notifications",
+        forceRefresh = forceRefresh,
+        onCached = {
+            if (!all && !participating && page == 1) {
+                persistToDiskAsync("notifications", "unread", it)
+            }
         }
-        return runCatchingCancellable {
-            restService.fetchNotifications(all = all, participating = participating, page = page)
-        }.onSuccess {
-            notificationsCache.put(key, it)
-        }
+    ) {
+        restService.fetchNotifications(all = all, participating = participating, page = page)
     }
 
     suspend fun markNotificationRead(threadId: String): Result<Unit> = runMutationCancellable {
@@ -595,17 +838,19 @@ class GitHubRepository(
         viewerLogin: String,
         stateFilter: IssueStateFilter = IssueStateFilter.OPEN,
         forceRefresh: Boolean = false
-    ): Result<List<IssueOrPullSummary>> {
-        val key = MyIssuesKey(preset, viewerLogin, stateFilter)
-        if (!forceRefresh) {
-            myIssuesCache.peekIfFresh(key)?.let { return Result.success(it) }
+    ): Result<List<IssueOrPullSummary>> = cachedFetch(
+        cache = myIssuesCache,
+        cacheKey = MyIssuesKey(preset, viewerLogin, stateFilter),
+        flightNamespace = "myIssues",
+        forceRefresh = forceRefresh,
+        onCached = {
+            if (stateFilter == IssueStateFilter.OPEN && preset == IssueFilterPreset.CREATED) {
+                persistToDiskAsync("my_issues", "${preset.name}:${viewerLogin.lowercase()}:${stateFilter.name}", it)
+            }
         }
-        return runCatchingCancellable {
-            val fetched = graphQlService.fetchIssuesAndPulls(preset, viewerLogin, stateFilter)
-            reconcileMyIssues(preset, viewerLogin, stateFilter, fetched)
-        }.onSuccess {
-            myIssuesCache.put(key, it)
-        }
+    ) {
+        val fetched = graphQlService.fetchIssuesAndPulls(preset, viewerLogin, stateFilter)
+        reconcileMyIssues(preset, viewerLogin, stateFilter, fetched)
     }
 
     suspend fun getIssueOrPullDetail(
@@ -613,16 +858,13 @@ class GitHubRepository(
         repo: String,
         number: Int,
         forceRefresh: Boolean = false
-    ): Result<IssueOrPullDetail> {
-        val key = issuePullKey(owner, repo, number)
-        if (!forceRefresh) {
-            issueDetailCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            graphQlService.fetchIssueOrPullDetail(owner, repo, number)
-        }.onSuccess {
-            issueDetailCache.put(key, it)
-        }
+    ): Result<IssueOrPullDetail> = cachedFetch(
+        cache = issueDetailCache,
+        cacheKey = issuePullKey(owner, repo, number),
+        flightNamespace = "issueDetail",
+        forceRefresh = forceRefresh
+    ) {
+        graphQlService.fetchIssueOrPullDetail(owner, repo, number)
     }
 
     suspend fun getPullFiles(
@@ -630,16 +872,13 @@ class GitHubRepository(
         repo: String,
         number: Int,
         forceRefresh: Boolean = false
-    ): Result<List<PullFileChange>> {
-        val key = issuePullKey(owner, repo, number)
-        if (!forceRefresh) {
-            pullFilesCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchPullFiles(owner, repo, number)
-        }.onSuccess {
-            pullFilesCache.put(key, it)
-        }
+    ): Result<List<PullFileChange>> = cachedFetch(
+        cache = pullFilesCache,
+        cacheKey = issuePullKey(owner, repo, number),
+        flightNamespace = "pullFiles",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchPullFiles(owner, repo, number)
     }
 
     suspend fun prefetchIssueOrPull(owner: String, repo: String, number: Int) {
@@ -713,11 +952,14 @@ class GitHubRepository(
         issueDetailCache.invalidate(issuePullKey(owner, repo, number))
     }
 
-    suspend fun getViewerRepositories(forceRefresh: Boolean = false): Result<List<RepoSummary>> {
-        if (!forceRefresh) {
-            viewerReposCache.peekIfFresh("MY")?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
+    suspend fun getViewerRepositories(forceRefresh: Boolean = false): Result<List<RepoSummary>> =
+        cachedFetch(
+            cache = viewerReposCache,
+            cacheKey = "MY",
+            flightNamespace = "viewerRepos",
+            forceRefresh = forceRefresh,
+            onCached = { persistToDiskAsync("viewer_repos", "MY", it) }
+        ) {
             try {
                 graphQlService.fetchViewerRepositories()
             } catch (e: CancellationException) {
@@ -725,16 +967,16 @@ class GitHubRepository(
             } catch (_: Exception) {
                 restService.fetchViewerRepositoriesRest()
             }
-        }.onSuccess {
-            viewerReposCache.put("MY", it)
         }
-    }
 
-    suspend fun getStarredRepositories(forceRefresh: Boolean = false): Result<List<RepoSummary>> {
-        if (!forceRefresh) {
-            viewerReposCache.peekIfFresh("STARRED")?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
+    suspend fun getStarredRepositories(forceRefresh: Boolean = false): Result<List<RepoSummary>> =
+        cachedFetch(
+            cache = viewerReposCache,
+            cacheKey = "STARRED",
+            flightNamespace = "viewerRepos",
+            forceRefresh = forceRefresh,
+            onCached = { persistToDiskAsync("viewer_repos", "STARRED", it) }
+        ) {
             try {
                 graphQlService.fetchStarredRepositories()
             } catch (e: CancellationException) {
@@ -742,18 +984,17 @@ class GitHubRepository(
             } catch (_: Exception) {
                 restService.fetchStarredRepositoriesRest()
             }
-        }.onSuccess {
-            viewerReposCache.put("STARRED", it)
         }
-    }
 
     suspend fun searchRepositories(query: String, forceRefresh: Boolean = false): Result<List<RepoSummary>> {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return Result.success(emptyList())
-        if (!forceRefresh) {
-            searchReposCache.peekIfFresh(trimmed)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
+        return cachedFetch(
+            cache = searchReposCache,
+            cacheKey = trimmed,
+            flightNamespace = "searchRepos",
+            forceRefresh = forceRefresh
+        ) {
             try {
                 graphQlService.searchRepositories(trimmed)
             } catch (e: CancellationException) {
@@ -761,8 +1002,6 @@ class GitHubRepository(
             } catch (_: Exception) {
                 restService.searchRepositoriesRest(trimmed)
             }
-        }.onSuccess {
-            searchReposCache.put(trimmed, it)
         }
     }
 
@@ -770,19 +1009,16 @@ class GitHubRepository(
         owner: String,
         repo: String,
         forceRefresh: Boolean = false
-    ): Result<RepoDetail> {
-        val key = repoKey(owner, repo)
-        if (!forceRefresh) {
-            repoDetailCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            coroutineScope {
-                val detailDeferred = async { graphQlService.fetchRepoDetail(owner, repo) }
-                val branchesDeferred = async { runCatchingCancellable { restService.fetchBranches(owner, repo) }.getOrDefault(emptyList()) }
-                detailDeferred.await().copy(branches = branchesDeferred.await())
-            }
-        }.onSuccess {
-            repoDetailCache.put(key, it)
+    ): Result<RepoDetail> = cachedFetch(
+        cache = repoDetailCache,
+        cacheKey = repoKey(owner, repo),
+        flightNamespace = "repoDetail",
+        forceRefresh = forceRefresh
+    ) {
+        coroutineScope {
+            val detailDeferred = async { graphQlService.fetchRepoDetail(owner, repo) }
+            val branchesDeferred = async { runCatchingCancellable { restService.fetchBranches(owner, repo) }.getOrDefault(emptyList()) }
+            detailDeferred.await().copy(branches = branchesDeferred.await())
         }
     }
 
@@ -792,17 +1028,14 @@ class GitHubRepository(
         pullRequests: Boolean,
         stateFilter: IssueStateFilter = IssueStateFilter.OPEN,
         forceRefresh: Boolean = false
-    ): Result<List<IssueOrPullSummary>> {
-        val key = RepoIssuesKey(owner, repo, pullRequests, stateFilter)
-        if (!forceRefresh) {
-            repoIssuesCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            val fetched = graphQlService.fetchRepoIssuesAndPulls(owner, repo, pullRequests, stateFilter)
-            reconcileRepoIssues(owner, repo, pullRequests, stateFilter, fetched)
-        }.onSuccess {
-            repoIssuesCache.put(key, it)
-        }
+    ): Result<List<IssueOrPullSummary>> = cachedFetch(
+        cache = repoIssuesCache,
+        cacheKey = RepoIssuesKey(owner, repo, pullRequests, stateFilter),
+        flightNamespace = "repoIssues",
+        forceRefresh = forceRefresh
+    ) {
+        val fetched = graphQlService.fetchRepoIssuesAndPulls(owner, repo, pullRequests, stateFilter)
+        reconcileRepoIssues(owner, repo, pullRequests, stateFilter, fetched)
     }
 
     suspend fun getBranches(owner: String, repo: String): Result<List<BranchRef>> = runCatchingCancellable {
@@ -815,16 +1048,13 @@ class GitHubRepository(
         path: String = "",
         ref: String? = null,
         forceRefresh: Boolean = false
-    ): Result<List<TreeEntry>> {
-        val key = repoPathKey(owner, repo, path, ref)
-        if (!forceRefresh) {
-            dirCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchDirectoryContents(owner, repo, path, ref)
-        }.onSuccess {
-            dirCache.put(key, it)
-        }
+    ): Result<List<TreeEntry>> = cachedFetch(
+        cache = dirCache,
+        cacheKey = repoPathKey(owner, repo, path, ref),
+        flightNamespace = "dir",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchDirectoryContents(owner, repo, path, ref)
     }
 
     suspend fun getFileContent(
@@ -833,16 +1063,13 @@ class GitHubRepository(
         path: String,
         ref: String? = null,
         forceRefresh: Boolean = false
-    ): Result<FileContent> {
-        val key = repoPathKey(owner, repo, path, ref)
-        if (!forceRefresh) {
-            fileCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchFileContent(owner, repo, path, ref)
-        }.onSuccess {
-            fileCache.put(key, it)
-        }
+    ): Result<FileContent> = cachedFetch(
+        cache = fileCache,
+        cacheKey = repoPathKey(owner, repo, path, ref),
+        flightNamespace = "file",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchFileContent(owner, repo, path, ref)
     }
 
     suspend fun getReadme(
@@ -850,16 +1077,13 @@ class GitHubRepository(
         repo: String,
         ref: String? = null,
         forceRefresh: Boolean = false
-    ): Result<String?> {
-        val key = repoPathKey(owner, repo, "", ref)
-        if (!forceRefresh) {
-            readmeCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchReadme(owner, repo, ref)
-        }.onSuccess {
-            readmeCache.put(key, it)
-        }
+    ): Result<String?> = cachedFetch(
+        cache = readmeCache,
+        cacheKey = repoPathKey(owner, repo, "", ref),
+        flightNamespace = "readme",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchReadme(owner, repo, ref)
     }
 
     suspend fun upsertRepoFile(
@@ -911,57 +1135,52 @@ class GitHubRepository(
     suspend fun getContributionCalendar(
         login: String,
         forceRefresh: Boolean = false
-    ): Result<ContributionCalendar> {
-        if (!forceRefresh) {
-            contributionCache.peekIfFresh(login)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            graphQlService.fetchContributionCalendar(login)
-        }.onSuccess {
-            contributionCache.put(login, it)
-        }
+    ): Result<ContributionCalendar> = cachedFetch(
+        cache = contributionCache,
+        cacheKey = login,
+        flightNamespace = "calendar",
+        forceRefresh = forceRefresh,
+        onCached = { persistToDiskAsync("calendar", login.lowercase(), it) }
+    ) {
+        graphQlService.fetchContributionCalendar(login)
     }
 
     suspend fun getReceivedEvents(
         login: String,
         forceRefresh: Boolean = false
-    ): Result<List<ActivityEvent>> {
-        if (!forceRefresh) {
-            receivedEventsCache.peekIfFresh(login)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchReceivedEvents(login)
-        }.onSuccess {
-            receivedEventsCache.put(login, it)
-        }
+    ): Result<List<ActivityEvent>> = cachedFetch(
+        cache = receivedEventsCache,
+        cacheKey = login,
+        flightNamespace = "receivedEvents",
+        forceRefresh = forceRefresh,
+        onCached = { persistToDiskAsync("received_events", login.lowercase(), it) }
+    ) {
+        restService.fetchReceivedEvents(login)
     }
 
     suspend fun getUserEvents(
         login: String,
         forceRefresh: Boolean = false
-    ): Result<List<ActivityEvent>> {
-        if (!forceRefresh) {
-            userEventsCache.peekIfFresh(login)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchUserEvents(login)
-        }.onSuccess {
-            userEventsCache.put(login, it)
-        }
+    ): Result<List<ActivityEvent>> = cachedFetch(
+        cache = userEventsCache,
+        cacheKey = login,
+        flightNamespace = "userEvents",
+        forceRefresh = forceRefresh,
+        onCached = { persistToDiskAsync("user_events", login.lowercase(), it) }
+    ) {
+        restService.fetchUserEvents(login)
     }
 
     suspend fun getUserProfile(
         login: String,
         forceRefresh: Boolean = false
-    ): Result<UserProfile> {
-        if (!forceRefresh) {
-            userProfileCache.peekIfFresh(login)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchUserProfileRest(login)
-        }.onSuccess {
-            userProfileCache.put(login, it)
-        }
+    ): Result<UserProfile> = cachedFetch(
+        cache = userProfileCache,
+        cacheKey = login,
+        flightNamespace = "userProfile",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchUserProfileRest(login)
     }
 
     suspend fun setFollowingUser(login: String, follow: Boolean): Result<Unit> = runMutationCancellable {
@@ -974,71 +1193,61 @@ class GitHubRepository(
         login: String,
         isOrganization: Boolean = false,
         forceRefresh: Boolean = false
-    ): Result<List<RepoSummary>> {
-        if (!forceRefresh) {
-            userReposCache.peekIfFresh(login)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchUserRepositories(login, isOrganization = isOrganization)
-        }.onSuccess {
-            userReposCache.put(login, it)
-        }
+    ): Result<List<RepoSummary>> = cachedFetch(
+        cache = userReposCache,
+        cacheKey = login,
+        flightNamespace = "userRepos",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchUserRepositories(login, isOrganization = isOrganization)
     }
 
     suspend fun getUserStarredRepositories(
         login: String,
         forceRefresh: Boolean = false
-    ): Result<List<RepoSummary>> {
-        if (!forceRefresh) {
-            userStarredCache.peekIfFresh(login)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchUserStarredRepositories(login)
-        }.onSuccess {
-            userStarredCache.put(login, it)
-        }
+    ): Result<List<RepoSummary>> = cachedFetch(
+        cache = userStarredCache,
+        cacheKey = login,
+        flightNamespace = "userStarred",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchUserStarredRepositories(login)
     }
 
     suspend fun getUserOrganizations(
         login: String,
         forceRefresh: Boolean = false
-    ): Result<List<OrganizationSummary>> {
-        if (!forceRefresh) {
-            userOrgsCache.peekIfFresh(login)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchUserOrganizations(login)
-        }.onSuccess {
-            userOrgsCache.put(login, it)
-        }
+    ): Result<List<OrganizationSummary>> = cachedFetch(
+        cache = userOrgsCache,
+        cacheKey = login,
+        flightNamespace = "userOrgs",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchUserOrganizations(login)
     }
 
     suspend fun getUserFollowers(
         login: String,
         forceRefresh: Boolean = false
-    ): Result<List<UserSummary>> {
-        if (!forceRefresh) {
-            userFollowersCache.peekIfFresh(login)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchUserFollowers(login)
-        }.onSuccess {
-            userFollowersCache.put(login, it)
-        }
+    ): Result<List<UserSummary>> = cachedFetch(
+        cache = userFollowersCache,
+        cacheKey = login,
+        flightNamespace = "userFollowers",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchUserFollowers(login)
     }
 
     suspend fun getUserFollowing(
         login: String,
         forceRefresh: Boolean = false
-    ): Result<List<UserSummary>> {
-        if (!forceRefresh) {
-            userFollowingCache.peekIfFresh(login)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchUserFollowing(login)
-        }.onSuccess {
-            userFollowingCache.put(login, it)
-        }
+    ): Result<List<UserSummary>> = cachedFetch(
+        cache = userFollowingCache,
+        cacheKey = login,
+        flightNamespace = "userFollowing",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchUserFollowing(login)
     }
 
     suspend fun searchIssuesAndPullsGlobal(
@@ -1047,13 +1256,13 @@ class GitHubRepository(
     ): Result<List<IssueOrPullSummary>> {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return Result.success(emptyList())
-        if (!forceRefresh) {
-            searchIssuesCache.peekIfFresh(trimmed)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
+        return cachedFetch(
+            cache = searchIssuesCache,
+            cacheKey = trimmed,
+            flightNamespace = "searchIssues",
+            forceRefresh = forceRefresh
+        ) {
             restService.searchIssuesAndPullsRest(trimmed)
-        }.onSuccess {
-            searchIssuesCache.put(trimmed, it)
         }
     }
 
@@ -1063,13 +1272,13 @@ class GitHubRepository(
     ): Result<List<CodeSearchHit>> {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return Result.success(emptyList())
-        if (!forceRefresh) {
-            searchCodeCache.peekIfFresh(trimmed)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
+        return cachedFetch(
+            cache = searchCodeCache,
+            cacheKey = trimmed,
+            flightNamespace = "searchCode",
+            forceRefresh = forceRefresh
+        ) {
             restService.searchCodeRest(trimmed)
-        }.onSuccess {
-            searchCodeCache.put(trimmed, it)
         }
     }
 
@@ -1079,13 +1288,13 @@ class GitHubRepository(
     ): Result<List<UserSummary>> {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return Result.success(emptyList())
-        if (!forceRefresh) {
-            searchUsersCache.peekIfFresh(trimmed)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
+        return cachedFetch(
+            cache = searchUsersCache,
+            cacheKey = trimmed,
+            flightNamespace = "searchUsers",
+            forceRefresh = forceRefresh
+        ) {
             restService.searchUsersRest(trimmed)
-        }.onSuccess {
-            searchUsersCache.put(trimmed, it)
         }
     }
 
@@ -1106,13 +1315,16 @@ class GitHubRepository(
         forceRefresh: Boolean = false
     ): Result<List<RepoSummary>> {
         val key = language?.trim().orEmpty()
-        if (!forceRefresh) {
-            trendingReposCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
+        return cachedFetch(
+            cache = trendingReposCache,
+            cacheKey = key,
+            flightNamespace = "trendingRepos",
+            forceRefresh = forceRefresh,
+            onCached = {
+                if (key.isEmpty()) persistToDiskAsync("trending_repos", "all", it)
+            }
+        ) {
             restService.fetchTrendingRepositories(key.takeIf(String::isNotEmpty))
-        }.onSuccess {
-            trendingReposCache.put(key, it)
         }
     }
 
@@ -1207,16 +1419,13 @@ class GitHubRepository(
         owner: String,
         repo: String,
         forceRefresh: Boolean = false
-    ): Result<List<LabelTag>> {
-        val key = repoKey(owner, repo)
-        if (!forceRefresh) {
-            repoLabelsCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchRepoLabels(owner, repo)
-        }.onSuccess {
-            repoLabelsCache.put(key, it)
-        }
+    ): Result<List<LabelTag>> = cachedFetch(
+        cache = repoLabelsCache,
+        cacheKey = repoKey(owner, repo),
+        flightNamespace = "repoLabels",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchRepoLabels(owner, repo)
     }
 
     suspend fun createRepoLabel(
@@ -1268,16 +1477,13 @@ class GitHubRepository(
         repo: String,
         state: String = "open",
         forceRefresh: Boolean = false
-    ): Result<List<MilestoneSummary>> {
-        val key = repoMilestonesKey(owner, repo, state)
-        if (!forceRefresh) {
-            repoMilestonesCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchRepoMilestones(owner, repo, state = state)
-        }.onSuccess {
-            repoMilestonesCache.put(key, it)
-        }
+    ): Result<List<MilestoneSummary>> = cachedFetch(
+        cache = repoMilestonesCache,
+        cacheKey = repoMilestonesKey(owner, repo, state),
+        flightNamespace = "repoMilestones",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchRepoMilestones(owner, repo, state = state)
     }
 
     suspend fun createRepoMilestone(
@@ -1329,16 +1535,13 @@ class GitHubRepository(
         owner: String,
         repo: String,
         forceRefresh: Boolean = false
-    ): Result<List<UserSummary>> {
-        val key = RepoKey(owner, repo)
-        if (!forceRefresh) {
-            repoAssigneesCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchRepoAssignees(owner, repo)
-        }.onSuccess {
-            repoAssigneesCache.put(key, it)
-        }
+    ): Result<List<UserSummary>> = cachedFetch(
+        cache = repoAssigneesCache,
+        cacheKey = RepoKey(owner, repo),
+        flightNamespace = "repoAssignees",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchRepoAssignees(owner, repo)
     }
 
     suspend fun updateIssueOrPullMetadata(
@@ -1375,16 +1578,13 @@ class GitHubRepository(
         ref: String? = null,
         path: String = "",
         forceRefresh: Boolean = false
-    ): Result<List<CommitSummary>> {
-        val key = repoPathKey(owner, repo, path, ref)
-        if (!forceRefresh) {
-            commitsCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchRepoCommits(owner, repo, ref, path.takeIf(String::isNotBlank))
-        }.onSuccess {
-            commitsCache.put(key, it)
-        }
+    ): Result<List<CommitSummary>> = cachedFetch(
+        cache = commitsCache,
+        cacheKey = repoPathKey(owner, repo, path, ref),
+        flightNamespace = "commits",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchRepoCommits(owner, repo, ref, path.takeIf(String::isNotBlank))
     }
 
     suspend fun getCommitDetail(
@@ -1392,32 +1592,26 @@ class GitHubRepository(
         repo: String,
         sha: String,
         forceRefresh: Boolean = false
-    ): Result<CommitDetail> {
-        val key = repoCommitKey(owner, repo, sha)
-        if (!forceRefresh) {
-            commitDetailCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchCommitDetail(owner, repo, sha)
-        }.onSuccess {
-            commitDetailCache.put(key, it)
-        }
+    ): Result<CommitDetail> = cachedFetch(
+        cache = commitDetailCache,
+        cacheKey = repoCommitKey(owner, repo, sha),
+        flightNamespace = "commitDetail",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchCommitDetail(owner, repo, sha)
     }
 
     suspend fun getRepoTags(
         owner: String,
         repo: String,
         forceRefresh: Boolean = false
-    ): Result<List<TagRef>> {
-        val key = repoKey(owner, repo)
-        if (!forceRefresh) {
-            tagsCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchRepoTags(owner, repo)
-        }.onSuccess {
-            tagsCache.put(key, it)
-        }
+    ): Result<List<TagRef>> = cachedFetch(
+        cache = tagsCache,
+        cacheKey = repoKey(owner, repo),
+        flightNamespace = "tags",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchRepoTags(owner, repo)
     }
 
     suspend fun compareRefs(
@@ -1426,16 +1620,13 @@ class GitHubRepository(
         base: String,
         head: String,
         forceRefresh: Boolean = false
-    ): Result<BranchCompareResult> {
-        val key = repoCompareKey(owner, repo, base, head)
-        if (!forceRefresh) {
-            compareCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.compareRefs(owner, repo, base, head)
-        }.onSuccess {
-            compareCache.put(key, it)
-        }
+    ): Result<BranchCompareResult> = cachedFetch(
+        cache = compareCache,
+        cacheKey = repoCompareKey(owner, repo, base, head),
+        flightNamespace = "compare",
+        forceRefresh = forceRefresh
+    ) {
+        restService.compareRefs(owner, repo, base, head)
     }
 
     fun peekWorkflowRuns(owner: String, repo: String, workflowId: Long? = null): List<WorkflowRunSummary>? =
@@ -1445,16 +1636,13 @@ class GitHubRepository(
         owner: String,
         repo: String,
         forceRefresh: Boolean = false
-    ): Result<List<WorkflowSummary>> {
-        val key = RepoKey(owner, repo)
-        if (!forceRefresh) {
-            workflowsCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchWorkflows(owner, repo)
-        }.onSuccess {
-            workflowsCache.put(key, it)
-        }
+    ): Result<List<WorkflowSummary>> = cachedFetch(
+        cache = workflowsCache,
+        cacheKey = RepoKey(owner, repo),
+        flightNamespace = "workflows",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchWorkflows(owner, repo)
     }
 
     suspend fun getWorkflowRuns(
@@ -1462,16 +1650,13 @@ class GitHubRepository(
         repo: String,
         workflowId: Long? = null,
         forceRefresh: Boolean = false
-    ): Result<List<WorkflowRunSummary>> {
-        val key = WorkflowRunsKey(owner, repo, workflowId)
-        if (!forceRefresh) {
-            workflowRunsCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchWorkflowRuns(owner, repo, workflowId)
-        }.onSuccess {
-            workflowRunsCache.put(key, it)
-        }
+    ): Result<List<WorkflowRunSummary>> = cachedFetch(
+        cache = workflowRunsCache,
+        cacheKey = WorkflowRunsKey(owner, repo, workflowId),
+        flightNamespace = "workflowRuns",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchWorkflowRuns(owner, repo, workflowId)
     }
 
     suspend fun getWorkflowRun(
@@ -1500,16 +1685,13 @@ class GitHubRepository(
         repo: String,
         runId: Long,
         forceRefresh: Boolean = false
-    ): Result<List<WorkflowJobSummary>> {
-        val key = WorkflowRunIdKey(owner, repo, runId)
-        if (!forceRefresh) {
-            workflowJobsCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchWorkflowRunJobs(owner, repo, runId)
-        }.onSuccess {
-            workflowJobsCache.put(key, it)
-        }
+    ): Result<List<WorkflowJobSummary>> = cachedFetch(
+        cache = workflowJobsCache,
+        cacheKey = WorkflowRunIdKey(owner, repo, runId),
+        flightNamespace = "workflowJobs",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchWorkflowRunJobs(owner, repo, runId)
     }
 
     suspend fun getJobLogs(owner: String, repo: String, jobId: Long): Result<String> = runCatchingCancellable {
@@ -1549,16 +1731,13 @@ class GitHubRepository(
         repo: String,
         ref: String,
         forceRefresh: Boolean = false
-    ): Result<List<CheckRunSummary>> {
-        val key = RepoPathKey(owner, repo, "", ref)
-        if (!forceRefresh) {
-            checkRunsCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchCheckRunsForRef(owner, repo, ref)
-        }.onSuccess {
-            checkRunsCache.put(key, it)
-        }
+    ): Result<List<CheckRunSummary>> = cachedFetch(
+        cache = checkRunsCache,
+        cacheKey = RepoPathKey(owner, repo, "", ref),
+        flightNamespace = "checkRuns",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchCheckRunsForRef(owner, repo, ref)
     }
 
     suspend fun getCheckRunsForCheckSuite(
@@ -1566,16 +1745,13 @@ class GitHubRepository(
         repo: String,
         checkSuiteId: Long,
         forceRefresh: Boolean = false
-    ): Result<List<CheckRunSummary>> {
-        val key = RepoPathKey(owner, repo, "", "check-suite:$checkSuiteId")
-        if (!forceRefresh) {
-            checkRunsCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchCheckRunsForCheckSuite(owner, repo, checkSuiteId)
-        }.onSuccess {
-            checkRunsCache.put(key, it)
-        }
+    ): Result<List<CheckRunSummary>> = cachedFetch(
+        cache = checkRunsCache,
+        cacheKey = RepoPathKey(owner, repo, "", "check-suite:$checkSuiteId"),
+        flightNamespace = "checkRuns",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchCheckRunsForCheckSuite(owner, repo, checkSuiteId)
     }
 
     fun peekReleases(owner: String, repo: String): List<ReleaseSummary>? =
@@ -1585,16 +1761,13 @@ class GitHubRepository(
         owner: String,
         repo: String,
         forceRefresh: Boolean = false
-    ): Result<List<ReleaseSummary>> {
-        val key = RepoKey(owner, repo)
-        if (!forceRefresh) {
-            releasesCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchReleases(owner, repo)
-        }.onSuccess {
-            releasesCache.put(key, it)
-        }
+    ): Result<List<ReleaseSummary>> = cachedFetch(
+        cache = releasesCache,
+        cacheKey = RepoKey(owner, repo),
+        flightNamespace = "releases",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchReleases(owner, repo)
     }
 
     suspend fun createRelease(
@@ -1632,16 +1805,13 @@ class GitHubRepository(
         repo: String,
         categoryId: String? = null,
         forceRefresh: Boolean = false
-    ): Result<DiscussionListData> {
-        val key = DiscussionsKey(owner, repo, categoryId)
-        if (!forceRefresh) {
-            discussionsCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            graphQlService.fetchDiscussions(owner, repo, categoryId = categoryId)
-        }.onSuccess {
-            discussionsCache.put(key, it)
-        }
+    ): Result<DiscussionListData> = cachedFetch(
+        cache = discussionsCache,
+        cacheKey = DiscussionsKey(owner, repo, categoryId),
+        flightNamespace = "discussions",
+        forceRefresh = forceRefresh
+    ) {
+        graphQlService.fetchDiscussions(owner, repo, categoryId = categoryId)
     }
 
     fun peekDiscussionDetail(owner: String, repo: String, number: Int): DiscussionDetail? =
@@ -1652,16 +1822,13 @@ class GitHubRepository(
         repo: String,
         number: Int,
         forceRefresh: Boolean = false
-    ): Result<DiscussionDetail> {
-        val key = issuePullKey(owner, repo, number)
-        if (!forceRefresh) {
-            discussionDetailCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            graphQlService.fetchDiscussionDetail(owner, repo, number)
-        }.onSuccess {
-            discussionDetailCache.put(key, it)
-        }
+    ): Result<DiscussionDetail> = cachedFetch(
+        cache = discussionDetailCache,
+        cacheKey = issuePullKey(owner, repo, number),
+        flightNamespace = "discussionDetail",
+        forceRefresh = forceRefresh
+    ) {
+        graphQlService.fetchDiscussionDetail(owner, repo, number)
     }
 
     suspend fun createDiscussion(
@@ -1713,50 +1880,47 @@ class GitHubRepository(
         owner: String,
         repo: String,
         forceRefresh: Boolean = false
-    ): Result<RepoSecurityOverview> {
-        val key = RepoKey(owner, repo)
-        if (!forceRefresh) {
-            securityOverviewCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            coroutineScope {
-                val alertsDeferred = async { runCatchingCancellable { restService.fetchDependabotAlerts(owner, repo) } }
-                val advisoriesDeferred = async { runCatchingCancellable { restService.fetchSecurityAdvisories(owner, repo) } }
+    ): Result<RepoSecurityOverview> = cachedFetch(
+        cache = securityOverviewCache,
+        cacheKey = RepoKey(owner, repo),
+        flightNamespace = "securityOverview",
+        forceRefresh = forceRefresh
+    ) {
+        coroutineScope {
+            val alertsDeferred = async { runCatchingCancellable { restService.fetchDependabotAlerts(owner, repo) } }
+            val advisoriesDeferred = async { runCatchingCancellable { restService.fetchSecurityAdvisories(owner, repo) } }
 
-                val alertsRes = alertsDeferred.await()
-                val advisoriesRes = advisoriesDeferred.await()
+            val alertsRes = alertsDeferred.await()
+            val advisoriesRes = advisoriesDeferred.await()
 
-                var notice: String? = null
-                val noticeStatus = (alertsRes.exceptionOrNull() as? GitHubApiException)
-                    ?.takeUnless { it.isSyntheticStatus }
-                    ?.statusCode
-                val alerts: List<DependabotAlertSummary> = alertsRes.getOrElse { err ->
-                    val code = (err as? GitHubApiException)?.statusCode
-                    when (code) {
-                        403, 404 -> {
-                            notice = if (code == 403) {
-                                "Dependabot alerts require repository admin or security_events permission."
-                            } else {
-                                "Dependabot vulnerability alerts are not enabled for this repository."
-                            }
-                            emptyList()
+            var notice: String? = null
+            val noticeStatus = (alertsRes.exceptionOrNull() as? GitHubApiException)
+                ?.takeUnless { it.isSyntheticStatus }
+                ?.statusCode
+            val alerts: List<DependabotAlertSummary> = alertsRes.getOrElse { err ->
+                val code = (err as? GitHubApiException)?.statusCode
+                when (code) {
+                    403, 404 -> {
+                        notice = if (code == 403) {
+                            "Dependabot alerts require repository admin or security_events permission."
+                        } else {
+                            "Dependabot vulnerability alerts are not enabled for this repository."
                         }
-                        else -> {
-                            notice = err.message ?: "Unable to fetch Dependabot alerts"
-                            emptyList()
-                        }
+                        emptyList()
+                    }
+                    else -> {
+                        notice = err.message ?: "Unable to fetch Dependabot alerts"
+                        emptyList()
                     }
                 }
-                val advisories: List<SecurityAdvisorySummary> = advisoriesRes.getOrElse { emptyList() }
-                RepoSecurityOverview(
-                    alerts = alerts,
-                    advisories = advisories,
-                    alertsAccessNotice = notice,
-                    alertsAccessStatusCode = noticeStatus
-                )
             }
-        }.onSuccess {
-            securityOverviewCache.put(key, it)
+            val advisories: List<SecurityAdvisorySummary> = advisoriesRes.getOrElse { emptyList() }
+            RepoSecurityOverview(
+                alerts = alerts,
+                advisories = advisories,
+                alertsAccessNotice = notice,
+                alertsAccessStatusCode = noticeStatus
+            )
         }
     }
 
@@ -1859,30 +2023,26 @@ class GitHubRepository(
         starred: Boolean = false,
         userLogin: String? = null,
         forceRefresh: Boolean = false
-    ): Result<List<GistSummary>> {
-        val key = gistCacheKey(starred, userLogin)
-        if (!forceRefresh) {
-            gistsCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
-            restService.fetchGists(starred = starred, userLogin = userLogin)
-        }.onSuccess {
-            gistsCache.put(key, it)
-        }
+    ): Result<List<GistSummary>> = cachedFetch(
+        cache = gistsCache,
+        cacheKey = gistCacheKey(starred, userLogin),
+        flightNamespace = "gists",
+        forceRefresh = forceRefresh
+    ) {
+        restService.fetchGists(starred = starred, userLogin = userLogin)
     }
 
     fun peekGistDetail(gistId: String): GistDetail? = gistDetailCache.peek(gistId)
 
-    suspend fun getGistDetail(gistId: String, forceRefresh: Boolean = false): Result<GistDetail> {
-        if (!forceRefresh) {
-            gistDetailCache.peekIfFresh(gistId)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
+    suspend fun getGistDetail(gistId: String, forceRefresh: Boolean = false): Result<GistDetail> =
+        cachedFetch(
+            cache = gistDetailCache,
+            cacheKey = gistId,
+            flightNamespace = "gistDetail",
+            forceRefresh = forceRefresh
+        ) {
             restService.fetchGistDetail(gistId)
-        }.onSuccess {
-            gistDetailCache.put(gistId, it)
         }
-    }
 
     suspend fun createGist(
         description: String,
@@ -1930,11 +2090,13 @@ class GitHubRepository(
     ): Result<RepoInsightsData> {
         val cleanOwner = owner.trim().ifBlank { repo.substringBefore('/', "").trim() }
         val cleanRepo = repo.substringAfterLast('/').trim()
-        val key = RepoKey(cleanOwner, cleanRepo)
-        if (!forceRefresh) {
-            insightsCache.peekIfFresh(key)?.let { return Result.success(it) }
-        }
-        return runCatchingCancellable {
+        return cachedFetch(
+            cache = insightsCache,
+            cacheKey = RepoKey(cleanOwner, cleanRepo),
+            flightNamespace = "repoInsights",
+            forceRefresh = forceRefresh,
+            shouldCache = { !it.statsComputing }
+        ) {
             coroutineScope {
                 val langJob = async { runCatchingCancellable { restService.fetchRepoLanguages(cleanOwner, cleanRepo) } }
                 val activityJob = async { runCatchingCancellable { restService.fetchRepoCommitActivity(cleanOwner, cleanRepo) } }
@@ -1974,10 +2136,6 @@ class GitHubRepository(
                     contributors = finalContributors,
                     statsComputing = actComputing || contribComputing
                 )
-            }
-        }.onSuccess { data ->
-            if (!data.statsComputing) {
-                insightsCache.put(key, data)
             }
         }
     }

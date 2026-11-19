@@ -9,7 +9,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.URLProtocol
 
 fun createGitHubImageHttpClient(
-    httpClient: HttpClient = HttpClient(),
+    httpClient: HttpClient = createDefaultPlatformHttpClient(),
     accessToken: () -> String?
 ): HttpClient = httpClient.apply {
     plugin(HttpSend).intercept { request ->

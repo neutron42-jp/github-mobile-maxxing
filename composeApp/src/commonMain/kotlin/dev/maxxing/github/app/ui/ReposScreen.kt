@@ -484,11 +484,25 @@ private fun RepoListPane(
             when (targetTab) {
                 RepoListTab.MINE -> container.repository.getViewerRepositories(forceRefresh = forceRefresh)
                     .also { if (requestSeq != currentSeq || activeTab != targetTab) return@launch }
-                    .onSuccess { repos = it; isLoading = false; isRefreshing = false }
+                    .onSuccess {
+                        repos = it
+                        isLoading = false
+                        isRefreshing = false
+                        if (container.repository.peekStarredRepositories() == null) {
+                            scope.launch { container.repository.getStarredRepositories(forceRefresh = false) }
+                        }
+                    }
                     .onFailure { errorMsg = strings.errorMessage(it, strings.failedLoadRepos); isLoading = false; isRefreshing = false }
                 RepoListTab.STARRED -> container.repository.getStarredRepositories(forceRefresh = forceRefresh)
                     .also { if (requestSeq != currentSeq || activeTab != targetTab) return@launch }
-                    .onSuccess { repos = it; isLoading = false; isRefreshing = false }
+                    .onSuccess {
+                        repos = it
+                        isLoading = false
+                        isRefreshing = false
+                        if (container.repository.peekViewerRepositories() == null) {
+                            scope.launch { container.repository.getViewerRepositories(forceRefresh = false) }
+                        }
+                    }
                     .onFailure { errorMsg = strings.errorMessage(it, strings.failedLoadStarredRepos); isLoading = false; isRefreshing = false }
                 RepoListTab.SEARCH -> when (targetSearchKind) {
                     GlobalSearchKind.REPOSITORIES -> container.repository.searchRepositories(trimmedQuery, forceRefresh = forceRefresh)
@@ -768,7 +782,8 @@ private fun RepoListPane(
                                             owner = item.repoOwner,
                                             repo = item.repoName,
                                             number = item.number,
-                                            hintTitle = item.title
+                                            hintTitle = item.title,
+                                            kindHint = item.kind
                                         )
                                     )
                                 }
@@ -1533,21 +1548,25 @@ fun RepoDetailScreen(
             if (actionsRequestGuard.isLatest(reqSeq)) {
                 actionsError = null
             }
-            container.repository.getWorkflows(repo.owner, repo.name, forceRefresh = forceRefresh)
-                .onSuccess { if (actionsRequestGuard.isLatest(reqSeq)) workflows = it }
-            container.repository.getWorkflowRuns(repo.owner, repo.name, workflowId, forceRefresh = forceRefresh)
-                .onSuccess {
-                    if (actionsRequestGuard.isLatest(reqSeq)) {
-                        workflowRuns = it
-                        actionsLoading = false
+            coroutineScope {
+                val workflowsJob = async { container.repository.getWorkflows(repo.owner, repo.name, forceRefresh = forceRefresh) }
+                val runsJob = async { container.repository.getWorkflowRuns(repo.owner, repo.name, workflowId, forceRefresh = forceRefresh) }
+                workflowsJob.await()
+                    .onSuccess { if (actionsRequestGuard.isLatest(reqSeq)) workflows = it }
+                runsJob.await()
+                    .onSuccess {
+                        if (actionsRequestGuard.isLatest(reqSeq)) {
+                            workflowRuns = it
+                            actionsLoading = false
+                        }
                     }
-                }
-                .onFailure {
-                    if (actionsRequestGuard.isLatest(reqSeq)) {
-                        actionsError = strings.errorMessage(it, strings.failedLoadActions)
-                        actionsLoading = false
+                    .onFailure {
+                        if (actionsRequestGuard.isLatest(reqSeq)) {
+                            actionsError = strings.errorMessage(it, strings.failedLoadActions)
+                            actionsLoading = false
+                        }
                     }
-                }
+            }
         }
     }
 
@@ -1780,7 +1799,9 @@ fun RepoDetailScreen(
                         repoIssues = loaded
                         issuesLoading = false
                         container.prefetchIssuePullTargets(
-                            loaded.take(3).map { IssuePullTarget(repo.owner, repo.name, it.number, it.title) }
+                            loaded.take(3).map {
+                                IssuePullTarget(repo.owner, repo.name, it.number, it.title, kindHint = it.kind)
+                            }
                         )
                     }
                 }
@@ -1861,7 +1882,9 @@ fun RepoDetailScreen(
                         repoPulls = loaded
                         pullsLoading = false
                         container.prefetchIssuePullTargets(
-                            loaded.take(3).map { IssuePullTarget(repo.owner, repo.name, it.number, it.title) }
+                            loaded.take(3).map {
+                                IssuePullTarget(repo.owner, repo.name, it.number, it.title, kindHint = it.kind)
+                            }
                         )
                     }
                 }
@@ -3147,7 +3170,7 @@ fun RepoDetailScreen(
                     },
                     onOpenItem = { item ->
                         onOpenIssueOrPull(
-                            IssuePullTarget(repo.owner, repo.name, item.number, item.title)
+                            IssuePullTarget(repo.owner, repo.name, item.number, item.title, kindHint = item.kind)
                         )
                     },
                     showStateFilters = issuesSection == RepoIssuesSection.ISSUES,
@@ -3243,7 +3266,7 @@ fun RepoDetailScreen(
                     } else null,
                     onOpenItem = { item ->
                         onOpenIssueOrPull(
-                            IssuePullTarget(repo.owner, repo.name, item.number, item.title)
+                            IssuePullTarget(repo.owner, repo.name, item.number, item.title, kindHint = item.kind)
                         )
                     }
                 )

@@ -63,6 +63,10 @@ import io.ktor.http.contentType
 import io.ktor.http.encodeURLPathPart
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -800,6 +804,7 @@ internal const val PULL_FILES_PER_PAGE = 100
  * 3000 files per pull request, i.e. 30 pages of [PULL_FILES_PER_PAGE], so a real response never needs more.
  */
 internal const val MAX_PULL_FILES_PAGES = 30
+private const val MAX_CONDITIONAL_CACHE_ENTRIES = 128
 
 class GitHubRestService(
     private val httpClient: HttpClient,
@@ -809,6 +814,66 @@ class GitHubRestService(
         ignoreUnknownKeys = true
         isLenient = true
         explicitNulls = false
+    }
+
+    private data class ConditionalCacheEntry(
+        val etag: String?,
+        val lastModified: String?,
+        val value: Any?
+    )
+
+    private val conditionalMutex = Mutex()
+    private val conditionalCache = LinkedHashMap<String, ConditionalCacheEntry>(64)
+
+    internal suspend fun clearConditionalCache() {
+        conditionalMutex.withLock {
+            conditionalCache.clear()
+        }
+    }
+
+    internal suspend fun invalidateConditionalCachePrefix(prefix: String) {
+        conditionalMutex.withLock {
+            val iter = conditionalCache.entries.iterator()
+            while (iter.hasNext()) {
+                if (iter.next().key.startsWith(prefix)) iter.remove()
+            }
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private suspend fun <T> conditionalGet(
+        cacheKey: String,
+        url: String,
+        buildRequest: HttpRequestBuilder.() -> Unit = {},
+        onResponse: suspend (HttpResponse) -> T
+    ): T {
+        val cached = conditionalMutex.withLock { conditionalCache[cacheKey] }
+        val response = httpClient.get(url) {
+            buildRequest()
+            cached?.etag?.let { header(HttpHeaders.IfNoneMatch, it) }
+            if (cached?.etag == null) {
+                cached?.lastModified?.let { header(HttpHeaders.IfModifiedSince, it) }
+            }
+        }
+        if (response.status == HttpStatusCode.NotModified && cached != null) {
+            return cached.value as T
+        }
+        val parsed = onResponse(response)
+        if (response.status.isSuccess()) {
+            val etag = response.headers[HttpHeaders.ETag]?.takeIf { it.isNotBlank() }
+            val lastModified = response.headers[HttpHeaders.LastModified]?.takeIf { it.isNotBlank() }
+            if (etag != null || lastModified != null) {
+                conditionalMutex.withLock {
+                    conditionalCache.remove(cacheKey)
+                    conditionalCache[cacheKey] = ConditionalCacheEntry(etag, lastModified, parsed)
+                    while (conditionalCache.size > MAX_CONDITIONAL_CACHE_ENTRIES) {
+                        val eldest = conditionalCache.keys.firstOrNull() ?: break
+                        conditionalCache.remove(eldest)
+                    }
+                }
+            }
+        }
+        return parsed
     }
 
     private suspend inline fun <reified T> HttpResponse.bodyOrDefaultOnEmpty(defaultValue: () -> T): T {
@@ -823,8 +888,10 @@ class GitHubRestService(
         participating: Boolean = false,
         page: Int = 1,
         perPage: Int = 40
-    ): List<NotificationThread> {
-        val response = httpClient.get("$baseUrl/notifications") {
+    ): List<NotificationThread> = conditionalGet(
+        cacheKey = "notifications:$all:$participating:$page:$perPage",
+        url = "$baseUrl/notifications",
+        buildRequest = {
             header(HttpHeaders.CacheControl, "no-cache")
             header(HttpHeaders.Pragma, "no-cache")
             parameter("all", all)
@@ -832,10 +899,11 @@ class GitHubRestService(
             parameter("page", page)
             parameter("per_page", perPage)
         }
+    ) { response ->
         if (!response.status.isSuccess()) {
             throw GitHubApiException(response.status.value, "Failed to load notifications (${response.status.value})")
         }
-        return response.bodyOrDefaultOnEmpty<List<NotificationDto>> { emptyList() }.map { dto ->
+        response.bodyOrDefaultOnEmpty<List<NotificationDto>> { emptyList() }.map { dto ->
             NotificationThread(
                 id = dto.id,
                 unread = dto.unread,
@@ -859,6 +927,7 @@ class GitHubRestService(
         if (!res.status.isSuccess()) {
             throw GitHubApiException(res.status.value, "Failed to mark thread read")
         }
+        invalidateConditionalCachePrefix("notifications:")
     }
 
     suspend fun markNotificationDone(threadId: String) {
@@ -866,6 +935,7 @@ class GitHubRestService(
         if (!res.status.isSuccess()) {
             throw GitHubApiException(res.status.value, "Failed to mark thread done")
         }
+        invalidateConditionalCachePrefix("notifications:")
     }
 
     suspend fun markAllNotificationsRead() {
@@ -876,6 +946,7 @@ class GitHubRestService(
         if (!res.status.isSuccess()) {
             throw GitHubApiException(res.status.value, "Failed to mark all notifications read")
         }
+        invalidateConditionalCachePrefix("notifications:")
     }
 
     suspend fun fetchPullFiles(owner: String, repo: String, number: Int): List<PullFileChange> {
@@ -917,33 +988,37 @@ class GitHubRestService(
         ref: String? = null,
         path: String? = null,
         perPage: Int = 30
-    ): List<CommitSummary> {
-        val res = httpClient.get("${repoPath(owner, repo)}/commits") {
+    ): List<CommitSummary> = conditionalGet(
+        cacheKey = "commits:${owner.lowercase()}/${repo.lowercase()}:${ref.orEmpty()}:${path.orEmpty()}:$perPage",
+        url = "${repoPath(owner, repo)}/commits",
+        buildRequest = {
             noCacheHeaders()
             ref?.takeIf { it.isNotBlank() }?.let { parameter("sha", it) }
             path?.takeIf { it.isNotBlank() }?.let { parameter("path", it) }
             parameter("per_page", perPage)
         }
+    ) { res ->
         // GitHub returns 409 Conflict when a repository is empty or a newly created fork is still initializing.
         if (res.status.value == 409) {
-            return emptyList()
-        }
-        if (!res.status.isSuccess()) {
+            emptyList()
+        } else if (!res.status.isSuccess()) {
             throw GitHubApiException(res.status.value, "Failed to load commits (${res.status.value})")
+        } else {
+            res.bodyOrDefaultOnEmpty<List<RestCommitDto>> { emptyList() }.map { it.toCommitSummary() }
         }
-        return res.bodyOrDefaultOnEmpty<List<RestCommitDto>> { emptyList() }.map { it.toCommitSummary() }
     }
 
-    suspend fun fetchCommitDetail(owner: String, repo: String, sha: String): CommitDetail {
-        val res = httpClient.get("${repoPath(owner, repo)}/commits/${sha.trim().encodeURLPathPart()}") {
-            noCacheHeaders()
-        }
+    suspend fun fetchCommitDetail(owner: String, repo: String, sha: String): CommitDetail = conditionalGet(
+        cacheKey = "commit:${owner.lowercase()}/${repo.lowercase()}:${sha.trim()}",
+        url = "${repoPath(owner, repo)}/commits/${sha.trim().encodeURLPathPart()}",
+        buildRequest = { noCacheHeaders() }
+    ) { res ->
         if (!res.status.isSuccess()) {
             throw GitHubApiException(res.status.value, "Failed to load commit $sha (${res.status.value})")
         }
         val dto = res.body<RestCommitDto>()
         val files = dto.files.map { it.toPullFileChange() }
-        return CommitDetail(
+        CommitDetail(
             summary = dto.toCommitSummary(),
             additions = dto.stats?.additions ?: files.sumOf { it.additions },
             deletions = dto.stats?.deletions ?: files.sumOf { it.deletions },
@@ -953,15 +1028,18 @@ class GitHubRestService(
         )
     }
 
-    suspend fun fetchRepoTags(owner: String, repo: String, perPage: Int = 30): List<TagRef> {
-        val res = httpClient.get("${repoPath(owner, repo)}/tags") {
+    suspend fun fetchRepoTags(owner: String, repo: String, perPage: Int = 30): List<TagRef> = conditionalGet(
+        cacheKey = "tags:${owner.lowercase()}/${repo.lowercase()}:$perPage",
+        url = "${repoPath(owner, repo)}/tags",
+        buildRequest = {
             noCacheHeaders()
             parameter("per_page", perPage)
         }
+    ) { res ->
         if (!res.status.isSuccess()) {
             throw GitHubApiException(res.status.value, "Failed to load tags (${res.status.value})")
         }
-        return res.bodyOrDefaultOnEmpty<List<RestTagDto>> { emptyList() }.map { TagRef(name = it.name, commitSha = it.commit.sha) }
+        res.bodyOrDefaultOnEmpty<List<RestTagDto>> { emptyList() }.map { TagRef(name = it.name, commitSha = it.commit.sha) }
     }
 
     suspend fun compareRefs(
@@ -992,12 +1070,14 @@ class GitHubRestService(
         )
     }
 
-    suspend fun fetchWorkflows(owner: String, repo: String): List<WorkflowSummary> {
-        val res = httpClient.get("$baseUrl/repos/$owner/$repo/actions/workflows")
+    suspend fun fetchWorkflows(owner: String, repo: String): List<WorkflowSummary> = conditionalGet(
+        cacheKey = "workflows:${owner.lowercase()}/${repo.lowercase()}",
+        url = "$baseUrl/repos/$owner/$repo/actions/workflows"
+    ) { res ->
         if (!res.status.isSuccess()) {
             throw GitHubApiException(res.status.value, "Failed to load workflows (${res.status.value})")
         }
-        return res.bodyOrDefaultOnEmpty<RestWorkflowsResponse> { RestWorkflowsResponse() }.workflows.map {
+        res.bodyOrDefaultOnEmpty<RestWorkflowsResponse> { RestWorkflowsResponse() }.workflows.map {
             WorkflowSummary(id = it.id, name = it.name, path = it.path, state = it.state, htmlUrl = it.htmlUrl)
         }
     }
@@ -1031,16 +1111,21 @@ class GitHubRestService(
         } else {
             "$baseUrl/repos/$owner/$repo/actions/runs"
         }
-        val res = httpClient.get(url) {
-            branch?.takeIf { it.isNotBlank() }?.let { parameter("branch", it) }
-            parameter("per_page", perPage)
+        return conditionalGet(
+            cacheKey = "runs:${owner.lowercase()}/${repo.lowercase()}:${workflowId ?: "all"}:${branch.orEmpty()}:$perPage",
+            url = url,
+            buildRequest = {
+                branch?.takeIf { it.isNotBlank() }?.let { parameter("branch", it) }
+                parameter("per_page", perPage)
+            }
+        ) { res ->
+            if (!res.status.isSuccess()) {
+                throw GitHubApiException(res.status.value, "Failed to load workflow runs (${res.status.value})")
+            }
+            res.bodyOrDefaultOnEmpty<RestWorkflowRunsResponse> { RestWorkflowRunsResponse() }
+                .workflowRuns
+                .map { it.toSummary() }
         }
-        if (!res.status.isSuccess()) {
-            throw GitHubApiException(res.status.value, "Failed to load workflow runs (${res.status.value})")
-        }
-        return res.bodyOrDefaultOnEmpty<RestWorkflowRunsResponse> { RestWorkflowRunsResponse() }
-            .workflowRuns
-            .map { it.toSummary() }
     }
 
     suspend fun fetchWorkflowRun(owner: String, repo: String, runId: Long): WorkflowRunSummary {
@@ -1160,14 +1245,15 @@ class GitHubRestService(
             )
         }
 
-    suspend fun fetchReleases(owner: String, repo: String, perPage: Int = 20): List<ReleaseSummary> {
-        val res = httpClient.get("$baseUrl/repos/$owner/$repo/releases") {
-            parameter("per_page", perPage)
-        }
+    suspend fun fetchReleases(owner: String, repo: String, perPage: Int = 20): List<ReleaseSummary> = conditionalGet(
+        cacheKey = "releases:${owner.lowercase()}/${repo.lowercase()}:$perPage",
+        url = "$baseUrl/repos/$owner/$repo/releases",
+        buildRequest = { parameter("per_page", perPage) }
+    ) { res ->
         if (!res.status.isSuccess()) {
             throw GitHubApiException(res.status.value, "Failed to load releases (${res.status.value})")
         }
-        return res.bodyOrDefaultOnEmpty<List<RestReleaseDto>> { emptyList() }.map { it.toReleaseSummary() }
+        res.bodyOrDefaultOnEmpty<List<RestReleaseDto>> { emptyList() }.map { it.toReleaseSummary() }
     }
 
     suspend fun createRelease(
@@ -1426,15 +1512,18 @@ class GitHubRestService(
         }
     }
 
-    suspend fun fetchBranches(owner: String, repo: String): List<BranchRef> {
-        val res = httpClient.get("${repoPath(owner, repo)}/branches") {
+    suspend fun fetchBranches(owner: String, repo: String): List<BranchRef> = conditionalGet(
+        cacheKey = "branches:${owner.lowercase()}/${repo.lowercase()}",
+        url = "${repoPath(owner, repo)}/branches",
+        buildRequest = {
             noCacheHeaders()
             parameter("per_page", 100)
         }
+    ) { res ->
         if (!res.status.isSuccess()) {
             throw GitHubApiException(res.status.value, "Failed to load branches (${res.status.value})")
         }
-        return res.bodyOrDefaultOnEmpty<List<BranchDto>> { emptyList() }.map { BranchRef(name = it.name, sha = it.commit.sha) }
+        res.bodyOrDefaultOnEmpty<List<BranchDto>> { emptyList() }.map { BranchRef(name = it.name, sha = it.commit.sha) }
     }
 
     suspend fun fetchDirectoryContents(
@@ -1449,24 +1538,29 @@ class GitHubRestService(
         } else {
             "${repoPath(owner, repo)}/contents/$cleanPath"
         }
-        val res = httpClient.get(url) {
-            noCacheHeaders()
-            if (!ref.isNullOrBlank()) parameter("ref", ref)
-        }
-        if (!res.status.isSuccess()) {
-            throw GitHubApiException(res.status.value, "Failed to list directory (${res.status.value})")
-        }
-        return res.bodyOrDefaultOnEmpty<List<ContentItemDto>> { emptyList() }
-            .map { item ->
-                TreeEntry(
-                    path = item.path,
-                    name = item.name,
-                    type = if (item.type == "dir") TreeEntryType.TREE else TreeEntryType.BLOB,
-                    sha = item.sha,
-                    size = item.size
-                )
+        return conditionalGet(
+            cacheKey = "dir:${owner.lowercase()}/${repo.lowercase()}:${path.trimStart('/')}:${ref.orEmpty()}",
+            url = url,
+            buildRequest = {
+                noCacheHeaders()
+                if (!ref.isNullOrBlank()) parameter("ref", ref)
             }
-            .sortedWith(compareBy<TreeEntry> { it.type != TreeEntryType.TREE }.thenBy { it.name.lowercase() })
+        ) { res ->
+            if (!res.status.isSuccess()) {
+                throw GitHubApiException(res.status.value, "Failed to list directory (${res.status.value})")
+            }
+            res.bodyOrDefaultOnEmpty<List<ContentItemDto>> { emptyList() }
+                .map { item ->
+                    TreeEntry(
+                        path = item.path,
+                        name = item.name,
+                        type = if (item.type == "dir") TreeEntryType.TREE else TreeEntryType.BLOB,
+                        sha = item.sha,
+                        size = item.size
+                    )
+                }
+                .sortedWith(compareBy<TreeEntry> { it.type != TreeEntryType.TREE }.thenBy { it.name.lowercase() })
+        }
     }
 
     @OptIn(ExperimentalEncodingApi::class)
@@ -1477,42 +1571,47 @@ class GitHubRestService(
         ref: String? = null
     ): FileContent {
         val cleanPath = encodeRepoSubPath(path)
-        val res = httpClient.get("${repoPath(owner, repo)}/contents/$cleanPath") {
-            noCacheHeaders()
-            if (!ref.isNullOrBlank()) parameter("ref", ref)
-        }
-        if (!res.status.isSuccess()) {
-            throw GitHubApiException(res.status.value, "Failed to fetch file (${res.status.value})")
-        }
-        val dto = res.body<ContentItemDto>()
-        val raw = dto.content
-        val decoded = if (raw != null && dto.encoding == "base64") {
-            val bytes = Base64.Mime.decode(raw)
-            val isLikelyBinary = bytes.take(512).any { it == 0.toByte() }
-            if (isLikelyBinary) {
-                return FileContent(
-                    path = dto.path,
-                    name = dto.name,
-                    size = dto.size,
-                    content = "",
-                    isBinary = true,
-                    htmlUrl = dto.htmlUrl,
-                    sha = dto.sha
-                )
+        return conditionalGet(
+            cacheKey = "file:${owner.lowercase()}/${repo.lowercase()}:${path.trimStart('/')}:${ref.orEmpty()}",
+            url = "${repoPath(owner, repo)}/contents/$cleanPath",
+            buildRequest = {
+                noCacheHeaders()
+                if (!ref.isNullOrBlank()) parameter("ref", ref)
             }
-            bytes.decodeToString()
-        } else {
-            raw.orEmpty()
+        ) { res ->
+            if (!res.status.isSuccess()) {
+                throw GitHubApiException(res.status.value, "Failed to fetch file (${res.status.value})")
+            }
+            val dto = res.body<ContentItemDto>()
+            val raw = dto.content
+            val decoded = if (raw != null && dto.encoding == "base64") {
+                val bytes = Base64.Mime.decode(raw)
+                val isLikelyBinary = bytes.take(512).any { it == 0.toByte() }
+                if (isLikelyBinary) {
+                    return@conditionalGet FileContent(
+                        path = dto.path,
+                        name = dto.name,
+                        size = dto.size,
+                        content = "",
+                        isBinary = true,
+                        htmlUrl = dto.htmlUrl,
+                        sha = dto.sha
+                    )
+                }
+                bytes.decodeToString()
+            } else {
+                raw.orEmpty()
+            }
+            FileContent(
+                path = dto.path,
+                name = dto.name,
+                size = dto.size,
+                content = decoded,
+                isBinary = false,
+                htmlUrl = dto.htmlUrl,
+                sha = dto.sha
+            )
         }
-        return FileContent(
-            path = dto.path,
-            name = dto.name,
-            size = dto.size,
-            content = decoded,
-            isBinary = false,
-            htmlUrl = dto.htmlUrl,
-            sha = dto.sha
-        )
     }
 
     @OptIn(ExperimentalEncodingApi::class)
@@ -1544,6 +1643,7 @@ class GitHubRestService(
         if (!res.status.isSuccess()) {
             throw GitHubApiException(res.status.value, "Failed to commit file (${res.status.value})")
         }
+        invalidateRepoTreeConditionalCaches(owner, repo)
         return res.body<FileMutationResultDto>().commit?.sha.orEmpty()
     }
 
@@ -1571,7 +1671,16 @@ class GitHubRestService(
         if (!res.status.isSuccess()) {
             throw GitHubApiException(res.status.value, "Failed to delete file (${res.status.value})")
         }
+        invalidateRepoTreeConditionalCaches(owner, repo)
         return res.body<FileMutationResultDto>().commit?.sha.orEmpty()
+    }
+
+    private suspend fun invalidateRepoTreeConditionalCaches(owner: String, repo: String) {
+        val slug = "${owner.lowercase()}/${repo.lowercase()}:"
+        invalidateConditionalCachePrefix("dir:$slug")
+        invalidateConditionalCachePrefix("file:$slug")
+        invalidateConditionalCachePrefix("readme:$slug")
+        invalidateConditionalCachePrefix("commits:$slug")
     }
 
     suspend fun fetchGists(
@@ -1604,15 +1713,19 @@ class GitHubRestService(
         false
     }
 
-    suspend fun fetchGistDetail(gistId: String): GistDetail {
+    suspend fun fetchGistDetail(gistId: String): GistDetail = coroutineScope {
         val encodedId = normalizeGistId(gistId).encodeURLPathPart()
-        val res = httpClient.get("$baseUrl/gists/$encodedId")
-        if (!res.status.isSuccess()) {
-            throw gistApiException(res.status.value, "load gist")
+        val detailDeferred = async {
+            val res = httpClient.get("$baseUrl/gists/$encodedId")
+            if (!res.status.isSuccess()) {
+                throw gistApiException(res.status.value, "load gist")
+            }
+            res.body<RestGistDto>()
         }
-        val dto = res.body<RestGistDto>()
-        val isStarred = isGistStarred(encodedId)
-        return dto.toGistDetail(viewerHasStarred = isStarred)
+        val starredDeferred = async { isGistStarred(encodedId) }
+        val dto = detailDeferred.await()
+        val isStarred = starredDeferred.await()
+        dto.toGistDetail(viewerHasStarred = isStarred)
     }
 
     suspend fun createGist(
@@ -1732,17 +1845,23 @@ class GitHubRestService(
     }
 
     @OptIn(ExperimentalEncodingApi::class)
-    suspend fun fetchReadme(owner: String, repo: String, ref: String? = null): String? {
-        val res = httpClient.get("${repoPath(owner, repo)}/readme") {
+    suspend fun fetchReadme(owner: String, repo: String, ref: String? = null): String? = conditionalGet(
+        cacheKey = "readme:${owner.lowercase()}/${repo.lowercase()}:${ref.orEmpty()}",
+        url = "${repoPath(owner, repo)}/readme",
+        buildRequest = {
             noCacheHeaders()
             if (!ref.isNullOrBlank()) parameter("ref", ref)
         }
-        if (!res.status.isSuccess()) return null
-        val dto = res.bodyOrDefaultOnEmpty<ContentItemDto?> { null } ?: return null
-        return if (dto.content != null && dto.encoding == "base64") {
-            runCatching { Base64.Mime.decode(dto.content).decodeToString() }.getOrNull()
-        } else {
-            dto.content
+    ) { res ->
+        if (!res.status.isSuccess()) null
+        else {
+            val dto = res.bodyOrDefaultOnEmpty<ContentItemDto?> { null }
+            if (dto == null) null
+            else if (dto.content != null && dto.encoding == "base64") {
+                runCatching { Base64.Mime.decode(dto.content).decodeToString() }.getOrNull()
+            } else {
+                dto.content
+            }
         }
     }
 
@@ -1758,30 +1877,38 @@ class GitHubRestService(
         if (!res.status.isSuccess()) {
             throw GitHubApiException(res.status.value, "Failed to update star (${res.status.value})")
         }
+        invalidateConditionalCachePrefix("viewer_repos:")
+        invalidateConditionalCachePrefix("starred_repos:")
     }
 
-    suspend fun fetchViewerRepositoriesRest(perPage: Int = 40): List<RepoSummary> {
-        val res = httpClient.get("$baseUrl/user/repos") {
+    suspend fun fetchViewerRepositoriesRest(perPage: Int = 40): List<RepoSummary> = conditionalGet(
+        cacheKey = "viewer_repos:$perPage",
+        url = "$baseUrl/user/repos",
+        buildRequest = {
             parameter("sort", "updated")
             parameter("direction", "desc")
             parameter("per_page", perPage)
         }
+    ) { res ->
         if (!res.status.isSuccess()) {
             throw GitHubApiException(res.status.value, "Failed to load repositories (${res.status.value})")
         }
-        return res.bodyOrDefaultOnEmpty<List<RestRepoDto>> { emptyList() }.map { it.toRepoSummary() }
+        res.bodyOrDefaultOnEmpty<List<RestRepoDto>> { emptyList() }.map { it.toRepoSummary() }
     }
 
-    suspend fun fetchStarredRepositoriesRest(perPage: Int = 40): List<RepoSummary> {
-        val res = httpClient.get("$baseUrl/user/starred") {
+    suspend fun fetchStarredRepositoriesRest(perPage: Int = 40): List<RepoSummary> = conditionalGet(
+        cacheKey = "starred_repos:$perPage",
+        url = "$baseUrl/user/starred",
+        buildRequest = {
             parameter("sort", "created")
             parameter("direction", "desc")
             parameter("per_page", perPage)
         }
+    ) { res ->
         if (!res.status.isSuccess()) {
             throw GitHubApiException(res.status.value, "Failed to load starred repositories (${res.status.value})")
         }
-        return res.bodyOrDefaultOnEmpty<List<RestRepoDto>> { emptyList() }.map { it.toRepoSummary(viewerHasStarred = true) }
+        res.bodyOrDefaultOnEmpty<List<RestRepoDto>> { emptyList() }.map { it.toRepoSummary(viewerHasStarred = true) }
     }
 
     suspend fun searchRepositoriesRest(query: String, perPage: Int = 30): List<RepoSummary> {
@@ -1797,26 +1924,32 @@ class GitHubRestService(
         return res.bodyOrDefaultOnEmpty<RestRepoSearchResponse> { RestRepoSearchResponse() }.items.map { it.toRepoSummary() }
     }
 
-    suspend fun fetchReceivedEvents(login: String, page: Int = 1, perPage: Int = 30): List<ActivityEvent> {
-        val res = httpClient.get("$baseUrl/users/$login/received_events") {
+    suspend fun fetchReceivedEvents(login: String, page: Int = 1, perPage: Int = 30): List<ActivityEvent> = conditionalGet(
+        cacheKey = "events:received:${login.lowercase()}:$page:$perPage",
+        url = "$baseUrl/users/$login/received_events",
+        buildRequest = {
             parameter("page", page)
             parameter("per_page", perPage)
         }
+    ) { res ->
         if (!res.status.isSuccess()) {
             throw GitHubApiException(res.status.value, "Failed to load activity feed (${res.status.value})")
         }
-        return res.bodyOrDefaultOnEmpty<List<RestEventDto>> { emptyList() }.map(::parseActivityEvent)
+        res.bodyOrDefaultOnEmpty<List<RestEventDto>> { emptyList() }.map(::parseActivityEvent)
     }
 
-    suspend fun fetchUserEvents(login: String, page: Int = 1, perPage: Int = 30): List<ActivityEvent> {
-        val res = httpClient.get("$baseUrl/users/$login/events") {
+    suspend fun fetchUserEvents(login: String, page: Int = 1, perPage: Int = 30): List<ActivityEvent> = conditionalGet(
+        cacheKey = "events:user:${login.lowercase()}:$page:$perPage",
+        url = "$baseUrl/users/$login/events",
+        buildRequest = {
             parameter("page", page)
             parameter("per_page", perPage)
         }
+    ) { res ->
         if (!res.status.isSuccess()) {
             throw GitHubApiException(res.status.value, "Failed to load user events (${res.status.value})")
         }
-        return res.bodyOrDefaultOnEmpty<List<RestEventDto>> { emptyList() }.map(::parseActivityEvent)
+        res.bodyOrDefaultOnEmpty<List<RestEventDto>> { emptyList() }.map(::parseActivityEvent)
     }
 
     suspend fun fetchUserProfileRest(login: String): UserProfile {

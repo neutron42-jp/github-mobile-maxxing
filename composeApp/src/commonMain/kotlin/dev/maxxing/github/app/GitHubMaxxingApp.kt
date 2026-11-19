@@ -174,10 +174,16 @@ fun GitHubMaxxingApp(
     // the splash forever. Nothing is deleted or signed out on failure.
     var sessionLoadError by remember { mutableStateOf<Throwable?>(null) }
     var sessionLoadAttempt by remember { mutableStateOf(0) }
+    var isDiskCacheReady by remember { mutableStateOf(false) }
 
     LaunchedEffect(sessionLoadAttempt) {
         if (sessionLoadAttempt == 0) PlatformNotifier.ensureInitialized()
         sessionLoadError = catchingSecureStorage { initializeSession() }.exceptionOrNull()
+        val loadedLogin = container.sessionManager.session.value?.userLogin
+        if (loadedLogin != null || container.sessionManager.session.value != null) {
+            runCatching { container.hydrateFromDisk(loadedLogin) }
+        }
+        isDiskCacheReady = true
     }
 
     LaunchedEffect(isInitialized) {
@@ -194,8 +200,19 @@ fun GitHubMaxxingApp(
     // while signed-in sessions with an unresolved userLogin still fetch the viewer profile.
     LaunchedEffect(sessionKey) {
         if (!isSignedIn) return@LaunchedEffect
+        val knownLogin = session?.userLogin?.trim()?.takeIf { it.isNotEmpty() }
+        container.hydrateFromDisk(knownLogin)
+        if (knownLogin != null) {
+            container.warmUpWorkspace(knownLogin)
+        }
         val loaded = container.refreshViewerProfile()
-        container.warmUpWorkspace(loaded?.login ?: session?.userLogin)
+        val resolvedLogin = loaded?.login?.trim()?.takeIf { it.isNotEmpty() } ?: knownLogin
+        if (resolvedLogin != null && !resolvedLogin.equals(knownLogin, ignoreCase = true)) {
+            container.hydrateFromDisk(resolvedLogin)
+            container.warmUpWorkspace(resolvedLogin)
+        } else if (knownLogin == null) {
+            container.warmUpWorkspace(resolvedLogin)
+        }
     }
 
     LaunchedEffect(isInitialized, isSignedIn, notifPrefs.osNotificationsEnabled) {
@@ -272,7 +289,7 @@ fun GitHubMaxxingApp(
                     )
                 }
 
-                !isInitialized -> {
+                !isInitialized || (session != null && !isDiskCacheReady) -> {
                     Surface(
                         color = MaterialTheme.colorScheme.surface,
                         modifier = Modifier.fillMaxSize()
