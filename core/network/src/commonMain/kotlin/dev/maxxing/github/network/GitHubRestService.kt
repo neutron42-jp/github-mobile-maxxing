@@ -58,6 +58,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.Url
 import io.ktor.http.contentType
 import io.ktor.http.encodeURLPathPart
 import io.ktor.http.isSuccess
@@ -759,6 +760,35 @@ private data class UpdateGistRequest(
     val files: Map<String, CreateOrUpdateGistFileRequest?>
 )
 
+private val LINK_ENTRY_REGEX = Regex("""<([^>]+)>\s*((?:;\s*[^<,]+)*)""")
+
+/**
+ * Extracts the `rel="next"` URL from one or more HTTP `Link` headers, accepting only URLs
+ * whose origin (scheme, host, port) matches [baseUrl].
+ */
+internal fun parseNextLinkUrl(linkHeaders: List<String>, baseUrl: String): String? {
+    val expected = runCatching { Url(baseUrl) }.getOrNull() ?: return null
+    for (header in linkHeaders) {
+        for (match in LINK_ENTRY_REGEX.findAll(header)) {
+            val url = match.groupValues[1].trim()
+            if (url.isBlank()) continue
+            val params = match.groupValues[2].split(';').map { it.trim() }
+            val relSegment = params.firstOrNull { it.startsWith("rel=", ignoreCase = true) } ?: continue
+            val relValues = relSegment.substringAfter('=').trim().trim('"', '\'').split(Regex("\\s+"))
+            if (relValues.none { it.equals("next", ignoreCase = true) }) continue
+            val parsed = runCatching { Url(url) }.getOrNull() ?: continue
+            if (
+                parsed.protocol == expected.protocol &&
+                parsed.host.equals(expected.host, ignoreCase = true) &&
+                parsed.port == expected.port
+            ) {
+                return url
+            }
+        }
+    }
+    return null
+}
+
 class GitHubRestService(
     private val httpClient: HttpClient,
     private val baseUrl: String = "https://api.github.com"
@@ -852,26 +882,9 @@ class GitHubRestService(
             }
             files += res.bodyOrDefaultOnEmpty<List<PullFileDto>> { emptyList() }.map { it.toPullFileChange() }
             fetchedPages++
-            nextUrl = res.nextLinkUrlOrNull()
+            nextUrl = parseNextLinkUrl(res.headers.getAll(HttpHeaders.Link).orEmpty(), baseUrl)
         }
         return files
-    }
-
-    /**
-     * Parses the Link header and returns the URL of the rel="next" entry,
-     * or null when the header is absent or has no next page.
-     */
-    private fun HttpResponse.nextLinkUrlOrNull(): String? {
-        val linkHeader = headers[HttpHeaders.Link] ?: return null
-        for (entry in linkHeader.split(',')) {
-            val segments = entry.split(';').map { it.trim() }
-            val url = segments.firstOrNull()?.removeSurrounding("<", ">")
-            if (url.isNullOrBlank()) continue
-            val relSegment = segments.firstOrNull { it.startsWith("rel=", ignoreCase = true) } ?: continue
-            val relValues = relSegment.substringAfter('=').trim().trim('"', '\'').split(Regex("\\s+"))
-            if (relValues.any { it.equals("next", ignoreCase = true) }) return url
-        }
-        return null
     }
 
     private fun PullFileDto.toPullFileChange(): PullFileChange = PullFileChange(
