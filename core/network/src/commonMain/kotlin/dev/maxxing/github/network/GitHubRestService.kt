@@ -780,7 +780,9 @@ internal fun parseNextLinkUrl(linkHeaders: List<String>, baseUrl: String): Strin
             if (
                 parsed.protocol == expected.protocol &&
                 parsed.host.equals(expected.host, ignoreCase = true) &&
-                parsed.port == expected.port
+                parsed.port == expected.port &&
+                parsed.user == null &&
+                parsed.password == null
             ) {
                 return url
             }

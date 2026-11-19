@@ -45,10 +45,12 @@ class PullFilesPaginationTest {
             parseNextLinkUrl(multiHeaders, base)
         )
 
-        // Different host, scheme, or port must be rejected
+        // Different host, scheme, port, or embedded userinfo must be rejected
         assertNull(parseNextLinkUrl(listOf("""<https://evil.example/files?page=2>; rel="next""""), base))
         assertNull(parseNextLinkUrl(listOf("""<http://api.github.com/files?page=2>; rel="next""""), base))
         assertNull(parseNextLinkUrl(listOf("""<https://api.github.com:8443/files?page=2>; rel="next""""), base))
+        assertNull(parseNextLinkUrl(listOf("""<https://user@api.github.com/files?page=2>; rel="next""""), base))
+        assertNull(parseNextLinkUrl(listOf("""<https://user:pass@api.github.com/files?page=2>; rel="next""""), base))
 
         // No rel="next" returns null
         assertNull(parseNextLinkUrl(listOf("""<https://api.github.com/files?page=1>; rel="prev""""), base))
