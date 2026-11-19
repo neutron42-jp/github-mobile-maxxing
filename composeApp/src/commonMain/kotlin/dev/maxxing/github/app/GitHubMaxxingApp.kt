@@ -37,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusProperties
@@ -76,6 +77,7 @@ import dev.maxxing.github.app.ui.UserProfileScreen
 import dev.maxxing.github.auth.openUrlInBrowser
 import dev.maxxing.github.model.AppBranding
 import dev.maxxing.github.model.AppLanguage
+import dev.maxxing.github.model.AuthSession
 import dev.maxxing.github.model.RepoSummary
 import dev.maxxing.github.network.createGitHubImageHttpClient
 import dev.maxxing.github.ui.components.MaxxingLoadingState
@@ -107,9 +109,18 @@ private enum class AppDestination(
     }
 }
 
+/**
+ * Stable session key for app-level side effects: stays equal across OAuth token refreshes
+ * (which replace [AuthSession]), while still distinguishing signed-out (`false to null`) from
+ * a signed-in session whose login has not been resolved yet (`true to null`).
+ */
+internal fun sessionEffectKey(session: AuthSession?): Pair<Boolean, String?> =
+    (session != null) to session?.userLogin?.trim()?.lowercase()?.ifEmpty { null }
+
 @Composable
 fun GitHubMaxxingApp(
     deepLinkUrl: String? = null,
+    deepLinkNonce: Long = 0L,
     onConsumeDeepLink: () -> Unit = {},
     onDarkThemeChanged: (Boolean) -> Unit = {},
     container: AppContainer = remember { AppContainer() },
@@ -154,7 +165,8 @@ fun GitHubMaxxingApp(
 
     val viewerProfile by container.viewerProfile.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
-    val appScope = rememberCoroutineScope()
+    val sessionKey = sessionEffectKey(session)
+    val isSignedIn = sessionKey.first
     var hasAutoCheckedUpdates by remember { mutableStateOf(false) }
 
     // A secure-storage failure while loading the session (e.g. iOS Keychain
@@ -178,38 +190,30 @@ fun GitHubMaxxingApp(
         }
     }
 
-    LaunchedEffect(session) {
-        if (session != null) {
-            val loaded = container.refreshViewerProfile()
-            container.warmUpWorkspace(loaded?.login ?: session?.userLogin)
-        }
+    // Keyed by signed-in state + login so token refreshes don't re-trigger warm-up,
+    // while signed-in sessions with an unresolved userLogin still fetch the viewer profile.
+    LaunchedEffect(sessionKey) {
+        if (!isSignedIn) return@LaunchedEffect
+        val loaded = container.refreshViewerProfile()
+        container.warmUpWorkspace(loaded?.login ?: session?.userLogin)
     }
 
-    LaunchedEffect(isInitialized, session, notifPrefs.osNotificationsEnabled) {
+    LaunchedEffect(isInitialized, isSignedIn, notifPrefs.osNotificationsEnabled) {
         // Wait for the stored session/prefs to load; otherwise the initial null session
         // would cancel the periodic background work on every cold start.
         if (!isInitialized) return@LaunchedEffect
         PlatformNotifier.syncBackgroundSchedule(
-            enabled = session != null && notifPrefs.osNotificationsEnabled
+            enabled = isSignedIn && notifPrefs.osNotificationsEnabled
         )
     }
 
-    // Keep foreground flag synced so WorkManager / foreground syncs never post OS alerts while open,
-    // while still updating seen markers on resume/foreground polls so viewed items stay suppressed.
-    DisposableEffect(lifecycleOwner, session) {
+    // Keep foreground flag synced so background/foreground syncs never post OS alerts while open.
+    DisposableEffect(lifecycleOwner) {
         val currentState = lifecycleOwner.lifecycle.currentState
         container.setAppInForeground(currentState.isAtLeast(Lifecycle.State.STARTED))
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> container.setAppInForeground(true)
-                Lifecycle.Event.ON_RESUME -> {
-                    container.setAppInForeground(true)
-                    if (session != null) {
-                        appScope.launch {
-                            container.syncNotifications(suppressOsAlerts = true)
-                        }
-                    }
-                }
+                Lifecycle.Event.ON_START, Lifecycle.Event.ON_RESUME -> container.setAppInForeground(true)
                 Lifecycle.Event.ON_STOP -> container.setAppInForeground(false)
                 else -> Unit
             }
@@ -221,15 +225,18 @@ fun GitHubMaxxingApp(
         }
     }
 
-    // Foreground real-time notification watcher across Android & Linux Desktop
-    LaunchedEffect(session, notifPrefs) {
-        if (session == null) return@LaunchedEffect
-        while (isActive) {
-            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+    // Foreground real-time notification watcher across Android & Linux Desktop.
+    // repeatOnLifecycle(STARTED) runs one immediate sync on launch / foreground return,
+    // then polls at the configured interval while visible and pauses in the background.
+    // Always suppresses OS alerts while open while still advancing seen markers.
+    LaunchedEffect(sessionKey, notifPrefs, lifecycleOwner) {
+        if (!isSignedIn) return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (isActive) {
                 container.syncNotifications(suppressOsAlerts = true)
+                val intervalMs = (notifPrefs.pollIntervalMinutes.coerceAtLeast(1)) * 60_000L
+                delay(intervalMs)
             }
-            val intervalMs = (notifPrefs.pollIntervalMinutes.coerceAtLeast(1)) * 60_000L
-            delay(intervalMs)
         }
     }
 
@@ -287,6 +294,7 @@ fun GitHubMaxxingApp(
                     MainAuthenticatedShell(
                         container = container,
                         deepLinkUrl = deepLinkUrl,
+                        deepLinkNonce = deepLinkNonce,
                         onConsumeDeepLink = onConsumeDeepLink,
                         inboxRequest = inboxRequest,
                         onConsumeInboxRequest = onConsumeInboxRequest
@@ -342,6 +350,7 @@ private fun SessionLoadErrorScreen(
 private fun MainAuthenticatedShell(
     container: AppContainer,
     deepLinkUrl: String?,
+    deepLinkNonce: Long,
     onConsumeDeepLink: () -> Unit,
     inboxRequest: Long?,
     onConsumeInboxRequest: () -> Unit
@@ -362,7 +371,9 @@ private fun MainAuthenticatedShell(
         navState = navState.openUserProfile(targetLogin)
     }
 
-    LaunchedEffect(deepLinkUrl) {
+    // Nonce in the key so re-tapping the same deep link URL (same String value)
+    // still re-launches this effect; parsing itself is unchanged.
+    LaunchedEffect(deepLinkUrl, deepLinkNonce) {
         val raw = deepLinkUrl ?: return@LaunchedEffect
         when (val parsed = parseAppDeepLink(raw)) {
             is AppDeepLink.IssueOrPull -> {

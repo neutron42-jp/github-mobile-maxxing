@@ -17,6 +17,8 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
@@ -411,5 +413,69 @@ class NotificationMonitorTest {
         )
         monitor.markThreadsSeen(newerUnread)
         assertEquals("2026-11-19T11:00:00Z", store.loadSeenNotificationMarkers()["t_inbox_viewed"])
+    }
+
+    @Test
+    fun concurrentChecksAreSerializedAndDoNotEmitDuplicateAlerts() = runTest {
+        val firstRequestStarted = CompletableDeferred<Unit>()
+        val allowFirstResponse = CompletableDeferred<Unit>()
+        var callCount = 0
+
+        val engine = MockEngine {
+            callCount++
+            if (callCount == 1) {
+                // Baseline call
+                respond("[]", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+            } else {
+                if (callCount == 2) {
+                    firstRequestStarted.complete(Unit)
+                    allowFirstResponse.await()
+                }
+                respond(
+                    content = """
+                        [
+                          {
+                            "id": "t_race",
+                            "unread": true,
+                            "reason": "mention",
+                            "updated_at": "2026-11-19T05:00:00Z",
+                            "subject": { "title": "Race check", "type": "Issue", "url": "https://api.github.com/repos/a/b/issues/1" },
+                            "repository": { "name": "b", "full_name": "a/b", "owner": { "login": "a" } }
+                          }
+                        ]
+                    """.trimIndent(),
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(HttpHeaders.ContentType, "application/json")
+                )
+            }
+        }
+
+        val store = InMemoryTokenStore()
+        val sessionManager = SessionManager(
+            tokenStore = store,
+            deviceFlowClient = DeviceFlowClient(HttpClient(engine))
+        )
+        sessionManager.initialize()
+
+        val httpClient = HttpClient(engine) {
+            install(ContentNegotiation) {
+                json(Json { ignoreUnknownKeys = true; isLenient = true })
+            }
+        }
+        val repo = GitHubRepository(sessionManager = sessionManager, httpClient = httpClient)
+        val monitor = NotificationMonitor(sessionManager, repo)
+
+        // Establish baseline first
+        monitor.checkForNewNotifications().getOrThrow()
+
+        // Launch two overlapping checks; Mutex must serialize them so the thread alerts only once
+        val first = async { monitor.checkForNewNotifications().getOrThrow() }
+        firstRequestStarted.await()
+        val second = async { monitor.checkForNewNotifications().getOrThrow() }
+        allowFirstResponse.complete(Unit)
+
+        val alertedIds = first.await().newlyArrivedForOs.map { it.id } +
+            second.await().newlyArrivedForOs.map { it.id }
+        assertEquals(listOf("t_race"), alertedIds)
     }
 }

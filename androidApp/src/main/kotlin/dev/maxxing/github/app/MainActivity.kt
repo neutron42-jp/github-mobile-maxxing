@@ -28,6 +28,10 @@ import dev.maxxing.github.auth.AndroidAuthContextHolder
 class MainActivity : ComponentActivity() {
     private var deepLinkUrl by mutableStateOf<String?>(null)
 
+    // Monotonic nonce paired with [deepLinkUrl]: re-delivering the same URL via
+    // onNewIntent changes the nonce, so the consumer's LaunchedEffect re-fires.
+    private var deepLinkNonce by mutableStateOf(0L)
+
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { /* Permission result handled gracefully by PlatformNotifier */ }
@@ -48,7 +52,7 @@ class MainActivity : ComponentActivity() {
         AndroidAuthContextHolder.init(this)
         PlatformNotifier.ensureInitialized()
         requestNotificationPermissionIfNeeded()
-        deepLinkUrl = extractDeepLinkUrl(intent)
+        setDeepLink(extractDeepLinkUrl(intent))
 
         setContent {
             var isDarkTheme by mutableStateOf(systemDark)
@@ -77,6 +81,7 @@ class MainActivity : ComponentActivity() {
             }
             GitHubMaxxingApp(
                 deepLinkUrl = deepLinkUrl,
+                deepLinkNonce = deepLinkNonce,
                 onConsumeDeepLink = { deepLinkUrl = null },
                 onDarkThemeChanged = { isDarkTheme = it }
             )
@@ -86,7 +91,13 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        extractDeepLinkUrl(intent)?.let { deepLinkUrl = it }
+        setDeepLink(extractDeepLinkUrl(intent))
+    }
+
+    private fun setDeepLink(url: String?) {
+        if (url == null) return
+        deepLinkUrl = url
+        deepLinkNonce += 1L
     }
 
     private fun requestNotificationPermissionIfNeeded() {

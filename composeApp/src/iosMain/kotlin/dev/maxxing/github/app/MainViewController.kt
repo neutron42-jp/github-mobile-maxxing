@@ -83,6 +83,7 @@ private fun createMainViewController(
             // with `parseStrictDeepLink`, so this is the canonical notification link of that target.
             deepLinkUrl = (pending as? PendingNavigation.Thread)?.target
                 ?.let { buildThreadDeepLinkUrl(it.owner, it.repo, it.number) },
+            deepLinkNonce = (pending as? PendingNavigation.Thread)?.nonce ?: 0L,
             onConsumeDeepLink = { pending?.let { IosDeepLinkBridge.consume(it.nonce) } },
             inboxRequest = (pending as? PendingNavigation.Inbox)?.nonce,
             onConsumeInboxRequest = { pending?.let { IosDeepLinkBridge.consume(it.nonce) } },
