@@ -17,6 +17,9 @@ kotlin {
         }
     }
 
+    iosArm64()
+    iosSimulatorArm64()
+
     sourceSets {
         commonMain.dependencies {
             api(projects.core.model)
@@ -33,6 +36,9 @@ kotlin {
             dependencies {
                 implementation(libs.ktor.client.cio)
             }
+        }
+        iosMain.dependencies {
+            implementation(libs.ktor.client.darwin)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

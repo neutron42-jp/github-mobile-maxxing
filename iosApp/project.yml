@@ -1,0 +1,94 @@
+# XcodeGen spec. iosApp.xcodeproj is generated from this file and committed so that
+# `xcodebuild -project iosApp/iosApp.xcodeproj ...` works without XcodeGen.
+# Regenerate with: cd iosApp && xcodegen generate
+name: iosApp
+configFiles:
+  Debug: Configuration/Config.xcconfig
+  Release: Configuration/Config.xcconfig
+options:
+  createIntermediateGroups: true
+  developmentLanguage: en
+targets:
+  iosApp:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: iosApp
+        excludes:
+          - Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID)
+        PRODUCT_NAME: iosApp
+        INFOPLIST_FILE: iosApp/Info.plist
+        CODE_SIGN_ENTITLEMENTS: iosApp/iosApp.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        DEVELOPMENT_TEAM: $(TEAM_ID)
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # The KMP framework is built for iosArm64 and iosSimulatorArm64 only (no iosX64).
+        EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
+        GENERATE_INFOPLIST_FILE: NO
+        # Run Script below invokes Gradle, which writes outside the sandbox.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        FRAMEWORK_SEARCH_PATHS:
+          - $(inherited)
+          - $(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)
+        OTHER_LDFLAGS:
+          - $(inherited)
+          - -framework
+          - ComposeApp
+      configs:
+        Debug:
+          # Gradle's embedAndSignAppleFrameworkForXcode selects the build type from this.
+          KOTLIN_FRAMEWORK_BUILD_TYPE: debug
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+        Release:
+          KOTLIN_FRAMEWORK_BUILD_TYPE: release
+    preBuildScripts:
+      - name: Build Kotlin framework
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ "YES" = "$OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED" ]; then
+            echo "Skipping Gradle build task invocation due to OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED=YES"
+            exit 0
+          fi
+          # Machine-specific settings (JAVA_HOME, ...) live in a gitignored file.
+          [ -f "$SRCROOT/Configuration/local.env" ] && . "$SRCROOT/Configuration/local.env"
+          if [ -z "$JAVA_HOME" ]; then
+            JAVA_HOME="$(/usr/libexec/java_home 2>/dev/null)" || { echo "error: JAVA_HOME is not set. Set it in iosApp/Configuration/local.env"; exit 1; }
+            export JAVA_HOME
+          fi
+          cd "$SRCROOT/.."
+          ./gradlew :composeApp:embedAndSignAppleFrameworkForXcode
+  iosAppUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: iosAppUITests
+    dependencies:
+      - target: iosApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID).uitests
+        TEST_TARGET_NAME: iosApp
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: $(TEAM_ID)
+schemes:
+  iosApp:
+    build:
+      targets:
+        iosApp: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - name: iosAppUITests
+    archive:
+      config: Release

@@ -13,3 +13,10 @@ captures/
 *.apk
 *.ap_
 *.aab
+
+# iOS (Xcode)
+xcuserdata/
+*.xcuserstate
+DerivedData/
+iosApp/Configuration/local.env
+Local.xcconfig

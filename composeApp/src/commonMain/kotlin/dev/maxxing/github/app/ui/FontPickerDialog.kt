@@ -52,6 +52,7 @@ import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.i18n.appStrings
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

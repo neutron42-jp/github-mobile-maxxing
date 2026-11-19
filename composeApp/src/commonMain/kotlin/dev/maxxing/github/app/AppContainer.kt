@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.time.TimeSource
 
 data class IssuePullTarget(
@@ -28,16 +30,32 @@ data class IssuePullTarget(
     val hintTitle: String? = null
 )
 
-class AppContainer {
-    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
+/**
+ * The single application graph shared by the UI, notification actions and the
+ * APNs bridge. Every dependency is a defaulted constructor parameter so
+ * `AppContainer()` keeps the existing behaviour and tests can inject fakes.
+ */
+class AppContainer(
     val sessionManager: SessionManager = SessionManager(
         defaultClientId = MaxxingBuildConfig.DEFAULT_GITHUB_CLIENT_ID.ifBlank { AppBranding.DEFAULT_OAUTH_CLIENT_ID }
-    )
-    val repository: GitHubRepository = GitHubRepository(sessionManager)
+    ),
+    val repository: GitHubRepository = GitHubRepository(sessionManager),
     val notificationMonitor: NotificationMonitor = NotificationMonitor(sessionManager, repository) {
         !PlatformNotifier.areOsNotificationsBlocked()
-    }
+    },
+    private val showOsNotifications: (List<NotificationThread>) -> Unit = {
+        PlatformNotifier.showGitHubNotifications(it)
+    },
+    private val backgroundScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+) {
+    /**
+     * Serializes [syncNotifications]. The foreground `ON_RESUME` sync, the
+     * periodic poller and the iOS notification-action path can all race;
+     * `NotificationMonitor` performs a read-modify-write of the seen markers,
+     * so overlapping runs could lose markers. Only the observable effect
+     * changes: a concurrent call waits for the in-flight one.
+     */
+    private val syncNotificationsMutex = Mutex()
 
     private val _viewerProfile = MutableStateFlow<ViewerProfile?>(null)
     val viewerProfile: StateFlow<ViewerProfile?> = _viewerProfile.asStateFlow()
@@ -125,25 +143,27 @@ class AppContainer {
     }
 
     suspend fun syncNotifications(): Result<NotificationCheckResult> {
-        val syncStartedAtMs = trackerNowMs()
-        return notificationMonitor.checkForNewNotifications().map { check ->
-            val reconciled = updateTracker {
-                it.reconcileFromServer(
-                    fetchedUnread = check.allUnread,
-                    syncStartedAtMs = syncStartedAtMs,
-                    nowMs = trackerNowMs()
-                )
-            }.currentThreads.orEmpty()
-            if (check.newlyArrivedForOs.isNotEmpty()) {
-                PlatformNotifier.showGitHubNotifications(check.newlyArrivedForOs)
-            }
-            val topTargets = reconciled.mapNotNull { thread ->
-                thread.subjectNumber?.let { num ->
-                    IssuePullTarget(thread.repoOwner, thread.repoName, num, thread.subjectTitle)
+        return syncNotificationsMutex.withLock {
+            val syncStartedAtMs = trackerNowMs()
+            notificationMonitor.checkForNewNotifications().map { check ->
+                val reconciled = updateTracker {
+                    it.reconcileFromServer(
+                        fetchedUnread = check.allUnread,
+                        syncStartedAtMs = syncStartedAtMs,
+                        nowMs = trackerNowMs()
+                    )
+                }.currentThreads.orEmpty()
+                if (check.newlyArrivedForOs.isNotEmpty()) {
+                    showOsNotifications(check.newlyArrivedForOs)
                 }
-            }.take(3)
-            prefetchIssuePullTargets(topTargets)
-            check.copy(allUnread = reconciled)
+                val topTargets = reconciled.mapNotNull { thread ->
+                    thread.subjectNumber?.let { num ->
+                        IssuePullTarget(thread.repoOwner, thread.repoName, num, thread.subjectTitle)
+                    }
+                }.take(3)
+                prefetchIssuePullTargets(topTargets)
+                check.copy(allUnread = reconciled)
+            }
         }
     }
 

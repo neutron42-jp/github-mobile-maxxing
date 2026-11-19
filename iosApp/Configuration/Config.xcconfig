@@ -1,0 +1,23 @@
+// Shared build settings for iosApp.
+// Machine- or person-specific values (TEAM_ID etc.) go in Local.xcconfig, which is gitignored.
+
+// Bundle ID of the iOS app. It is deliberately NOT the Android applicationId
+// (`dev.maxxing.github.app`), which stays unchanged. Changing it after a release resets the Keychain
+// item and the APNs device token, so keep it stable once distributed.
+BUNDLE_ID = io.github.neutron42-jp.gitmax
+MARKETING_VERSION = 1.0
+CURRENT_PROJECT_VERSION = 1
+
+IPHONEOS_DEPLOYMENT_TARGET = 16.0
+
+// Simulator builds need no signing; set TEAM_ID in Local.xcconfig for device builds.
+TEAM_ID =
+
+// APNs environment of the build. It feeds the `aps-environment` entitlement AND the
+// value the app reports to the push server, so they cannot disagree. Release defaults to production
+// (TestFlight / App Store distribution signing). A development-signed Release build on a device must
+// override this in Local.xcconfig: APNS_ENVIRONMENT[config=Release] = development
+APNS_ENVIRONMENT = development
+APNS_ENVIRONMENT[config=Release] = production
+
+#include? "Local.xcconfig"

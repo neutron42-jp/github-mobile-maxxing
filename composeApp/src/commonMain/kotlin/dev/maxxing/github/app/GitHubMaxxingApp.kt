@@ -1,15 +1,20 @@
 package dev.maxxing.github.app
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -34,7 +39,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
 import coil3.compose.setSingletonImageLoaderFactory
 import coil3.memory.MemoryCache
@@ -98,10 +105,24 @@ fun GitHubMaxxingApp(
     deepLinkUrl: String? = null,
     onConsumeDeepLink: () -> Unit = {},
     onDarkThemeChanged: (Boolean) -> Unit = {},
+    container: AppContainer = remember { AppContainer() },
+    /**
+     * iOS shares one `AppContainer` between the UI, notification actions and
+     * the APNs bridge, so it also needs a single, mutex-guarded
+     * session-initialization entry point (`IosAppGraph.ensureSessionLoaded`).
+     * The default keeps Android / Desktop behaviour identical.
+     */
+    initializeSession: suspend () -> Unit = { container.sessionManager.initialize() },
+    /**
+     * A request to show the Inbox tab (e.g. an iOS notification tap without an issue/PR
+     * number). The value is a nonce that changes per request; `null` means no request. It is
+     * applied once the user is authenticated, then [onConsumeInboxRequest] is called. The defaults
+     * keep Android / Desktop behaviour identical.
+     */
+    inboxRequest: Long? = null,
+    onConsumeInboxRequest: () -> Unit = {},
     onLanguageChanged: (AppLanguage) -> Unit = {}
 ) {
-    val container = remember { AppContainer() }
-
     setSingletonImageLoaderFactory { context ->
         val imageHttpClient = createGitHubImageHttpClient {
             container.sessionManager.session.value?.accessToken
@@ -128,9 +149,15 @@ fun GitHubMaxxingApp(
     val lifecycleOwner = LocalLifecycleOwner.current
     val appScope = rememberCoroutineScope()
 
-    LaunchedEffect(Unit) {
-        PlatformNotifier.ensureInitialized()
-        container.sessionManager.initialize()
+    // A secure-storage failure while loading the session (e.g. iOS Keychain
+    // before first unlock) is shown with a retry instead of crashing or leaving
+    // the splash forever. Nothing is deleted or signed out on failure.
+    var sessionLoadError by remember { mutableStateOf<Throwable?>(null) }
+    var sessionLoadAttempt by remember { mutableStateOf(0) }
+
+    LaunchedEffect(sessionLoadAttempt) {
+        if (sessionLoadAttempt == 0) PlatformNotifier.ensureInitialized()
+        sessionLoadError = catchingSecureStorage { initializeSession() }.exceptionOrNull()
     }
 
     LaunchedEffect(session) {
@@ -198,6 +225,15 @@ fun GitHubMaxxingApp(
         ) {
             val strings = appStrings()
             when {
+                // A secure-storage failure while loading the session (e.g. iOS Keychain before
+                // first unlock) is shown with a retry instead of crashing or leaving the splash.
+                !isInitialized && sessionLoadError != null -> {
+                    SessionLoadErrorScreen(
+                        error = sessionLoadError,
+                        onRetry = { sessionLoadAttempt += 1 }
+                    )
+                }
+
                 !isInitialized -> {
                     Surface(
                         color = MaterialTheme.colorScheme.surface,
@@ -220,9 +256,45 @@ fun GitHubMaxxingApp(
                     MainAuthenticatedShell(
                         container = container,
                         deepLinkUrl = deepLinkUrl,
-                        onConsumeDeepLink = onConsumeDeepLink
+                        onConsumeDeepLink = onConsumeDeepLink,
+                        inboxRequest = inboxRequest,
+                        onConsumeInboxRequest = onConsumeInboxRequest
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SessionLoadErrorScreen(
+    error: Throwable?,
+    onRetry: () -> Unit
+) {
+    val strings = appStrings()
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = strings.cannotOpenApp(AppBranding.APP_NAME),
+                style = MaterialTheme.typography.titleLarge
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = strings.secureStorageLoadFailed(secureStorageErrorDetail(error)),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(24.dp))
+            Button(onClick = onRetry) {
+                Text(strings.tryAgain)
             }
         }
     }
@@ -232,7 +304,9 @@ fun GitHubMaxxingApp(
 private fun MainAuthenticatedShell(
     container: AppContainer,
     deepLinkUrl: String?,
-    onConsumeDeepLink: () -> Unit
+    onConsumeDeepLink: () -> Unit,
+    inboxRequest: Long?,
+    onConsumeInboxRequest: () -> Unit
 ) {
     var navState by rememberSaveable(stateSaver = ShellNavStateSaver) { mutableStateOf(ShellNavState()) }
     var notificationDeepLinkTarget by remember { mutableStateOf<IssuePullTarget?>(null) }
@@ -276,6 +350,13 @@ private fun MainAuthenticatedShell(
                 onConsumeDeepLink()
             }
             null -> onConsumeDeepLink()
+        }
+    }
+
+    LaunchedEffect(inboxRequest) {
+        if (inboxRequest != null) {
+            navState = navState.selectBottomDestination(ShellDestination.INBOX)
+            onConsumeInboxRequest()
         }
     }
 

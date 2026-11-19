@@ -87,6 +87,13 @@ kotlin {
         }
     }
 
+    listOf(iosArm64(), iosSimulatorArm64()).forEach { iosTarget ->
+        iosTarget.binaries.framework {
+            baseName = "ComposeApp"
+            isStatic = true
+        }
+    }
+
     sourceSets {
         val commonMain by getting {
             kotlin.srcDir(generateMaxxingConfig.map { layout.buildDirectory.dir("generated/maxxingConfig/kotlin") })
@@ -114,6 +121,10 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.coroutines.test)
+            implementation(libs.ktor.client.mock)
+            implementation(libs.ktor.client.content.negotiation)
+            implementation(libs.ktor.serialization.kotlinx.json)
         }
         val desktopTest by getting {
             dependencies {

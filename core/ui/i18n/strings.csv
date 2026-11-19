@@ -4,6 +4,11 @@ languageName,,English,日本語
 # Common
 loading,,Loading...,読み込み中...
 retry,,Retry,再試行
+tryAgain,,Try again,もう一度試す
+cannotOpenApp,String,Can't open {0},{0} を開けません
+secureStorageLoadFailed,String,"Couldn't load your session: secure storage is unavailable{0}. If the device was just restarted, unlock it and try again.",セッションを読み込めません: セキュアストレージを利用できません{0}。端末を再起動した直後の場合は、ロックを解除してからもう一度お試しください。
+secureStorageSaveFailed,String,"Couldn't save your session: secure storage is unavailable{0}. If the device was just restarted, unlock it and try again.",セッションを保存できません: セキュアストレージを利用できません{0}。端末を再起動した直後の場合は、ロックを解除してからもう一度お試しください。
+secureStorageSignOutFailed,String,"Couldn't sign out: secure storage is unavailable{0}. If the device was just restarted, unlock it and try again.",サインアウトできません: セキュアストレージを利用できません{0}。端末を再起動した直後の場合は、ロックを解除してからもう一度お試しください。
 cancel,,Cancel,キャンセル
 save,,Save,保存
 apply,,Apply,適用
@@ -53,6 +58,7 @@ navRepos,,Repos,リポジトリ
 navSettings,,Settings,設定
 # Sign-in screen
 signInSubtitle,,"Fast, Material 3 Expressive GitHub client for Android & Linux.",Android・Linux 向けの高速な Material 3 Expressive GitHub クライアント。
+signInSubtitleIos,,"Fast, Material 3 Expressive GitHub client for Android, iOS & Linux.",Android・iOS・Linux 向けの高速な Material 3 Expressive GitHub クライアント。
 signInClientIdLabel,,GitHub OAuth App Client ID,GitHub OAuth App クライアント ID
 signInWithGitHubButton,,Sign in with GitHub,GitHub でサインイン
 signInUseCustomClientId,,Use custom OAuth Client ID,独自の OAuth クライアント ID を使う
@@ -77,6 +83,7 @@ apiRateLimit,,GitHub API Rate Limit,GitHub API レート制限
 osNotificationsTitle,,GitHub OS Notifications,OS 通知設定
 enableOsAlerts,,Enable OS Alerts,OS 通知を有効化
 enableOsAlertsDesc,,Android notifications with Mark Read / Done actions & Linux notify-send.,Android 通知（既読・完了アクション付き）および Linux notify-send を使用します。
+enableOsAlertsDescIos,,Push & alert notifications with Mark Read / Done actions.,プッシュ通知とアラート通知（既読・完了アクション付き）を使用します。
 urgentOnly,,Urgent Only,重要な通知のみ
 urgentOnlyDesc,,"Only alert for Review Requests, Mentions, Assignments, and Security.",レビュー依頼、メンション、アサイン、セキュリティ警告のみ通知します。
 foregroundSyncInterval,,Foreground Sync Interval,フォアグラウンド同期間隔
@@ -84,6 +91,7 @@ pollIntervalMinutes,Int,{0} min,{0} 分
 sendTestNotification,,Send Test Notification,テスト通知を送信
 testNotificationSent,,Test notification dispatched,テスト通知を送信しました
 testNotificationBlocked,,Notifications blocked or notify-send unavailable — check OS permissions,通知がブロックされているか notify-send を利用できません。OS の権限を確認してください
+testNotificationBlockedIos,,Notifications are not allowed — check iOS Settings,通知が許可されていません。iOS の設定を確認してください
 osNotificationsBlockedWarning,,"Notifications are blocked by the system, so alerts won't appear.",システムで通知がブロックされているため、通知は表示されません。
 openNotificationSettings,,Open notification settings,通知設定を開く
 failedOpenNotificationSettings,,Could not open notification settings,通知設定を開けませんでした

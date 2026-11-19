@@ -144,6 +144,7 @@ badgeMerged	マージ済み
 badgeOpen	オープン
 cancel	キャンセル
 cancelReplyDesc	返信をキャンセル
+cannotOpenApp	zqa1 を開けません
 checkConclusionActionRequired	要対応
 checkConclusionCancelled	キャンセル
 checkConclusionCompleted	完了
@@ -274,6 +275,7 @@ editorMetricsLabel	zqa1 · zqb2
 enableGitHubLinks	github.com リンクを有効化
 enableOsAlerts	OS 通知を有効化
 enableOsAlertsDesc	Android 通知（既読・完了アクション付き）および Linux notify-send を使用します。
+enableOsAlertsDescIos	プッシュ通知とアラート通知（既読・完了アクション付き）を使用します。
 errorHintSuffix	。zqa1
 errorSignInAgainSuffix	。サインインし直してください。
 errorWithDetail	zqa1\n詳細: zqb2
@@ -806,6 +808,9 @@ searchKindUsers	ユーザー
 searchReposPlaceholder	リポジトリを検索...
 searchSystemFontsPlaceholder	フォントを検索...
 searchUsersPlaceholder	GitHub ユーザー・Org を検索...
+secureStorageLoadFailed	セッションを読み込めません: セキュアストレージを利用できませんzqa1。端末を再起動した直後の場合は、ロックを解除してからもう一度お試しください。
+secureStorageSaveFailed	セッションを保存できません: セキュアストレージを利用できませんzqa1。端末を再起動した直後の場合は、ロックを解除してからもう一度お試しください。
+secureStorageSignOutFailed	サインアウトできません: セキュアストレージを利用できませんzqa1。端末を再起動した直後の場合は、ロックを解除してからもう一度お試しください。
 securityAdvisoriesCount	セキュリティアドバイザリ (7301)
 securityAffected	影響範囲: zqa1
 securityAllClearDesc	このリポジトリの依存関係とアドバイザリはクリーンな状態です。
@@ -854,6 +859,7 @@ signInOpenGitHub	GitHub を開く
 signInRequestingCode	GitHub からデバイスコードを取得中...
 signInResetClientId	既定値に戻す
 signInSubtitle	Android・Linux 向けの高速な Material 3 Expressive GitHub クライアント。
+signInSubtitleIos	Android・iOS・Linux 向けの高速な Material 3 Expressive GitHub クライアント。
 signInUseCustomClientId	独自の OAuth クライアント ID を使う
 signInWaitingAuth	認証の完了を待機中...
 signInWelcome	ようこそ、@zqa1 さん！
@@ -887,6 +893,7 @@ systemActorSubject	システムが
 systemDefaultLabel	システム標準
 systemFontsHeader	システムフォント
 testNotificationBlocked	通知がブロックされているか notify-send を利用できません。OS の権限を確認してください
+testNotificationBlockedIos	通知が許可されていません。iOS の設定を確認してください
 testNotificationSent	テスト通知を送信しました
 themeTitle	Material 3 Expressive テーマ
 timelineClosed	zqa1クローズしました
@@ -895,6 +902,7 @@ timelineMergedIntoBase	zqa1ベースブランチにマージしました
 timelineReopened	zqa1再開しました
 timelineUnrecognized	zqa1 zqb2
 trendingAll	すべての言語
+tryAgain	もう一度試す
 unfollowedUser	@zqa1 のフォローを解除しました
 unknownError	不明なエラー
 unknownUser	不明

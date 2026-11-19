@@ -17,7 +17,8 @@ class GitHubUrlParserTest {
     }
 
     @Test
-    fun `parses github issue, pull request, repository, user, and reserved urls`() {
+    // iOS (Kotlin/Native) test names must not contain commas; renamed from the upstream name for that reason.
+    fun `parses github issue and pull request and repository and user and reserved urls`() {
         val issue = assertIs<AppDeepLink.IssueOrPull>(
             parseAppDeepLink("https://github.com/octocat/Hello-World/issues/42")
         )

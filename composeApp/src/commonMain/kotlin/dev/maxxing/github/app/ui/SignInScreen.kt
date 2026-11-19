@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -60,6 +61,9 @@ import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.ShieldCheck
 import dev.maxxing.github.app.resources.Res
 import dev.maxxing.github.app.resources.app_icon
+import dev.maxxing.github.app.catchingSecureStorage
+import dev.maxxing.github.app.platformCapabilities
+import dev.maxxing.github.app.secureStorageErrorDetail
 import dev.maxxing.github.auth.SessionManager
 import dev.maxxing.github.auth.openUrlInBrowser
 import dev.maxxing.github.model.AppBranding
@@ -69,6 +73,7 @@ import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.expressiveAnimateContentSize
 import dev.maxxing.github.ui.i18n.appStrings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -101,6 +106,9 @@ fun SignInScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                // Only where the platform asks for it (iOS), shrink the form to the space above
+                // the keyboard so the custom Client ID field stays reachable. Android / Desktop unchanged.
+                .then(if (platformCapabilities.avoidsKeyboardOnSignIn) Modifier.imePadding() else Modifier)
                 .verticalScroll(rememberScrollState())
                 .padding(20.dp),
             contentAlignment = Alignment.Center
@@ -136,7 +144,7 @@ fun SignInScreen(
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        text = strings.signInSubtitle,
+                        text = if (platformCapabilities.usesIosCopy) strings.signInSubtitleIos else strings.signInSubtitle,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -172,13 +180,20 @@ fun SignInScreen(
                                         val activeId = clientIdInput.trim().ifBlank { AppBranding.DEFAULT_OAUTH_CLIENT_ID }
                                         pollingJob?.cancel()
                                         pollingJob = scope.launch {
-                                            sessionManager.startDeviceFlow(activeId)
-                                                .collect { next ->
-                                                    deviceState = next
-                                                    if (next is DeviceCodeState.Authenticated) {
-                                                        onSignedIn()
+                                            // Saving the session after authorization can throw on iOS.
+                                            catchingSecureStorage {
+                                                sessionManager.startDeviceFlow(activeId)
+                                                    .collect { next ->
+                                                        deviceState = next
+                                                        if (next is DeviceCodeState.Authenticated) {
+                                                            onSignedIn()
+                                                        }
                                                     }
-                                                }
+                                            }.onFailure {
+                                                deviceState = DeviceCodeState.Error(
+                                                    strings.secureStorageSaveFailed(secureStorageErrorDetail(it))
+                                                )
+                                            }
                                         }
                                     },
                                     enabled = clientIdInput.isNotBlank(),

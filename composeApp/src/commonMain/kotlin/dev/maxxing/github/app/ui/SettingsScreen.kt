@@ -83,10 +83,13 @@ import com.composables.icons.lucide.Type
 import dev.maxxing.github.app.AppContainer
 import dev.maxxing.github.app.MaxxingBuildConfig
 import dev.maxxing.github.app.SettingsSection
+import dev.maxxing.github.app.catchingSecureStorage
 import dev.maxxing.github.app.fonts.PlatformFontManager
 import dev.maxxing.github.app.notifications.PlatformNotifier
+import dev.maxxing.github.app.platformCapabilities
 import dev.maxxing.github.app.resources.Res
 import dev.maxxing.github.app.resources.app_icon
+import dev.maxxing.github.app.secureStorageErrorDetail
 import dev.maxxing.github.auth.GitHubLinkHandlingState
 import dev.maxxing.github.auth.NotificationPreferences
 import dev.maxxing.github.auth.ThemePreferences
@@ -225,9 +228,15 @@ fun SettingsScreen(
             onOpenUser = onOpenUser,
             onSignOut = {
                 scope.launch {
-                    container.sessionManager.signOut()
-                    container.clearCachedProfile()
-                    onSignedOut()
+                    // Clearing the Keychain item can fail on iOS; stay signed in and report.
+                    catchingSecureStorage { container.sessionManager.signOut() }
+                        .onSuccess {
+                            container.clearCachedProfile()
+                            onSignedOut()
+                        }
+                        .onFailure {
+                            onMessage(strings.secureStorageSignOutFailed(secureStorageErrorDetail(it)))
+                        }
                 }
             },
             onSelectSection = { section -> onSelectSection(section) }
@@ -789,138 +798,143 @@ private fun AppearanceSettingsPage(
                     }
                 }
 
-                Spacer(Modifier.height(16.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(strings.dynamicColorTitle, style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            strings.dynamicColorDesc,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                if (platformCapabilities.supportsDynamicColorToggle) {
+                    Spacer(Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(strings.dynamicColorTitle, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                strings.dynamicColorDesc,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = themePrefs.useDynamicColor,
+                            onCheckedChange = { enabled ->
+                                onUpdateTheme(themePrefs.copy(useDynamicColor = enabled))
+                            }
                         )
                     }
-                    Switch(
-                        checked = themePrefs.useDynamicColor,
-                        onCheckedChange = { enabled ->
-                            onUpdateTheme(themePrefs.copy(useDynamicColor = enabled))
-                        }
-                    )
                 }
             }
         }
 
         // Typography & Font customizer
-        ElevatedCard(
-            shape = MaterialTheme.shapes.large,
-            colors = CardDefaults.elevatedCardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-            ),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Lucide.Type, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(10.dp))
-                    Text(strings.fontSectionTitle, style = MaterialTheme.typography.titleMedium)
-                }
+        // iOS has no custom-font support yet (PlatformFontManager is a no-op there), so the card is hidden.
+        if (platformCapabilities.supportsCustomFonts) {
+            ElevatedCard(
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Lucide.Type, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(10.dp))
+                        Text(strings.fontSectionTitle, style = MaterialTheme.typography.titleMedium)
+                    }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(strings.primaryFontLabel, style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            strings.primaryFontDesc,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    FilledTonalButton(onClick = { onOpenFontPicker(FontPickerTarget.PRIMARY) }) {
-                        Text(
-                            text = strings.fontSelectionLabel(themePrefs.primaryFont),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Icon(Lucide.ChevronDown, contentDescription = null, modifier = Modifier.size(15.dp))
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            strings.fallbackFontLabel,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = if (supportsFallback) Color.Unspecified else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            if (supportsFallback) strings.fallbackFontDesc else strings.fallbackFontRequiresAndroid10,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    FilledTonalButton(
-                        onClick = { onOpenFontPicker(FontPickerTarget.FALLBACK) },
-                        enabled = supportsFallback
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = strings.fontSelectionLabel(themePrefs.fallbackFont),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Icon(Lucide.ChevronDown, contentDescription = null, modifier = Modifier.size(15.dp))
-                    }
-                }
-
-                if (hasCustomFonts) {
-                    OutlinedButton(
-                        onClick = {
-                            onUpdateTheme(
-                                themePrefs.copy(
-                                    primaryFont = FontSelection.SystemDefault,
-                                    fallbackFont = FontSelection.SystemDefault
-                                )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(strings.primaryFontLabel, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                strings.primaryFontDesc,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                    ) {
-                        Text(strings.resetFontsToSystemDefault)
+                        FilledTonalButton(onClick = { onOpenFontPicker(FontPickerTarget.PRIMARY) }) {
+                            Text(
+                                text = strings.fontSelectionLabel(themePrefs.primaryFont),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Icon(Lucide.ChevronDown, contentDescription = null, modifier = Modifier.size(15.dp))
+                        }
                     }
-                }
 
-                Surface(
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = strings.fontPreviewTitle,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = strings.fontPreviewPrimarySample,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text(
-                            text = strings.fontPreviewSecondarySample,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                strings.fallbackFontLabel,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = if (supportsFallback) Color.Unspecified else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                if (supportsFallback) strings.fallbackFontDesc else strings.fallbackFontRequiresAndroid10,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        FilledTonalButton(
+                            onClick = { onOpenFontPicker(FontPickerTarget.FALLBACK) },
+                            enabled = supportsFallback
+                        ) {
+                            Text(
+                                text = strings.fontSelectionLabel(themePrefs.fallbackFont),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Icon(Lucide.ChevronDown, contentDescription = null, modifier = Modifier.size(15.dp))
+                        }
+                    }
+
+                    if (hasCustomFonts) {
+                        OutlinedButton(
+                            onClick = {
+                                onUpdateTheme(
+                                    themePrefs.copy(
+                                        primaryFont = FontSelection.SystemDefault,
+                                        fallbackFont = FontSelection.SystemDefault
+                                    )
+                                )
+                            }
+                        ) {
+                            Text(strings.resetFontsToSystemDefault)
+                        }
+                    }
+
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = strings.fontPreviewTitle,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = strings.fontPreviewPrimarySample,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = strings.fontPreviewSecondarySample,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
@@ -964,7 +978,7 @@ private fun NotificationsSettingsPage(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(strings.enableOsAlerts, style = MaterialTheme.typography.bodyLarge)
                         Text(
-                            strings.enableOsAlertsDesc,
+                            if (platformCapabilities.usesIosCopy) strings.enableOsAlertsDescIos else strings.enableOsAlertsDesc,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1046,6 +1060,7 @@ private fun NotificationsSettingsPage(
                         val sent = PlatformNotifier.showTestNotification()
                         onMessage(
                             if (sent) strings.testNotificationSent
+                            else if (platformCapabilities.usesIosCopy) strings.testNotificationBlockedIos
                             else strings.testNotificationBlocked
                         )
                     }

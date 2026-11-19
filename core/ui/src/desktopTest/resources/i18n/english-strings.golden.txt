@@ -144,6 +144,7 @@ badgeMerged	MERGED
 badgeOpen	OPEN
 cancel	Cancel
 cancelReplyDesc	Cancel reply
+cannotOpenApp	Can't open zqa1
 checkConclusionActionRequired	ACTION_REQUIRED
 checkConclusionCancelled	CANCELLED
 checkConclusionCompleted	COMPLETED
@@ -274,6 +275,7 @@ editorMetricsLabel	zqa1 · zqb2
 enableGitHubLinks	Enable github.com Links
 enableOsAlerts	Enable OS Alerts
 enableOsAlertsDesc	Android notifications with Mark Read / Done actions & Linux notify-send.
+enableOsAlertsDescIos	Push & alert notifications with Mark Read / Done actions.
 errorHintSuffix	. zqa1
 errorSignInAgainSuffix	. Please sign in again.
 errorWithDetail	zqa1\nDetails: zqb2
@@ -806,6 +808,9 @@ searchKindUsers	Users
 searchReposPlaceholder	Search repositories...
 searchSystemFontsPlaceholder	Search system fonts...
 searchUsersPlaceholder	Search GitHub users & orgs...
+secureStorageLoadFailed	Couldn't load your session: secure storage is unavailablezqa1. If the device was just restarted, unlock it and try again.
+secureStorageSaveFailed	Couldn't save your session: secure storage is unavailablezqa1. If the device was just restarted, unlock it and try again.
+secureStorageSignOutFailed	Couldn't sign out: secure storage is unavailablezqa1. If the device was just restarted, unlock it and try again.
 securityAdvisoriesCount	Security Advisories (7301)
 securityAffected	Affected: zqa1
 securityAllClearDesc	Dependencies and advisories appear clean for this repository.
@@ -854,6 +859,7 @@ signInOpenGitHub	Open GitHub
 signInRequestingCode	Requesting device code from GitHub...
 signInResetClientId	Reset to default
 signInSubtitle	Fast, Material 3 Expressive GitHub client for Android & Linux.
+signInSubtitleIos	Fast, Material 3 Expressive GitHub client for Android, iOS & Linux.
 signInUseCustomClientId	Use custom OAuth Client ID
 signInWaitingAuth	Waiting for authorization...
 signInWelcome	Welcome, @zqa1!
@@ -887,6 +893,7 @@ systemActorSubject	@system
 systemDefaultLabel	System Default
 systemFontsHeader	System Fonts
 testNotificationBlocked	Notifications blocked or notify-send unavailable — check OS permissions
+testNotificationBlockedIos	Notifications are not allowed — check iOS Settings
 testNotificationSent	Test notification dispatched
 themeTitle	Material 3 Expressive Theme
 timelineClosed	zqa1 closed this
@@ -895,6 +902,7 @@ timelineMergedIntoBase	zqa1 merged into base
 timelineReopened	zqa1 reopened this
 timelineUnrecognized	zqa1 zqb2
 trendingAll	Trending All
+tryAgain	Try again
 unfollowedUser	Unfollowed @zqa1
 unknownError	Unknown error
 unknownUser	unknown

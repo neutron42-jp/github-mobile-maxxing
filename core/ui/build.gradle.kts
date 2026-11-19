@@ -249,6 +249,9 @@ kotlin {
         }
     }
 
+    iosArm64()
+    iosSimulatorArm64()
+
     sourceSets {
         commonMain {
             kotlin.srcDir(generateAppStrings.map { appStringsOutDir })
