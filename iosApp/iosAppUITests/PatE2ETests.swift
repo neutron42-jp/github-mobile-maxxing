@@ -19,38 +19,25 @@ final class PatE2ETests: XCTestCase {
         sleep(4) // let Home content and avatars load
         shot("01-home")
 
-        app.buttons["Repos"].tap()
-        let repo = app.buttons.containing(NSPredicate(format: "label CONTAINS 'soramikan/github-mobile-maxxing'")).firstMatch
-        XCTAssertTrue(repo.waitForExistence(timeout: 20), "repository list did not load")
-        shot("02-repos")
-        repo.tap()
-        let back = app.buttons["Back"]
-        XCTAssertTrue(back.waitForExistence(timeout: 20), "repository detail did not open")
+        XCTAssertTrue(
+            openRepositoryViaExplore(app, beforeOpenRepo: { self.shot("02-repos") }),
+            "upstream repository detail did not open"
+        )
         sleep(3)
         shot("03-repo-detail")
-        back.tap()
-
-        // The issue detail (and the external-link hand-off to Safari) is covered by DeepLinkE2ETests: the live
-        // activity feed has no stable issue/PR row to tap.
+        app.buttons["Back"].tap()
     }
 
-    /// Best effort: open an issue/PR row of the live activity feed (skipped when none is fully visible).
-    func test1b_openIssueFromActivityFeedIfAvailable() throws {
+    /// Opens a pull request from the upstream repository (using the All filter so merged/closed PRs work too).
+    func test1b_openPullRequestFromUpstreamRepo() throws {
         let app = try launchSignedIn()
-        app.buttons["Home"].tap()
-        let itemQuery = app.buttons.matching(NSPredicate(format: "label CONTAINS ' issue #' OR label CONTAINS ' pull request #'"))
-        _ = itemQuery.firstMatch.waitForExistence(timeout: 20)
-        func visibleItem() -> XCUIElement? {
-            itemQuery.allElementsBoundByIndex.first { $0.isHittable && $0.frame.minY > 160 && $0.frame.maxY < 680 }
-        }
-        var scrolls = 0
-        while visibleItem() == nil && scrolls < 8 { app.swipeUp(); scrolls += 1 }
-        guard let item = visibleItem() else { throw XCTSkip("no fully visible issue/PR row in the live activity feed") }
-        item.tap()
-        // Not every feed row is an issue row that opens a detail (stars, forks, ...), so this stays best effort.
-        try XCTSkipUnless(app.buttons["Open in browser"].waitForExistence(timeout: 10), "the tapped feed row does not open an issue detail")
+        XCTAssertTrue(openRepositoryViaExplore(app), "upstream repository detail did not open")
+        XCTAssertTrue(openFirstPullRequestFromRepoDetail(app), "PR detail from upstream repository did not open")
         shot("04-issue-detail")
         app.buttons["Back"].tap()
+        if app.buttons["Back"].waitForExistence(timeout: 5) {
+            app.buttons["Back"].tap()
+        }
     }
 
     func test2_sessionIsRestoredFromKeychainAfterRelaunch() throws {

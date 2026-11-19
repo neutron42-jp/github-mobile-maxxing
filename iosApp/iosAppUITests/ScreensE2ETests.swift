@@ -24,22 +24,16 @@ final class ScreensE2ETests: XCTestCase {
                 sleep(4)
                 shot("\(device)-\(name)-\(tab)")
             }
-            // Repo detail (README / Japanese / code) and an issue detail.
-            app.buttons["Repos"].tap()
-            let repo = app.buttons.containing(NSPredicate(format: "label CONTAINS 'soramikan/github-mobile-maxxing'")).firstMatch
-            if repo.waitForExistence(timeout: 15) {
-                repo.tap()
+            // Repo detail (README / Japanese / code) and an issue/PR detail via upstream Explore.
+            if openRepositoryViaExplore(app) {
                 sleep(5)
                 shot("\(device)-\(name)-repo-detail")
-                if app.buttons["Back"].exists { app.buttons["Back"].tap() }
-            }
-            app.buttons["Home"].tap()
-            let item = app.buttons.containing(NSPredicate(format: "label CONTAINS ' issue #'")).firstMatch
-            if item.waitForExistence(timeout: 15) {
-                item.tap()
-                sleep(5)
-                shot("\(device)-\(name)-issue-detail")
-                if app.buttons["Back"].exists { app.buttons["Back"].tap() }
+                if openFirstPullRequestFromRepoDetail(app) {
+                    sleep(5)
+                    shot("\(device)-\(name)-issue-detail")
+                    if app.buttons["Back"].exists { app.buttons["Back"].tap() }
+                }
+                if app.buttons["Back"].waitForExistence(timeout: 5) { app.buttons["Back"].tap() }
             }
             // Editor with the keyboard: Repos -> New.
             app.buttons["Repos"].tap()

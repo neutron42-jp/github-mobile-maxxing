@@ -6,6 +6,12 @@ import XCTest
 enum E2E {
     static var pat: String { ProcessInfo.processInfo.environment["MAXXING_PAT"] ?? "" }
     static var artifactDir: String? { ProcessInfo.processInfo.environment["MAXXING_ARTIFACT_DIR"] }
+    static var targetRepo: String {
+        if let configured = ProcessInfo.processInfo.environment["MAXXING_E2E_REPO"], !configured.isEmpty {
+            return configured
+        }
+        return "neutron42-jp/github-mobile-maxxing"
+    }
 }
 
 extension XCTestCase {
@@ -81,5 +87,75 @@ extension XCTestCase {
         while !FileManager.default.fileExists(atPath: go.path), Date() < deadline { usleep(200_000) }
         XCTAssertTrue(FileManager.default.fileExists(atPath: go.path), "orchestrator did not answer \(name)")
         try? FileManager.default.removeItem(at: ready)
+    }
+
+    /// Opens a repository (defaulting to the upstream project repository) via Repos -> Explore -> Search,
+    /// avoiding any dependency on the signed-in account's own repositories or forks.
+    @discardableResult
+    func openRepositoryViaExplore(
+        _ app: XCUIApplication,
+        repoFullName: String = E2E.targetRepo,
+        beforeOpenRepo: (() -> Void)? = nil
+    ) -> Bool {
+        let reposTab = app.buttons["Repos"]
+        guard reposTab.waitForExistence(timeout: 15) else { return false }
+        reposTab.tap()
+
+        let exploreTab = app.buttons["Explore"]
+        guard exploreTab.waitForExistence(timeout: 10) else { return false }
+        exploreTab.tap()
+
+        let clearButton = app.buttons["Clear"]
+        if clearButton.exists {
+            clearButton.tap()
+        }
+
+        let predicate = NSPredicate(format: "label CONTAINS 'Search repositories'")
+        let textView = app.textViews.containing(predicate).firstMatch
+        let textField = app.textFields.containing(predicate).firstMatch
+        let searchInput: XCUIElement
+        if textView.waitForExistence(timeout: 8) {
+            searchInput = textView
+        } else if textField.waitForExistence(timeout: 3) {
+            searchInput = textField
+        } else {
+            return false
+        }
+
+        searchInput.tap()
+        let tip = app.buttons["Continue"]
+        if tip.waitForExistence(timeout: 1) { tip.tap() }
+        searchInput.typeText(repoFullName)
+
+        let searchButton = app.buttons["Search"]
+        guard searchButton.waitForExistence(timeout: 5) else { return false }
+        searchButton.tap()
+
+        let repoCard = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", repoFullName)).firstMatch
+        guard repoCard.waitForExistence(timeout: 20) else { return false }
+        beforeOpenRepo?()
+        repoCard.tap()
+        return app.buttons["Back"].waitForExistence(timeout: 20)
+    }
+
+    /// Opens the first pull request (via the "All" filter so closed/merged PRs work too) from the open repository detail.
+    @discardableResult
+    func openFirstPullRequestFromRepoDetail(
+        _ app: XCUIApplication,
+        repoFullName: String = E2E.targetRepo
+    ) -> Bool {
+        let pullsTab = app.buttons.containing(NSPredicate(format: "label == 'PRs' OR label BEGINSWITH 'PRs ('")).firstMatch
+        guard pullsTab.waitForExistence(timeout: 10) else { return false }
+        pullsTab.tap()
+
+        let allFilter = app.buttons["All"]
+        if allFilter.waitForExistence(timeout: 10) {
+            allFilter.tap()
+        }
+
+        let itemCard = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "\(repoFullName) #")).firstMatch
+        guard itemCard.waitForExistence(timeout: 20) else { return false }
+        itemCard.tap()
+        return app.buttons["Open in browser"].waitForExistence(timeout: 20)
     }
 }

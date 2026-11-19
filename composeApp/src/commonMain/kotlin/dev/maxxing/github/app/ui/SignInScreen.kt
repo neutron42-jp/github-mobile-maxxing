@@ -7,15 +7,21 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -35,6 +41,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,13 +51,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -97,6 +108,23 @@ fun SignInScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboard = LocalClipboardManager.current
     val uriHandler = LocalUriHandler.current
+    val focusManager = LocalFocusManager.current
+    val customClientIdBringIntoView = remember { BringIntoViewRequester() }
+    var isCustomClientIdFocused by remember { mutableStateOf(false) }
+    val imeBottomPx = if (platformCapabilities.avoidsKeyboardOnSignIn) {
+        WindowInsets.ime.getBottom(LocalDensity.current)
+    } else {
+        0
+    }
+    val hasCustomClientIdOverride = clientIdInput != AppBranding.DEFAULT_OAUTH_CLIENT_ID
+
+    if (platformCapabilities.avoidsKeyboardOnSignIn) {
+        LaunchedEffect(isCustomClientIdFocused, imeBottomPx, hasCustomClientIdOverride) {
+            if (isCustomClientIdFocused && imeBottomPx > 0) {
+                customClientIdBringIntoView.bringIntoView()
+            }
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -210,7 +238,16 @@ fun SignInScreen(
 
                                 AnimatedVisibility(visible = showCustomClientId) {
                                     Column(
-                                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .then(
+                                                if (platformCapabilities.avoidsKeyboardOnSignIn) {
+                                                    Modifier.bringIntoViewRequester(customClientIdBringIntoView)
+                                                } else {
+                                                    Modifier
+                                                }
+                                            )
+                                            .padding(top = 8.dp),
                                         verticalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
                                         OutlinedTextField(
@@ -219,15 +256,33 @@ fun SignInScreen(
                                             label = { Text(strings.signInClientIdLabel) },
                                             placeholder = { Text(AppBranding.DEFAULT_OAUTH_CLIENT_ID) },
                                             singleLine = true,
+                                            keyboardOptions = if (platformCapabilities.avoidsKeyboardOnSignIn) {
+                                                KeyboardOptions(imeAction = ImeAction.Done)
+                                            } else {
+                                                KeyboardOptions.Default
+                                            },
+                                            keyboardActions = if (platformCapabilities.avoidsKeyboardOnSignIn) {
+                                                KeyboardActions(onDone = { focusManager.clearFocus() })
+                                            } else {
+                                                KeyboardActions.Default
+                                            },
                                             leadingIcon = {
                                                 Icon(Lucide.ShieldCheck, contentDescription = null)
                                             },
                                             supportingText = {
                                                 Text(strings.signInClientIdDefaultSupporting(AppBranding.DEFAULT_OAUTH_CLIENT_ID))
                                             },
-                                            modifier = Modifier.fillMaxWidth()
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .then(
+                                                    if (platformCapabilities.avoidsKeyboardOnSignIn) {
+                                                        Modifier.onFocusChanged { isCustomClientIdFocused = it.isFocused }
+                                                    } else {
+                                                        Modifier
+                                                    }
+                                                )
                                         )
-                                        if (clientIdInput != AppBranding.DEFAULT_OAUTH_CLIENT_ID) {
+                                        if (hasCustomClientIdOverride) {
                                             TextButton(
                                                 onClick = { clientIdInput = AppBranding.DEFAULT_OAUTH_CLIENT_ID },
                                                 modifier = Modifier.align(Alignment.End)
