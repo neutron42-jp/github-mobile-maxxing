@@ -237,6 +237,7 @@ deleteAction	削除
 deleteCommentDesc	コメントを削除
 deleteImportedFontDesc	読み込んだフォントを削除
 deleteImportedFontTitle	読み込んだフォントを削除しますか？
+deleteLabelDesc	ラベルを削除
 deleteSelectedFontInUseDesc	このフォントは現在選択されています。削除するとシステム標準に戻ります。
 deletingAction	削除中...
 dependabotNoticeDisabled	このリポジトリでは Dependabot の脆弱性アラートが有効になっていません。
@@ -294,6 +295,7 @@ dynamicColorDesc	Android 12 以降では Material You のシステム配色を�
 dynamicColorTitle	Android 壁紙ダイナミックカラー
 editCommentBodyLabel	コメント本文 (Markdown)
 editCommentDesc	コメントを編集
+editLabelDesc	ラベルを編集
 editorCharCountOne	7301 文字
 editorCharCountOther	7301 文字
 editorLineCountOne	7301 行
@@ -312,11 +314,14 @@ exploreTitle	探索
 failedCancelRun	実行のキャンセルに失敗しました
 failedCreateDiscussion	ディスカッションの作成に失敗しました
 failedCreateLabel	ラベルの作成に失敗しました
+failedCreateMilestone	マイルストーンの作成に失敗しました
 failedCreatePr	プルリクエストの作成に失敗しました
 failedCreateRelease	リリースの作成に失敗しました
 failedCreateRepo	リポジトリの作成に失敗しました
 failedDeleteComment	コメントの削除に失敗しました
 failedDeleteFontFile	フォントファイルの削除に失敗しました
+failedDeleteLabel	ラベルの削除に失敗しました
+failedDeleteMilestone	マイルストーンの削除に失敗しました
 failedImportFont	フォントファイルの読み込みに失敗しました
 failedLoadActions	Actions 実行履歴の読み込みに失敗しました
 failedLoadActivity	アクティビティフィードの読み込みに失敗しました
@@ -361,6 +366,7 @@ failedRerunWorkflow	ワークフローの再実行に失敗しました
 failedUpdateAssignees	アサインの更新に失敗しました
 failedUpdateComment	コメントの更新に失敗しました
 failedUpdateDraftState	下書き状態の更新に失敗しました
+failedUpdateLabel	ラベルの更新に失敗しました
 failedUpdateLabels	ラベルの更新に失敗しました
 failedUpdateMilestone	マイルストーンの更新に失敗しました
 fallbackFontDesc	日本語・CJK やメインフォントに無い文字に使われます
@@ -539,6 +545,15 @@ issueUsernameLabel	GitHub ユーザー名
 issuesAndPrsTitle	Issue と PR
 jobLogsErrorHttp	ログを取得できません（HTTP 7301）。repo スコープと、ログの保持期限が切れていないかを確認してください。
 jobLogsErrorNetwork	ログを取得できません。ネットワーク接続を確認してください。
+labelColorLabel	カラーコード (Hex)
+labelDeleteConfirm	ラベル「zqa1」を削除しますか？このラベルが付いている Issue や PR からも外れます。
+labelDeleteTitle	ラベルを削除しますか？
+labelDeletedMessage	ラベル zqa1 を削除しました
+labelDescriptionLabel	説明（任意）
+labelEditTitle	ラベルを編集
+labelNameLabel	名前
+labelNewTitle	新しいラベル
+labelUpdatedMessage	ラベル zqa1 を更新しました
 labelsTitle	ラベル
 languageDesc	アプリの UI 表示言語を即座に切り替えます。
 languageLabel	表示言語
@@ -571,7 +586,24 @@ mergeRebaseLabel	リベースしてマージ
 mergeRebaseShortLabel	リベース
 mergeSquashLabel	スカッシュしてマージ
 mergeSquashShortLabel	スカッシュ
+milestoneCloseAction	マイルストーンをクローズ
+milestoneCountsSummary	オープン 7301 · クローズ 7302
+milestoneCreatedMessage	マイルストーン zqa1 を作成しました
+milestoneDeleteConfirm	マイルストーン「zqa1」を削除しますか？紐付いている Issue や PR はそのまま残り、マイルストーンのみ解除されます。
+milestoneDeleteDesc	マイルストーンを削除
+milestoneDeleteTitle	マイルストーンを削除しますか？
+milestoneDeletedMessage	マイルストーン zqa1 を削除しました
+milestoneDescriptionLabel	説明（任意）
 milestoneDue	期限: zqa1
+milestoneDueDateError	YYYY-MM-DD 形式で有効な日付を入力してください。
+milestoneDueDateLabel	期限日（YYYY-MM-DD・任意）
+milestoneEditDesc	マイルストーンを編集
+milestoneEditTitle	マイルストーンを編集
+milestoneNewTitle	新しいマイルストーン
+milestoneProgressSummary	進捗 7301%（7302 / 7303 完了）
+milestoneReopenAction	マイルストーンを再開
+milestoneTitleLabel	タイトル
+milestoneUpdatedMessage	マイルストーン zqa1 を更新しました
 missingGistScopeNotice	現在のトークンには 'gist' スコープがありません。Gist の作成・編集・スター、およびシークレット Gist の表示を行うには、設定からサインアウトして再度サインインしてください。
 monospaceCodeHint	等幅コード
 navHome	ホーム
@@ -762,6 +794,10 @@ repoIssuesEmptyBodyOpen	このリポジトリにはオープンな Issue があ�
 repoIssuesEmptyTitleAll	Issue はありません
 repoIssuesEmptyTitleClosed	クローズされた Issue はありません
 repoIssuesEmptyTitleOpen	オープンな Issue はありません
+repoIssuesSectionIssues	Issue
+repoIssuesSectionLabels	ラベル
+repoIssuesSectionMilestones	マイルストーン
+repoIssuesSectionSwitchDesc	表示を切り替え
 repoLoadingCommits	コミットを読み込み中...
 repoLoadingIssues	Issue を読み込み中...
 repoLoadingPulls	プルリクエストを読み込み中...
@@ -775,6 +811,7 @@ repoNewPrTitle	新規プルリクエスト
 repoNoCommitsFound	zqa1 にコミットが見つかりません
 repoNoContributors	コントリビューター情報がありません。
 repoNoForks	フォークはまだありません。
+repoNoMilestones	リポジトリにマイルストーンがありません。
 repoNoStargazers	スターしたユーザーはまだいません。
 repoPeopleTabContributors	コントリビューター
 repoPeopleTabForks	フォーク
@@ -789,6 +826,8 @@ repoPullsEmptyTitleAll	プルリクエストはありません
 repoPullsEmptyTitleClosed	クローズされたプルリクエストはありません
 repoPullsEmptyTitleOpen	オープンなプルリクエストはありません
 repoRefreshIssues	Issue を更新
+repoRefreshLabels	ラベルを更新
+repoRefreshMilestones	マイルストーンを更新
 repoRefreshPulls	プルリクエストを更新
 repoSearchFailed	リポジトリ検索に失敗しました
 repoStarredMessage	zqa1 にスターを付けました

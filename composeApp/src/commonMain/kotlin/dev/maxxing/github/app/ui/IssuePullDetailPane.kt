@@ -1098,6 +1098,19 @@ private fun IssuePullDetailPaneContent(
                         .onFailure { onMessage(strings.errorMessage(it, strings.failedCreateLabel)) }
                     actionBusy = false
                 }
+            },
+            onDeleteLabel = { label ->
+                scope.launch {
+                    actionBusy = true
+                    container.repository.deleteRepoLabel(target.owner, target.repo, label.name)
+                        .onSuccess {
+                            availableLabels = availableLabels.filterNot { it.name == label.name }
+                            selectedLabelNames = selectedLabelNames - label.name
+                            onMessage(strings.labelDeletedMessage(label.name))
+                        }
+                        .onFailure { onMessage(strings.errorMessage(it, strings.failedDeleteLabel)) }
+                    actionBusy = false
+                }
             }
         )
     }

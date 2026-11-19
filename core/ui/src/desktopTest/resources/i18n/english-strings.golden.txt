@@ -237,6 +237,7 @@ deleteAction	Delete
 deleteCommentDesc	Delete comment
 deleteImportedFontDesc	Delete imported font
 deleteImportedFontTitle	Delete imported font?
+deleteLabelDesc	Delete label
 deleteSelectedFontInUseDesc	This font is currently selected. Text will use System Default instead.
 deletingAction	Deleting...
 dependabotNoticeDisabled	Dependabot vulnerability alerts are not enabled for this repository.
@@ -294,6 +295,7 @@ dynamicColorDesc	Uses Material You system palette on Android 12+, falls back to 
 dynamicColorTitle	Android Wallpaper Dynamic Color
 editCommentBodyLabel	Comment body (Markdown)
 editCommentDesc	Edit comment
+editLabelDesc	Edit label
 editorCharCountOne	7301 char
 editorCharCountOther	7301 chars
 editorLineCountOne	7301 line
@@ -312,11 +314,14 @@ exploreTitle	Explore
 failedCancelRun	Failed to cancel run
 failedCreateDiscussion	Failed to create discussion
 failedCreateLabel	Failed to create label
+failedCreateMilestone	Failed to create milestone
 failedCreatePr	Failed to create pull request
 failedCreateRelease	Failed to create release
 failedCreateRepo	Failed to create repository
 failedDeleteComment	Failed to delete comment
 failedDeleteFontFile	Failed to delete font file
+failedDeleteLabel	Failed to delete label
+failedDeleteMilestone	Failed to delete milestone
 failedImportFont	Failed to import font file
 failedLoadActions	Failed to load Actions runs
 failedLoadActivity	Failed to load activity feed
@@ -361,6 +366,7 @@ failedRerunWorkflow	Failed to re-run workflow
 failedUpdateAssignees	Failed to update assignees
 failedUpdateComment	Failed to update comment
 failedUpdateDraftState	Failed to update draft state
+failedUpdateLabel	Failed to update label
 failedUpdateLabels	Failed to update labels
 failedUpdateMilestone	Failed to update milestone
 fallbackFontDesc	Used for Japanese / CJK and glyphs missing in primary
@@ -539,6 +545,15 @@ issueUsernameLabel	GitHub username
 issuesAndPrsTitle	Issues & PRs
 jobLogsErrorHttp	Logs unavailable (HTTP 7301). Check the repo scope and whether the logs have expired.
 jobLogsErrorNetwork	Logs unavailable. Check your network connection.
+labelColorLabel	Color (Hex)
+labelDeleteConfirm	Delete label "zqa1"? Issues and pull requests with this label will lose it.
+labelDeleteTitle	Delete label?
+labelDeletedMessage	Deleted label zqa1
+labelDescriptionLabel	Description (optional)
+labelEditTitle	Edit Label
+labelNameLabel	Name
+labelNewTitle	New Label
+labelUpdatedMessage	Updated label zqa1
 labelsTitle	Labels
 languageDesc	Switch the UI display language immediately.
 languageLabel	Display language
@@ -571,7 +586,24 @@ mergeRebaseLabel	Rebase and merge
 mergeRebaseShortLabel	Rebase
 mergeSquashLabel	Squash and merge
 mergeSquashShortLabel	Squash
+milestoneCloseAction	Close milestone
+milestoneCountsSummary	7301 open · 7302 closed
+milestoneCreatedMessage	Created milestone zqa1
+milestoneDeleteConfirm	Delete milestone "zqa1"? Linked issues and pull requests will keep their state without this milestone.
+milestoneDeleteDesc	Delete milestone
+milestoneDeleteTitle	Delete milestone?
+milestoneDeletedMessage	Deleted milestone zqa1
+milestoneDescriptionLabel	Description (optional)
 milestoneDue	Due zqa1
+milestoneDueDateError	Enter a valid date as YYYY-MM-DD.
+milestoneDueDateLabel	Due date (YYYY-MM-DD optional)
+milestoneEditDesc	Edit milestone
+milestoneEditTitle	Edit Milestone
+milestoneNewTitle	New Milestone
+milestoneProgressSummary	7301% complete (7302 / 7303 closed)
+milestoneReopenAction	Reopen milestone
+milestoneTitleLabel	Title
+milestoneUpdatedMessage	Updated milestone zqa1
 missingGistScopeNotice	Your current sign-in token lacks 'gist' scope. Sign out in Settings and sign in again to create, edit, star, or view secret Gists.
 monospaceCodeHint	Monospace code
 navHome	Home
@@ -762,6 +794,10 @@ repoIssuesEmptyBodyOpen	There are no open issues in this repository.
 repoIssuesEmptyTitleAll	No All Issues
 repoIssuesEmptyTitleClosed	No Closed Issues
 repoIssuesEmptyTitleOpen	No Open Issues
+repoIssuesSectionIssues	Issues
+repoIssuesSectionLabels	Labels
+repoIssuesSectionMilestones	Milestones
+repoIssuesSectionSwitchDesc	Switch section
 repoLoadingCommits	Loading commits...
 repoLoadingIssues	Loading Issues...
 repoLoadingPulls	Loading Pull Requests...
@@ -775,6 +811,7 @@ repoNewPrTitle	New Pull Request
 repoNoCommitsFound	No commits found for zqa1
 repoNoContributors	No contributors listed.
 repoNoForks	No forks yet.
+repoNoMilestones	No milestones found in repository.
 repoNoStargazers	No stargazers yet.
 repoPeopleTabContributors	Contributors
 repoPeopleTabForks	Forks
@@ -789,6 +826,8 @@ repoPullsEmptyTitleAll	No All Pull Requests
 repoPullsEmptyTitleClosed	No Closed Pull Requests
 repoPullsEmptyTitleOpen	No Open Pull Requests
 repoRefreshIssues	Refresh Issues
+repoRefreshLabels	Refresh labels
+repoRefreshMilestones	Refresh milestones
 repoRefreshPulls	Refresh Pull Requests
 repoSearchFailed	Repository search failed
 repoStarredMessage	Starred zqa1

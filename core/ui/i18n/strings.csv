@@ -969,3 +969,43 @@ activityCommitComment,String,{0} commented on a commit,{0}コミットにコメ�
 activityWikiUpdated,String,{0} updated the wiki,{0} Wiki を更新しました
 activityUnknown,String,{0} activity,{0} のアクティビティ
 activityUnknownWithDetail,String;String,{0} {1},{0} のアクティビティ（{1}）
+# Repo Labels & Milestones Management
+repoIssuesSectionSwitchDesc,,Switch section,表示を切り替え
+repoIssuesSectionIssues,,Issues,Issue
+repoIssuesSectionLabels,,Labels,ラベル
+repoIssuesSectionMilestones,,Milestones,マイルストーン
+repoRefreshLabels,,Refresh labels,ラベルを更新
+repoRefreshMilestones,,Refresh milestones,マイルストーンを更新
+repoNoMilestones,,No milestones found in repository.,リポジトリにマイルストーンがありません。
+labelNewTitle,,New Label,新しいラベル
+labelEditTitle,,Edit Label,ラベルを編集
+labelNameLabel,,Name,名前
+labelDescriptionLabel,,Description (optional),説明（任意）
+labelColorLabel,,Color (Hex),カラーコード (Hex)
+labelUpdatedMessage,String,Updated label {0},ラベル {0} を更新しました
+failedUpdateLabel,,Failed to update label,ラベルの更新に失敗しました
+labelDeleteTitle,,Delete label?,ラベルを削除しますか？
+labelDeleteConfirm,String,"Delete label ""{0}""? Issues and pull requests with this label will lose it.",ラベル「{0}」を削除しますか？このラベルが付いている Issue や PR からも外れます。
+labelDeletedMessage,String,Deleted label {0},ラベル {0} を削除しました
+failedDeleteLabel,,Failed to delete label,ラベルの削除に失敗しました
+editLabelDesc,,Edit label,ラベルを編集
+deleteLabelDesc,,Delete label,ラベルを削除
+milestoneNewTitle,,New Milestone,新しいマイルストーン
+milestoneEditTitle,,Edit Milestone,マイルストーンを編集
+milestoneTitleLabel,,Title,タイトル
+milestoneDescriptionLabel,,Description (optional),説明（任意）
+milestoneDueDateLabel,,Due date (YYYY-MM-DD optional),期限日（YYYY-MM-DD・任意）
+milestoneDueDateError,,Enter a valid date as YYYY-MM-DD.,YYYY-MM-DD 形式で有効な日付を入力してください。
+milestoneProgressSummary,Int;Int;Int,{0}% complete ({1} / {2} closed),進捗 {0}%（{1} / {2} 完了）
+milestoneCountsSummary,Int;Int,{0} open · {1} closed,オープン {0} · クローズ {1}
+milestoneCloseAction,,Close milestone,マイルストーンをクローズ
+milestoneReopenAction,,Reopen milestone,マイルストーンを再開
+milestoneEditDesc,,Edit milestone,マイルストーンを編集
+milestoneDeleteDesc,,Delete milestone,マイルストーンを削除
+milestoneDeleteTitle,,Delete milestone?,マイルストーンを削除しますか？
+milestoneDeleteConfirm,String,"Delete milestone ""{0}""? Linked issues and pull requests will keep their state without this milestone.",マイルストーン「{0}」を削除しますか？紐付いている Issue や PR はそのまま残り、マイルストーンのみ解除されます。
+milestoneCreatedMessage,String,Created milestone {0},マイルストーン {0} を作成しました
+failedCreateMilestone,,Failed to create milestone,マイルストーンの作成に失敗しました
+milestoneUpdatedMessage,String,Updated milestone {0},マイルストーン {0} を更新しました
+milestoneDeletedMessage,String,Deleted milestone {0},マイルストーン {0} を削除しました
+failedDeleteMilestone,,Failed to delete milestone,マイルストーンの削除に失敗しました

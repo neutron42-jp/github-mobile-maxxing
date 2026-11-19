@@ -152,6 +152,7 @@ import dev.maxxing.github.model.IssueOrPullState
 import dev.maxxing.github.model.IssueOrPullSummary
 import dev.maxxing.github.model.IssueStateFilter
 import dev.maxxing.github.model.LabelTag
+import dev.maxxing.github.model.MilestoneSummary
 import dev.maxxing.github.model.PullFileChange
 import dev.maxxing.github.model.ReleaseSummary
 import dev.maxxing.github.model.RepoDetail
@@ -1219,6 +1220,30 @@ fun RepoDetailScreen(
     var pullsLoading by remember(repo.fullName) { mutableStateOf(false) }
     var issuesError by remember(repo.fullName) { mutableStateOf<String?>(null) }
     var pullsError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    var issuesSection by remember(repo.fullName) { mutableStateOf(RepoIssuesSection.ISSUES) }
+    var repoLabels by remember(repo.fullName) {
+        mutableStateOf(container.repository.peekRepoLabels(repo.owner, repo.name))
+    }
+    var labelsLoading by remember(repo.fullName) { mutableStateOf(false) }
+    var labelsError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    var showLabelEditorDialog by remember(repo.fullName) { mutableStateOf(false) }
+    var editingLabel by remember(repo.fullName) { mutableStateOf<LabelTag?>(null) }
+    var labelEditorSubmitting by remember(repo.fullName) { mutableStateOf(false) }
+    var labelEditorError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    var deletingLabelTarget by remember(repo.fullName) { mutableStateOf<LabelTag?>(null) }
+    var labelDeleteBusy by remember(repo.fullName) { mutableStateOf(false) }
+    var repoMilestones by remember(repo.fullName) {
+        mutableStateOf(container.repository.peekRepoMilestones(repo.owner, repo.name, state = "all"))
+    }
+    var milestonesLoading by remember(repo.fullName) { mutableStateOf(false) }
+    var milestonesError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    var milestoneActionBusy by remember(repo.fullName) { mutableStateOf(false) }
+    var showMilestoneEditorDialog by remember(repo.fullName) { mutableStateOf(false) }
+    var editingMilestone by remember(repo.fullName) { mutableStateOf<MilestoneSummary?>(null) }
+    var milestoneEditorSubmitting by remember(repo.fullName) { mutableStateOf(false) }
+    var milestoneEditorError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    var deletingMilestoneTarget by remember(repo.fullName) { mutableStateOf<MilestoneSummary?>(null) }
+    var milestoneDeleteBusy by remember(repo.fullName) { mutableStateOf(false) }
     var isLoading by remember(repo.fullName) { mutableStateOf(detail == null && entries.isEmpty()) }
     var showCreatePrDialog by remember(repo.fullName) { mutableStateOf(false) }
     var creatingPr by remember(repo.fullName) { mutableStateOf(false) }
@@ -1708,6 +1733,52 @@ fun RepoDetailScreen(
         }
     }
 
+    fun loadRepoLabelsList(forceRefresh: Boolean = false) {
+        scope.launch {
+            val cached = if (forceRefresh) null else container.repository.peekRepoLabels(repo.owner, repo.name)
+            if (cached != null) {
+                repoLabels = cached
+                availableIssueLabels = cached
+                labelsLoading = false
+            } else {
+                labelsLoading = true
+            }
+            labelsError = null
+            container.repository.getRepoLabels(repo.owner, repo.name, forceRefresh = forceRefresh)
+                .onSuccess { loaded ->
+                    repoLabels = loaded
+                    availableIssueLabels = loaded
+                    labelsLoading = false
+                }
+                .onFailure { err ->
+                    labelsError = strings.errorMessage(err, strings.failedLoadLabels)
+                    labelsLoading = false
+                }
+        }
+    }
+
+    fun loadRepoMilestonesList(forceRefresh: Boolean = false) {
+        scope.launch {
+            val cached = if (forceRefresh) null else container.repository.peekRepoMilestones(repo.owner, repo.name, state = "all")
+            if (cached != null) {
+                repoMilestones = cached
+                milestonesLoading = false
+            } else {
+                milestonesLoading = true
+            }
+            milestonesError = null
+            container.repository.getRepoMilestones(repo.owner, repo.name, state = "all", forceRefresh = forceRefresh)
+                .onSuccess { loaded ->
+                    repoMilestones = loaded
+                    milestonesLoading = false
+                }
+                .onFailure { err ->
+                    milestonesError = strings.errorMessage(err, strings.failedLoadMilestones)
+                    milestonesLoading = false
+                }
+        }
+    }
+
     fun loadRepoPulls(filter: IssueStateFilter, forceRefresh: Boolean = false) {
         scope.launch {
             val cached = container.repository.peekRepoIssuesOrPulls(repo.owner, repo.name, pullRequests = true, stateFilter = filter)
@@ -1743,6 +1814,10 @@ fun RepoDetailScreen(
         showCreateDiscussionDialog ||
         showCreatePrDialog ||
         showCreateIssueDialog ||
+        showLabelEditorDialog ||
+        showMilestoneEditorDialog ||
+        deletingLabelTarget != null ||
+        deletingMilestoneTarget != null ||
         fullScreenDiffContext != null
 
     val effectiveParent = detail?.summary?.parent ?: repo.parent
@@ -1840,9 +1915,13 @@ fun RepoDetailScreen(
         }
     }
 
-    LaunchedEffect(activeTab, issueStateFilter, repo.fullName) {
+    LaunchedEffect(activeTab, issuesSection, issueStateFilter, repo.fullName) {
         if (activeTab == RepoDetailTab.ISSUES) {
-            loadRepoIssues(issueStateFilter, forceRefresh = false)
+            when (issuesSection) {
+                RepoIssuesSection.ISSUES -> loadRepoIssues(issueStateFilter, forceRefresh = false)
+                RepoIssuesSection.LABELS -> loadRepoLabelsList(forceRefresh = false)
+                RepoIssuesSection.MILESTONES -> loadRepoMilestonesList(forceRefresh = false)
+            }
         }
     }
 
@@ -2977,14 +3056,109 @@ fun RepoDetailScreen(
                     items = repoIssues,
                     isLoading = issuesLoading,
                     errorMsg = issuesError,
-                    onRefresh = { loadRepoIssues(issueStateFilter, forceRefresh = true) },
-                    onCreateNew = if (capabilities.canCreateIssue) {
-                        { showCreateIssueDialog = true }
-                    } else null,
+                    onRefresh = {
+                        when (issuesSection) {
+                            RepoIssuesSection.ISSUES -> loadRepoIssues(issueStateFilter, forceRefresh = true)
+                            RepoIssuesSection.LABELS -> loadRepoLabelsList(forceRefresh = true)
+                            RepoIssuesSection.MILESTONES -> loadRepoMilestonesList(forceRefresh = true)
+                        }
+                    },
+                    onCreateNew = when (issuesSection) {
+                        RepoIssuesSection.ISSUES -> if (capabilities.canCreateIssue) {
+                            { showCreateIssueDialog = true }
+                        } else null
+                        RepoIssuesSection.LABELS -> if (capabilities.canPush) {
+                            {
+                                editingLabel = null
+                                labelEditorError = null
+                                showLabelEditorDialog = true
+                            }
+                        } else null
+                        RepoIssuesSection.MILESTONES -> if (capabilities.canPush) {
+                            {
+                                editingMilestone = null
+                                milestoneEditorError = null
+                                showMilestoneEditorDialog = true
+                            }
+                        } else null
+                    },
                     onOpenItem = { item ->
                         onOpenIssueOrPull(
                             IssuePullTarget(repo.owner, repo.name, item.number, item.title)
                         )
+                    },
+                    showStateFilters = issuesSection == RepoIssuesSection.ISSUES,
+                    headerTitle = when (issuesSection) {
+                        RepoIssuesSection.ISSUES -> null
+                        RepoIssuesSection.LABELS -> strings.repoIssuesSectionLabels
+                        RepoIssuesSection.MILESTONES -> strings.repoIssuesSectionMilestones
+                    },
+                    sectionPicker = {
+                        RepoIssuesSectionDropdownButton(
+                            currentSection = issuesSection,
+                            onSelectSection = { issuesSection = it }
+                        )
+                    },
+                    refreshDescriptionOverride = when (issuesSection) {
+                        RepoIssuesSection.ISSUES -> null
+                        RepoIssuesSection.LABELS -> strings.repoRefreshLabels
+                        RepoIssuesSection.MILESTONES -> strings.repoRefreshMilestones
+                    },
+                    customBody = when (issuesSection) {
+                        RepoIssuesSection.ISSUES -> null
+                        RepoIssuesSection.LABELS -> {
+                            {
+                                RepoLabelsManagementContent(
+                                    labels = repoLabels,
+                                    isLoading = labelsLoading,
+                                    errorMsg = labelsError,
+                                    canManage = capabilities.canPush,
+                                    onRefresh = { loadRepoLabelsList(forceRefresh = true) },
+                                    onEditLabel = { label ->
+                                        editingLabel = label
+                                        labelEditorError = null
+                                        showLabelEditorDialog = true
+                                    },
+                                    onDeleteLabel = { label -> deletingLabelTarget = label }
+                                )
+                            }
+                        }
+                        RepoIssuesSection.MILESTONES -> {
+                            {
+                                RepoMilestonesManagementContent(
+                                    milestones = repoMilestones,
+                                    isLoading = milestonesLoading,
+                                    errorMsg = milestonesError,
+                                    canManage = capabilities.canPush,
+                                    isBusy = milestoneActionBusy,
+                                    onRefresh = { loadRepoMilestonesList(forceRefresh = true) },
+                                    onEditMilestone = { ms ->
+                                        editingMilestone = ms
+                                        milestoneEditorError = null
+                                        showMilestoneEditorDialog = true
+                                    },
+                                    onToggleState = { ms ->
+                                        val nextState = if (ms.state.equals("open", ignoreCase = true)) "closed" else "open"
+                                        scope.launch {
+                                            milestoneActionBusy = true
+                                            container.repository.updateRepoMilestone(
+                                                owner = repo.owner,
+                                                repo = repo.name,
+                                                number = ms.number,
+                                                state = nextState
+                                            ).onSuccess {
+                                                onMessage(strings.milestoneUpdatedMessage(it.title))
+                                                loadRepoMilestonesList(forceRefresh = true)
+                                            }.onFailure {
+                                                onMessage(strings.errorMessage(it, strings.failedUpdateMilestone))
+                                            }
+                                            milestoneActionBusy = false
+                                        }
+                                    },
+                                    onDeleteMilestone = { ms -> deletingMilestoneTarget = ms }
+                                )
+                            }
+                        }
                     }
                 )
             }
@@ -3207,9 +3381,216 @@ fun RepoDetailScreen(
                             .onFailure { onMessage(strings.errorMessage(it, strings.failedCreateLabel)) }
                         issueLabelActionBusy = false
                     }
+                },
+                onDeleteLabel = { label ->
+                    scope.launch {
+                        issueLabelActionBusy = true
+                        container.repository.deleteRepoLabel(repo.owner, repo.name, label.name)
+                            .onSuccess {
+                                availableIssueLabels = availableIssueLabels.filterNot { it.name == label.name }
+                                repoLabels = repoLabels?.filterNot { it.name == label.name }
+                                selectedNewIssueLabels = selectedNewIssueLabels - label.name
+                                onMessage(strings.labelDeletedMessage(label.name))
+                            }
+                            .onFailure { onMessage(strings.errorMessage(it, strings.failedDeleteLabel)) }
+                        issueLabelActionBusy = false
+                    }
                 }
             )
         }
+    }
+
+    if (showLabelEditorDialog) {
+        RepoLabelEditorDialog(
+            editingLabel = editingLabel,
+            isSubmitting = labelEditorSubmitting,
+            errorMsg = labelEditorError,
+            onDismiss = {
+                showLabelEditorDialog = false
+                labelEditorError = null
+            },
+            onSave = { name, colorHex, description ->
+                scope.launch {
+                    labelEditorSubmitting = true
+                    labelEditorError = null
+                    val targetEditing = editingLabel
+                    val result = if (targetEditing == null) {
+                        container.repository.createRepoLabel(
+                            owner = repo.owner,
+                            repo = repo.name,
+                            name = name,
+                            colorHex = colorHex,
+                            description = description
+                        )
+                    } else {
+                        container.repository.updateRepoLabel(
+                            owner = repo.owner,
+                            repo = repo.name,
+                            currentName = targetEditing.name,
+                            newName = name,
+                            colorHex = colorHex,
+                            description = description
+                        )
+                    }
+                    result.onSuccess { saved ->
+                        showLabelEditorDialog = false
+                        editingLabel = null
+                        onMessage(
+                            if (targetEditing == null) strings.createdLabelMessage(saved.name)
+                            else strings.labelUpdatedMessage(saved.name)
+                        )
+                        loadRepoLabelsList(forceRefresh = true)
+                    }.onFailure { err ->
+                        labelEditorError = strings.errorMessage(
+                            err,
+                            if (targetEditing == null) strings.failedCreateLabel else strings.failedUpdateLabel
+                        )
+                    }
+                    labelEditorSubmitting = false
+                }
+            }
+        )
+    }
+
+    deletingLabelTarget?.let { targetLabel ->
+        AlertDialog(
+            onDismissRequest = { if (!labelDeleteBusy) deletingLabelTarget = null },
+            title = { Text(strings.labelDeleteTitle) },
+            text = { Text(strings.labelDeleteConfirm(targetLabel.name)) },
+            confirmButton = {
+                Button(
+                    enabled = !labelDeleteBusy,
+                    onClick = {
+                        scope.launch {
+                            labelDeleteBusy = true
+                            container.repository.deleteRepoLabel(repo.owner, repo.name, targetLabel.name)
+                                .onSuccess {
+                                    deletingLabelTarget = null
+                                    availableIssueLabels = availableIssueLabels.filterNot { it.name == targetLabel.name }
+                                    selectedNewIssueLabels = selectedNewIssueLabels - targetLabel.name
+                                    onMessage(strings.labelDeletedMessage(targetLabel.name))
+                                    loadRepoLabelsList(forceRefresh = true)
+                                }
+                                .onFailure { err ->
+                                    deletingLabelTarget = null
+                                    onMessage(strings.errorMessage(err, strings.failedDeleteLabel))
+                                }
+                            labelDeleteBusy = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    Text(strings.deleteAction)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !labelDeleteBusy,
+                    onClick = { deletingLabelTarget = null }
+                ) {
+                    Text(strings.cancel)
+                }
+            }
+        )
+    }
+
+    if (showMilestoneEditorDialog) {
+        RepoMilestoneEditorDialog(
+            editingMilestone = editingMilestone,
+            isSubmitting = milestoneEditorSubmitting,
+            errorMsg = milestoneEditorError,
+            onDismiss = {
+                showMilestoneEditorDialog = false
+                milestoneEditorError = null
+            },
+            onSave = { title, description, dueOnIso, clearDueOn ->
+                scope.launch {
+                    milestoneEditorSubmitting = true
+                    milestoneEditorError = null
+                    val targetEditing = editingMilestone
+                    val result = if (targetEditing == null) {
+                        container.repository.createRepoMilestone(
+                            owner = repo.owner,
+                            repo = repo.name,
+                            title = title,
+                            description = description,
+                            dueOn = dueOnIso
+                        )
+                    } else {
+                        container.repository.updateRepoMilestone(
+                            owner = repo.owner,
+                            repo = repo.name,
+                            number = targetEditing.number,
+                            title = title,
+                            description = description,
+                            dueOn = dueOnIso,
+                            clearDueOn = clearDueOn
+                        )
+                    }
+                    result.onSuccess { saved ->
+                        showMilestoneEditorDialog = false
+                        editingMilestone = null
+                        onMessage(
+                            if (targetEditing == null) strings.milestoneCreatedMessage(saved.title)
+                            else strings.milestoneUpdatedMessage(saved.title)
+                        )
+                        loadRepoMilestonesList(forceRefresh = true)
+                    }.onFailure { err ->
+                        milestoneEditorError = strings.errorMessage(
+                            err,
+                            if (targetEditing == null) strings.failedCreateMilestone else strings.failedUpdateMilestone
+                        )
+                    }
+                    milestoneEditorSubmitting = false
+                }
+            }
+        )
+    }
+
+    deletingMilestoneTarget?.let { targetMilestone ->
+        AlertDialog(
+            onDismissRequest = { if (!milestoneDeleteBusy) deletingMilestoneTarget = null },
+            title = { Text(strings.milestoneDeleteTitle) },
+            text = { Text(strings.milestoneDeleteConfirm(targetMilestone.title)) },
+            confirmButton = {
+                Button(
+                    enabled = !milestoneDeleteBusy,
+                    onClick = {
+                        scope.launch {
+                            milestoneDeleteBusy = true
+                            container.repository.deleteRepoMilestone(repo.owner, repo.name, targetMilestone.number)
+                                .onSuccess {
+                                    deletingMilestoneTarget = null
+                                    onMessage(strings.milestoneDeletedMessage(targetMilestone.title))
+                                    loadRepoMilestonesList(forceRefresh = true)
+                                }
+                                .onFailure { err ->
+                                    deletingMilestoneTarget = null
+                                    onMessage(strings.errorMessage(err, strings.failedDeleteMilestone))
+                                }
+                            milestoneDeleteBusy = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    Text(strings.deleteAction)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !milestoneDeleteBusy,
+                    onClick = { deletingMilestoneTarget = null }
+                ) {
+                    Text(strings.cancel)
+                }
+            }
+        )
     }
 
     fullScreenDiffContext?.let { (activeFile, allFiles) ->
@@ -3599,7 +3980,12 @@ private fun RepoIssuesOrPullsTabContent(
     errorMsg: String?,
     onRefresh: () -> Unit,
     onCreateNew: (() -> Unit)? = null,
-    onOpenItem: (IssueOrPullSummary) -> Unit
+    onOpenItem: (IssueOrPullSummary) -> Unit,
+    showStateFilters: Boolean = true,
+    headerTitle: String? = null,
+    sectionPicker: (@Composable () -> Unit)? = null,
+    refreshDescriptionOverride: String? = null,
+    customBody: (@Composable () -> Unit)? = null
 ) {
     val strings = appStrings()
 
@@ -3611,14 +3997,25 @@ private fun RepoIssuesOrPullsTabContent(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IssueStateFilter.entries.forEach { sf ->
-                FilterChip(
-                    selected = stateFilter == sf,
-                    onClick = { onSelectFilter(sf) },
-                    label = { Text(strings.issueStateFilterLabel(sf)) }
+            if (showStateFilters) {
+                IssueStateFilter.entries.forEach { sf ->
+                    FilterChip(
+                        selected = stateFilter == sf,
+                        onClick = { onSelectFilter(sf) },
+                        label = { Text(strings.issueStateFilterLabel(sf)) }
+                    )
+                }
+            } else if (!headerTitle.isNullOrBlank()) {
+                Text(
+                    text = headerTitle,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             Spacer(Modifier.weight(1f))
+            sectionPicker?.invoke()
             if (onCreateNew != null) {
                 OutlinedButton(
                     onClick = onCreateNew,
@@ -3632,10 +4029,16 @@ private fun RepoIssuesOrPullsTabContent(
             IconButton(onClick = onRefresh) {
                 Icon(
                     Lucide.RefreshCw,
-                    contentDescription = if (isPullRequests) strings.repoRefreshPulls else strings.repoRefreshIssues,
+                    contentDescription = refreshDescriptionOverride
+                        ?: if (isPullRequests) strings.repoRefreshPulls else strings.repoRefreshIssues,
                     modifier = Modifier.size(18.dp)
                 )
             }
+        }
+
+        if (customBody != null) {
+            customBody()
+            return@Column
         }
 
         if (isLoading && !items.isNullOrEmpty()) {

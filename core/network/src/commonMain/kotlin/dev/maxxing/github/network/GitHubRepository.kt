@@ -148,6 +148,7 @@ private class LruMemoryCache<K, V>(
 private data class NotificationsKey(val all: Boolean, val participating: Boolean, val page: Int)
 private data class MyIssuesKey(val preset: IssueFilterPreset, val viewerLogin: String, val stateFilter: IssueStateFilter)
 private data class RepoKey(val owner: String, val repo: String)
+private data class RepoMilestonesKey(val owner: String, val repo: String, val state: String)
 private data class IssuePullKey(val owner: String, val repo: String, val number: Int)
 private data class RepoIssuesKey(val owner: String, val repo: String, val pullRequests: Boolean, val stateFilter: IssueStateFilter)
 private data class RepoPathKey(val owner: String, val repo: String, val path: String, val ref: String?)
@@ -170,6 +171,11 @@ private fun normalizeRepoPair(owner: String, repo: String): Pair<String, String>
 private fun repoKey(owner: String, repo: String): RepoKey {
     val (o, r) = normalizeRepoPair(owner, repo)
     return RepoKey(o, r)
+}
+
+private fun repoMilestonesKey(owner: String, repo: String, state: String): RepoMilestonesKey {
+    val (o, r) = normalizeRepoPair(owner, repo)
+    return RepoMilestonesKey(o, r, state.trim().lowercase())
 }
 
 private fun repoPathKey(owner: String, repo: String, path: String, ref: String?): RepoPathKey {
@@ -274,7 +280,7 @@ class GitHubRepository(
     private val trendingReposCache = LruMemoryCache<String, List<RepoSummary>>(ttl = 180.seconds, maxEntries = 12)
     private val repoSubscriptionCache = LruMemoryCache<RepoKey, Boolean>(ttl = 120.seconds, maxEntries = 32)
     private val repoLabelsCache = LruMemoryCache<RepoKey, List<LabelTag>>(ttl = 180.seconds, maxEntries = 32)
-    private val repoMilestonesCache = LruMemoryCache<RepoKey, List<MilestoneSummary>>(ttl = 180.seconds, maxEntries = 32)
+    private val repoMilestonesCache = LruMemoryCache<RepoMilestonesKey, List<MilestoneSummary>>(ttl = 180.seconds, maxEntries = 32)
     private val repoAssigneesCache = LruMemoryCache<RepoKey, List<UserSummary>>(ttl = 180.seconds, maxEntries = 32)
     private val commitsCache = LruMemoryCache<RepoPathKey, List<CommitSummary>>(ttl = 60.seconds, maxEntries = 48)
     private val commitDetailCache = LruMemoryCache<RepoCommitKey, CommitDetail>(ttl = 180.seconds, maxEntries = 48)
@@ -1178,12 +1184,15 @@ class GitHubRepository(
         restService.fetchRepoContributors(cleanOwner, cleanRepo)
     }
 
+    fun peekRepoLabels(owner: String, repo: String): List<LabelTag>? =
+        repoLabelsCache.peek(repoKey(owner, repo))
+
     suspend fun getRepoLabels(
         owner: String,
         repo: String,
         forceRefresh: Boolean = false
     ): Result<List<LabelTag>> {
-        val key = RepoKey(owner, repo)
+        val key = repoKey(owner, repo)
         if (!forceRefresh) {
             repoLabelsCache.peekIfFresh(key)?.let { return Result.success(it) }
         }
@@ -1202,23 +1211,101 @@ class GitHubRepository(
         description: String = ""
     ): Result<LabelTag> = runMutationCancellable {
         restService.createRepoLabel(owner, repo, name, colorHex, description).also {
-            repoLabelsCache.invalidate(RepoKey(owner, repo))
+            repoLabelsCache.invalidate(repoKey(owner, repo))
         }
     }
+
+    suspend fun updateRepoLabel(
+        owner: String,
+        repo: String,
+        currentName: String,
+        newName: String,
+        colorHex: String,
+        description: String = ""
+    ): Result<LabelTag> = runMutationCancellable {
+        restService.updateRepoLabel(owner, repo, currentName, newName, colorHex, description).also {
+            val key = repoKey(owner, repo)
+            repoLabelsCache.invalidate(key)
+            issueDetailCache.invalidateWhere { it.owner.equals(key.owner, ignoreCase = true) && it.repo.equals(key.repo, ignoreCase = true) }
+            repoIssuesCache.invalidateWhere { it.owner.equals(key.owner, ignoreCase = true) && it.repo.equals(key.repo, ignoreCase = true) }
+        }
+    }
+
+    suspend fun deleteRepoLabel(
+        owner: String,
+        repo: String,
+        name: String
+    ): Result<Unit> = runMutationCancellable {
+        restService.deleteRepoLabel(owner, repo, name).also {
+            val key = repoKey(owner, repo)
+            repoLabelsCache.invalidate(key)
+            issueDetailCache.invalidateWhere { it.owner.equals(key.owner, ignoreCase = true) && it.repo.equals(key.repo, ignoreCase = true) }
+            repoIssuesCache.invalidateWhere { it.owner.equals(key.owner, ignoreCase = true) && it.repo.equals(key.repo, ignoreCase = true) }
+        }
+    }
+
+    fun peekRepoMilestones(owner: String, repo: String, state: String = "open"): List<MilestoneSummary>? =
+        repoMilestonesCache.peek(repoMilestonesKey(owner, repo, state))
 
     suspend fun getRepoMilestones(
         owner: String,
         repo: String,
+        state: String = "open",
         forceRefresh: Boolean = false
     ): Result<List<MilestoneSummary>> {
-        val key = RepoKey(owner, repo)
+        val key = repoMilestonesKey(owner, repo, state)
         if (!forceRefresh) {
             repoMilestonesCache.peekIfFresh(key)?.let { return Result.success(it) }
         }
         return runCatchingCancellable {
-            restService.fetchRepoMilestones(owner, repo)
+            restService.fetchRepoMilestones(owner, repo, state = state)
         }.onSuccess {
             repoMilestonesCache.put(key, it)
+        }
+    }
+
+    suspend fun createRepoMilestone(
+        owner: String,
+        repo: String,
+        title: String,
+        state: String = "open",
+        description: String? = null,
+        dueOn: String? = null
+    ): Result<MilestoneSummary> = runMutationCancellable {
+        restService.createRepoMilestone(owner, repo, title, state, description, dueOn).also {
+            val key = repoKey(owner, repo)
+            repoMilestonesCache.invalidateWhere { it.owner == key.owner && it.repo == key.repo }
+        }
+    }
+
+    suspend fun updateRepoMilestone(
+        owner: String,
+        repo: String,
+        number: Int,
+        title: String? = null,
+        state: String? = null,
+        description: String? = null,
+        dueOn: String? = null,
+        clearDueOn: Boolean = false
+    ): Result<MilestoneSummary> = runMutationCancellable {
+        restService.updateRepoMilestone(owner, repo, number, title, state, description, dueOn, clearDueOn).also {
+            val key = repoKey(owner, repo)
+            repoMilestonesCache.invalidateWhere { it.owner == key.owner && it.repo == key.repo }
+            issueDetailCache.invalidateWhere { it.owner.equals(key.owner, ignoreCase = true) && it.repo.equals(key.repo, ignoreCase = true) }
+            repoIssuesCache.invalidateWhere { it.owner.equals(key.owner, ignoreCase = true) && it.repo.equals(key.repo, ignoreCase = true) }
+        }
+    }
+
+    suspend fun deleteRepoMilestone(
+        owner: String,
+        repo: String,
+        number: Int
+    ): Result<Unit> = runMutationCancellable {
+        restService.deleteRepoMilestone(owner, repo, number).also {
+            val key = repoKey(owner, repo)
+            repoMilestonesCache.invalidateWhere { it.owner == key.owner && it.repo == key.repo }
+            issueDetailCache.invalidateWhere { it.owner.equals(key.owner, ignoreCase = true) && it.repo.equals(key.repo, ignoreCase = true) }
+            repoIssuesCache.invalidateWhere { it.owner.equals(key.owner, ignoreCase = true) && it.repo.equals(key.repo, ignoreCase = true) }
         }
     }
 
@@ -1251,6 +1338,10 @@ class GitHubRepository(
         issueDetailCache.invalidate(IssuePullKey(owner, repo, number))
         myIssuesCache.clear()
         repoIssuesCache.invalidateWhere { it.owner == owner && it.repo == repo }
+        if (milestoneNumber != null || clearMilestone) {
+            val key = repoKey(owner, repo)
+            repoMilestonesCache.invalidateWhere { it.owner == key.owner && it.repo == key.repo }
+        }
     }
 
     fun peekRepoCommits(owner: String, repo: String, ref: String? = null, path: String = ""): List<CommitSummary>? =
