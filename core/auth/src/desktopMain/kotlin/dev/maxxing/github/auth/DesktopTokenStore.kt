@@ -8,8 +8,11 @@ import kotlinx.serialization.json.Json
 import java.awt.Desktop
 import java.io.File
 import java.net.URI
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.nio.file.attribute.PosixFilePermission
+import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.TimeUnit
 
 private class LinuxDesktopTokenStore : TokenStore {
@@ -33,8 +36,7 @@ private class LinuxDesktopTokenStore : TokenStore {
     override suspend fun saveSession(session: AuthSession) = withContext(Dispatchers.IO) {
         val encoded = json.encodeToString(session)
         if (!trySecretToolStore(encoded)) {
-            sessionFile.writeText(encoded)
-            restrictPermissions(sessionFile)
+            writeSessionFileAtomically(encoded)
         } else if (sessionFile.exists()) {
             sessionFile.delete()
         }
@@ -122,6 +124,32 @@ private class LinuxDesktopTokenStore : TokenStore {
         }
     }
 
+    // Plaintext fallback write: the temp file is created owner-only (POSIX 0600) so the
+    // secret is never briefly readable by others, and the final swap over session.json
+    // is a rename so readers never observe a partially written file.
+    private fun writeSessionFileAtomically(content: String) {
+        val target = sessionFile.toPath()
+        val tmp = Files.createTempFile(
+            target.parent,
+            "${sessionFile.name}.",
+            ".tmp",
+            PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------"))
+        )
+        try {
+            Files.writeString(tmp, content)
+            try {
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+            } catch (_: AtomicMoveNotSupportedException) {
+                // Filesystem cannot guarantee an atomic swap; a same-directory rename
+                // is still the best available option here.
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING)
+            }
+            restrictPermissions(sessionFile)
+        } finally {
+            runCatching { Files.deleteIfExists(tmp) }
+        }
+    }
+
     private fun trySecretToolStore(secret: String): Boolean {
         return try {
             val process = ProcessBuilder(
@@ -131,7 +159,12 @@ private class LinuxDesktopTokenStore : TokenStore {
                 "account", "github"
             ).start()
             process.outputStream.bufferedWriter().use { it.write(secret) }
-            process.waitFor() == 0
+            if (!process.waitFor(10, TimeUnit.SECONDS)) {
+                process.destroy()
+                false
+            } else {
+                process.exitValue() == 0
+            }
         } catch (_: Exception) {
             false
         }
@@ -151,13 +184,21 @@ private class LinuxDesktopTokenStore : TokenStore {
         }
     }
 
-    private fun trySecretToolClear() {
-        runCatching {
-            ProcessBuilder(
+    private fun trySecretToolClear(): Boolean {
+        return try {
+            val process = ProcessBuilder(
                 "secret-tool", "clear",
                 "service", "github-mobile-maxxing",
                 "account", "github"
-            ).start().waitFor()
+            ).start()
+            if (!process.waitFor(10, TimeUnit.SECONDS)) {
+                process.destroy()
+                false
+            } else {
+                process.exitValue() == 0
+            }
+        } catch (_: Exception) {
+            false
         }
     }
 }

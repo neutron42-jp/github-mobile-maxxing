@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import java.io.File
+import java.io.IOException
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -67,7 +68,25 @@ private class AndroidKeystoreTokenStore(
         val iv = cipher.iv
         val ciphertext = cipher.doFinal(plaintext)
         val payload = "${Base64.encodeToString(iv, Base64.NO_WRAP)}:${Base64.encodeToString(ciphertext, Base64.NO_WRAP)}"
-        sessionFile.writeText(payload)
+        writeSessionFileAtomically(payload)
+    }
+
+    // Atomic write: the ciphertext is written to a temp file next to the session file
+    // and renamed over it, so a reader never observes a partially written session.
+    private fun writeSessionFileAtomically(payload: String) {
+        val tmpFile = File.createTempFile("maxxing_session", ".tmp", context.filesDir)
+        try {
+            tmpFile.writeText(payload)
+            if (!tmpFile.renameTo(sessionFile)) {
+                // renameTo can refuse to replace an existing target on some filesystems;
+                // remove the old file and retry once before giving up.
+                if ((sessionFile.exists() && !sessionFile.delete()) || !tmpFile.renameTo(sessionFile)) {
+                    throw IOException("Failed to replace ${sessionFile.name} atomically")
+                }
+            }
+        } finally {
+            if (tmpFile.exists()) tmpFile.delete()
+        }
     }
 
     override suspend fun loadSession(): AuthSession? = withContext(Dispatchers.IO) {
