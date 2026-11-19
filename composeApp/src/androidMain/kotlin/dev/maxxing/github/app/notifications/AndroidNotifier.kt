@@ -117,7 +117,7 @@ actual object PlatformNotifier {
                     if (isUrgent) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT
                 )
                 .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-                .setPublicVersion(buildLockScreenPublicVersion(context))
+                .setPublicVersion(buildLockScreenPublicVersion(context, channelId, strings))
                 .setContentIntent(contentIntent)
                 .addAction(0, strings.osNotifMarkReadAction, markReadIntent)
                 .addAction(0, strings.doneAction, markDoneIntent)
@@ -138,7 +138,7 @@ actual object PlatformNotifier {
                 .setStyle(inboxStyle)
                 .setAutoCancel(true)
                 .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-                .setPublicVersion(buildLockScreenPublicVersion(context))
+                .setPublicVersion(buildLockScreenPublicVersion(context, CHANNEL_ACTIVITY, strings))
                 .apply {
                     if (launchIntent != null) {
                         setContentIntent(
@@ -179,7 +179,7 @@ actual object PlatformNotifier {
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .setPublicVersion(buildLockScreenPublicVersion(context))
+            .setPublicVersion(buildLockScreenPublicVersion(context, CHANNEL_URGENT, strings))
             .apply { if (pendingIntent != null) setContentIntent(pendingIntent) }
             .build()
 
@@ -237,14 +237,17 @@ actual object PlatformNotifier {
 
     /**
      * Lock-screen replacement shown while the real notification is private: the app name and a generic
-     * phrase, so repo names and thread titles stay off the lock screen. English only for now; there is
-     * no matching generic row in strings.csv.
+     * phrase, so repo names and thread titles stay off the lock screen.
      */
-    private fun buildLockScreenPublicVersion(context: Context): Notification =
-        NotificationCompat.Builder(context, CHANNEL_ACTIVITY)
+    private fun buildLockScreenPublicVersion(
+        context: Context,
+        channelId: String,
+        strings: AppStrings
+    ): Notification =
+        NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_stat_maxxing)
             .setContentTitle(AppBranding.APP_NAME)
-            .setContentText("You have new notifications")
+            .setContentText(strings.osNotifLockScreenBody)
             .build()
 
     private fun buildOpenThreadIntent(

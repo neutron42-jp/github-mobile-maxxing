@@ -640,6 +640,7 @@ osNotifActivityChannelName	Repository Activity
 osNotifBatchTitle	7301 new GitHub notifications
 osNotifDesktopTestBody	Desktop notifications are active and working!
 osNotifDesktopTestTitle	zqa1 Test Notification
+osNotifLockScreenBody	You have new notifications
 osNotifMarkReadAction	Mark Read
 osNotifOverflowBody	Open the inbox to see all new notifications.
 osNotifOverflowTitle	+7301 more GitHub notifications

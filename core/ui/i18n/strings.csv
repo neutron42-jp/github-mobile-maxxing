@@ -670,6 +670,7 @@ osNotifMarkReadAction,,Mark Read,既読にする
 osNotifBatchTitle,Int,{0} new GitHub notifications,新着の GitHub 通知が {0} 件あります
 osNotifOverflowTitle,Int,+{0} more GitHub notifications,ほかに {0} 件の GitHub 通知があります
 osNotifOverflowBody,,Open the inbox to see all new notifications.,受信箱を開くと、新着の通知をすべて確認できます。
+osNotifLockScreenBody,,You have new notifications,新しい通知があります
 osNotifTestReadyTitle,String,{0} Notifications Ready,{0} の通知が有効です
 osNotifTestReadyBody,,New mentions & review requests will appear here with Mark Read / Done actions.,新しいメンションやレビュー依頼が、既読・完了アクション付きでここに表示されます。
 osNotifDesktopTestTitle,String,{0} Test Notification,{0} テスト通知

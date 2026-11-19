@@ -640,6 +640,7 @@ osNotifActivityChannelName	リポジトリのアクティビティ
 osNotifBatchTitle	新着の GitHub 通知が 7301 件あります
 osNotifDesktopTestBody	デスクトップ通知は正常に動作しています！
 osNotifDesktopTestTitle	zqa1 テスト通知
+osNotifLockScreenBody	新しい通知があります
 osNotifMarkReadAction	既読にする
 osNotifOverflowBody	受信箱を開くと、新着の通知をすべて確認できます。
 osNotifOverflowTitle	ほかに 7301 件の GitHub 通知があります
