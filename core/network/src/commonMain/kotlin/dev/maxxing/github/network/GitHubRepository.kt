@@ -193,6 +193,11 @@ private fun repoCompareKey(owner: String, repo: String, base: String, head: Stri
     return RepoCompareKey(o, r, base.trim(), head.trim())
 }
 
+private fun issuePullKey(owner: String, repo: String, number: Int): IssuePullKey {
+    val (o, r) = normalizeRepoPair(owner, repo)
+    return IssuePullKey(o, r, number)
+}
+
 /**
  * Runs [block] and wraps non-cancellation failures in [Result.failure], while rethrowing
  * [CancellationException] (and verifying the caller coroutine is still active) so leaving
@@ -359,7 +364,7 @@ class GitHubRepository(
     ): List<IssueOrPullSummary>? = myIssuesCache.peek(MyIssuesKey(preset, viewerLogin, stateFilter))
 
     fun peekIssueOrPullDetail(owner: String, repo: String, number: Int): IssueOrPullDetail? =
-        issueDetailCache.peek(IssuePullKey(owner, repo, number))
+        issueDetailCache.peek(issuePullKey(owner, repo, number))
 
     fun peekPullFiles(owner: String, repo: String, number: Int): List<PullFileChange>? =
         pullFilesCache.peek(IssuePullKey(owner, repo, number))
@@ -528,7 +533,7 @@ class GitHubRepository(
             }
         }
         if (bestSummary == null) {
-            bestSummary = issueDetailCache.peek(IssuePullKey(owner, repo, number))?.toSummary()
+            bestSummary = issueDetailCache.peek(issuePullKey(owner, repo, number))?.toSummary()
         }
 
         issueOverridesMutex.withLock {
@@ -602,7 +607,7 @@ class GitHubRepository(
         number: Int,
         forceRefresh: Boolean = false
     ): Result<IssueOrPullDetail> {
-        val key = IssuePullKey(owner, repo, number)
+        val key = issuePullKey(owner, repo, number)
         if (!forceRefresh) {
             issueDetailCache.peekIfFresh(key)?.let { return Result.success(it) }
         }
@@ -644,7 +649,7 @@ class GitHubRepository(
         body: String
     ): Result<Unit> = runMutationCancellable {
         restService.postComment(owner, repo, number, body)
-        issueDetailCache.invalidate(IssuePullKey(owner, repo, number))
+        issueDetailCache.invalidate(issuePullKey(owner, repo, number))
     }
 
     suspend fun setIssueOrPullState(
@@ -656,7 +661,7 @@ class GitHubRepository(
         restService.setIssueOrPullState(owner, repo, number, open)
         val nextState = if (open) IssueOrPullState.OPEN else IssueOrPullState.CLOSED
         recordIssueStateTransition(owner, repo, number, nextState)
-        issueDetailCache.invalidate(IssuePullKey(owner, repo, number))
+        issueDetailCache.invalidate(issuePullKey(owner, repo, number))
     }
 
     suspend fun createIssue(
@@ -681,7 +686,7 @@ class GitHubRepository(
         body: String
     ): Result<Unit> = runMutationCancellable {
         restService.submitPullReview(owner, repo, number, event, body)
-        issueDetailCache.invalidate(IssuePullKey(owner, repo, number))
+        issueDetailCache.invalidate(issuePullKey(owner, repo, number))
         myIssuesCache.clear()
     }
 
@@ -694,7 +699,7 @@ class GitHubRepository(
     ): Result<Unit> = runMutationCancellable {
         restService.mergePullRequest(owner, repo, number, method, commitTitle)
         recordIssueStateTransition(owner, repo, number, IssueOrPullState.MERGED)
-        issueDetailCache.invalidate(IssuePullKey(owner, repo, number))
+        issueDetailCache.invalidate(issuePullKey(owner, repo, number))
     }
 
     suspend fun getViewerRepositories(forceRefresh: Boolean = false): Result<List<RepoSummary>> {
@@ -1335,7 +1340,7 @@ class GitHubRepository(
         clearMilestone: Boolean = false
     ): Result<Unit> = runMutationCancellable {
         restService.updateIssueMetadata(owner, repo, number, labels, assignees, milestoneNumber, clearMilestone)
-        issueDetailCache.invalidate(IssuePullKey(owner, repo, number))
+        issueDetailCache.invalidate(issuePullKey(owner, repo, number))
         myIssuesCache.clear()
         repoIssuesCache.invalidateWhere { it.owner == owner && it.repo == repo }
         if (milestoneNumber != null || clearMilestone) {
@@ -1608,7 +1613,7 @@ class GitHubRepository(
     }
 
     fun peekDiscussionDetail(owner: String, repo: String, number: Int): DiscussionDetail? =
-        discussionDetailCache.peek(IssuePullKey(owner, repo, number))
+        discussionDetailCache.peek(issuePullKey(owner, repo, number))
 
     suspend fun getDiscussionDetail(
         owner: String,
@@ -1616,7 +1621,7 @@ class GitHubRepository(
         number: Int,
         forceRefresh: Boolean = false
     ): Result<DiscussionDetail> {
-        val key = IssuePullKey(owner, repo, number)
+        val key = issuePullKey(owner, repo, number)
         if (!forceRefresh) {
             discussionDetailCache.peekIfFresh(key)?.let { return Result.success(it) }
         }
@@ -1649,7 +1654,7 @@ class GitHubRepository(
         replyToId: String? = null
     ): Result<DiscussionComment> = runMutationCancellable {
         graphQlService.addDiscussionComment(discussionId, body, replyToId).also {
-            discussionDetailCache.invalidate(IssuePullKey(owner, repo, discussionNumber))
+            discussionDetailCache.invalidate(issuePullKey(owner, repo, discussionNumber))
             discussionsCache.invalidateWhere { it.owner == owner && it.repo == repo }
         }
     }
@@ -1664,7 +1669,7 @@ class GitHubRepository(
         graphQlService.toggleDiscussionUpvote(subjectId, currentlyUpvoted).also {
             discussionsCache.invalidateWhere { it.owner == owner && it.repo == repo }
             if (discussionNumber != null) {
-                discussionDetailCache.invalidate(IssuePullKey(owner, repo, discussionNumber))
+                discussionDetailCache.invalidate(issuePullKey(owner, repo, discussionNumber))
             }
         }
     }
@@ -1747,7 +1752,7 @@ class GitHubRepository(
         draft: Boolean
     ): Result<Unit> = runMutationCancellable {
         graphQlService.setPullRequestDraftState(pullRequestId, draft)
-        issueDetailCache.invalidate(IssuePullKey(owner, repo, number))
+        issueDetailCache.invalidate(issuePullKey(owner, repo, number))
         repoIssuesCache.invalidateWhere { it.owner == owner && it.repo == repo }
     }
 
@@ -1758,7 +1763,7 @@ class GitHubRepository(
         reviewers: List<String>
     ): Result<Unit> = runMutationCancellable {
         restService.requestPullReviewers(owner, repo, number, reviewers)
-        issueDetailCache.invalidate(IssuePullKey(owner, repo, number))
+        issueDetailCache.invalidate(issuePullKey(owner, repo, number))
     }
 
     suspend fun createPullDiffComment(
@@ -1772,7 +1777,7 @@ class GitHubRepository(
         side: String = "RIGHT"
     ): Result<Unit> = runMutationCancellable {
         restService.createPullDiffComment(owner, repo, number, commitId, path, body, line, side)
-        issueDetailCache.invalidate(IssuePullKey(owner, repo, number))
+        issueDetailCache.invalidate(issuePullKey(owner, repo, number))
     }
 
     suspend fun toggleReaction(
@@ -1784,7 +1789,7 @@ class GitHubRepository(
         currentlyReacted: Boolean
     ): Result<Boolean> = runMutationCancellable {
         graphQlService.toggleReaction(subjectId, content, currentlyReacted).also {
-            issueDetailCache.invalidate(IssuePullKey(owner, repo, issueOrPullNumber))
+            issueDetailCache.invalidate(issuePullKey(owner, repo, issueOrPullNumber))
         }
     }
 
@@ -1796,7 +1801,7 @@ class GitHubRepository(
         body: String
     ): Result<Unit> = runMutationCancellable {
         graphQlService.updateIssueComment(commentId, body)
-        issueDetailCache.invalidate(IssuePullKey(owner, repo, issueOrPullNumber))
+        issueDetailCache.invalidate(issuePullKey(owner, repo, issueOrPullNumber))
     }
 
     suspend fun deleteIssueComment(
@@ -1806,7 +1811,7 @@ class GitHubRepository(
         commentId: String
     ): Result<Unit> = runMutationCancellable {
         graphQlService.deleteIssueComment(commentId)
-        issueDetailCache.invalidate(IssuePullKey(owner, repo, issueOrPullNumber))
+        issueDetailCache.invalidate(issuePullKey(owner, repo, issueOrPullNumber))
     }
 
     private fun gistCacheKey(starred: Boolean, userLogin: String?): String = when {
