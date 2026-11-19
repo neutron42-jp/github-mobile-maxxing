@@ -837,13 +837,41 @@ class GitHubRestService(
     }
 
     suspend fun fetchPullFiles(owner: String, repo: String, number: Int): List<PullFileChange> {
-        val res = httpClient.get("$baseUrl/repos/$owner/$repo/pulls/$number/files") {
-            parameter("per_page", 100)
+        // Follow Link (rel="next") pagination, bounded to 3 pages (up to 300 files) to avoid runaway loops.
+        val maxPages = 3
+        val files = mutableListOf<PullFileChange>()
+        var nextUrl: String? = "$baseUrl/repos/$owner/$repo/pulls/$number/files"
+        var fetchedPages = 0
+        while (fetchedPages < maxPages) {
+            val currentUrl = nextUrl ?: break
+            val res = httpClient.get(currentUrl) {
+                if (fetchedPages == 0) parameter("per_page", 100)
+            }
+            if (!res.status.isSuccess()) {
+                throw GitHubApiException(res.status.value, "Failed to load PR files (${res.status.value})")
+            }
+            files += res.bodyOrDefaultOnEmpty<List<PullFileDto>> { emptyList() }.map { it.toPullFileChange() }
+            fetchedPages++
+            nextUrl = res.nextLinkUrlOrNull()
         }
-        if (!res.status.isSuccess()) {
-            throw GitHubApiException(res.status.value, "Failed to load PR files (${res.status.value})")
+        return files
+    }
+
+    /**
+     * Parses the Link header and returns the URL of the rel="next" entry,
+     * or null when the header is absent or has no next page.
+     */
+    private fun HttpResponse.nextLinkUrlOrNull(): String? {
+        val linkHeader = headers[HttpHeaders.Link] ?: return null
+        for (entry in linkHeader.split(',')) {
+            val segments = entry.split(';').map { it.trim() }
+            val url = segments.firstOrNull()?.removeSurrounding("<", ">")
+            if (url.isNullOrBlank()) continue
+            val relSegment = segments.firstOrNull { it.startsWith("rel=", ignoreCase = true) } ?: continue
+            val relValues = relSegment.substringAfter('=').trim().trim('"', '\'').split(Regex("\\s+"))
+            if (relValues.any { it.equals("next", ignoreCase = true) }) return url
         }
-        return res.bodyOrDefaultOnEmpty<List<PullFileDto>> { emptyList() }.map { it.toPullFileChange() }
+        return null
     }
 
     private fun PullFileDto.toPullFileChange(): PullFileChange = PullFileChange(
