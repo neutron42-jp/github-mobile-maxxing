@@ -16,7 +16,6 @@ import kotlinx.cinterop.value
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import platform.CoreFoundation.CFDataCreate
 import platform.CoreFoundation.CFDataRef
 import platform.CoreFoundation.CFDictionaryAddValue
@@ -107,7 +106,7 @@ internal class IosTokenStore(
         userDefaults = NSUserDefaults.standardUserDefaults,
     )
 
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = TokenStoreJson
     private val keychainMutex = Mutex()
     private var firstLaunchChecked = false // guarded by keychainMutex
 

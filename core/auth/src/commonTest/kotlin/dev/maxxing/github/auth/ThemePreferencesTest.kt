@@ -61,4 +61,24 @@ class ThemePreferencesTest {
         assertEquals(FontSourceKind.SYSTEM_DEFAULT, decoded.primaryFont.kind)
         assertEquals(FontSelection.SystemDefault, decoded.fallbackFont)
     }
+
+    @Test
+    fun unknownLanguageFallsBackToDefaultWithoutLosingOtherPreferences() {
+        val customPrimary = FontSelection(
+            kind = FontSourceKind.SYSTEM_FAMILY,
+            value = "Inter",
+            displayName = "Inter"
+        )
+        val newerJson = """{"seedColorHex":16734003,"useDynamicColor":false,"darkModeOverride":true,""" +
+            """"primaryFont":{"kind":"SYSTEM_FAMILY","value":"Inter","displayName":"Inter"},""" +
+            """"language":"FUTURE_LANGUAGE"}"""
+        val decoded = json.decodeFromString<ThemePreferences>(newerJson)
+
+        assertEquals(16734003L, decoded.seedColorHex)
+        assertEquals(false, decoded.useDynamicColor)
+        assertEquals(true, decoded.darkModeOverride)
+        assertEquals(customPrimary, decoded.primaryFont)
+        assertEquals(FontSelection.SystemDefault, decoded.fallbackFont)
+        assertEquals(AppLanguage.DEFAULT, decoded.language)
+    }
 }

@@ -2,8 +2,11 @@
 
 package dev.maxxing.github.auth
 
+import dev.maxxing.github.model.AppLanguage
 import dev.maxxing.github.model.AuthMethod
 import dev.maxxing.github.model.AuthSession
+import dev.maxxing.github.model.FontSelection
+import dev.maxxing.github.model.FontSourceKind
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
@@ -14,7 +17,6 @@ import kotlinx.cinterop.usePinned
 import kotlinx.cinterop.value
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import platform.CoreFoundation.CFDataCreate
 import platform.CoreFoundation.CFDictionaryAddValue
 import platform.CoreFoundation.CFDictionaryCreateMutable
@@ -82,7 +84,7 @@ import kotlin.test.assertTrue
  */
 class IosTokenStoreTest {
 
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = TokenStoreJson
 
     private lateinit var defaults: NSUserDefaults
 
@@ -198,6 +200,54 @@ class IosTokenStoreTest {
 
         defaults.setObject("garbage", forKey = "pinned_repos")
         assertEquals(emptyList<String>(), store.loadPinnedRepos())
+    }
+
+    @Test
+    fun unknownEnumValuesInThemePreferencesFallBackToDefaultsWithoutLosingOtherFields() = runTest {
+        val store = store()
+
+        // Future language enum value falls back to DEFAULT while preserving color, dark mode, and fonts.
+        val futureLanguageJson = """{"seedColorHex":16734003,"useDynamicColor":false,"darkModeOverride":true,""" +
+            """"primaryFont":{"kind":"SYSTEM_FAMILY","value":"Inter","displayName":"Inter"},""" +
+            """"language":"FUTURE_LANG"}"""
+        defaults.setObject(futureLanguageJson, forKey = "theme_prefs")
+        assertEquals(
+            ThemePreferences(
+                seedColorHex = 16734003L,
+                useDynamicColor = false,
+                darkModeOverride = true,
+                primaryFont = FontSelection(
+                    kind = FontSourceKind.SYSTEM_FAMILY,
+                    value = "Inter",
+                    displayName = "Inter"
+                ),
+                fallbackFont = FontSelection.SystemDefault,
+                language = AppLanguage.DEFAULT
+            ),
+            store.loadThemePreferences()
+        )
+
+        // Future FontSourceKind enum values fall back to SYSTEM_DEFAULT while preserving language and other fields.
+        val futureFontKindJson = """{"seedColorHex":16734003,"useDynamicColor":false,"darkModeOverride":false,""" +
+            """"primaryFont":{"kind":"FUTURE_FONT_KIND","value":"x","displayName":"X"},""" +
+            """"fallbackFont":{"kind":"FUTURE_FALLBACK_KIND"},""" +
+            """"language":"JAPANESE"}"""
+        defaults.setObject(futureFontKindJson, forKey = "theme_prefs")
+        assertEquals(
+            ThemePreferences(
+                seedColorHex = 16734003L,
+                useDynamicColor = false,
+                darkModeOverride = false,
+                primaryFont = FontSelection(
+                    kind = FontSourceKind.SYSTEM_DEFAULT,
+                    value = "x",
+                    displayName = "X"
+                ),
+                fallbackFont = FontSelection.SystemDefault,
+                language = AppLanguage.JAPANESE
+            ),
+            store.loadThemePreferences()
+        )
     }
 
     @Test
