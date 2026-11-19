@@ -367,7 +367,7 @@ class GitHubRepository(
         issueDetailCache.peek(issuePullKey(owner, repo, number))
 
     fun peekPullFiles(owner: String, repo: String, number: Int): List<PullFileChange>? =
-        pullFilesCache.peek(IssuePullKey(owner, repo, number))
+        pullFilesCache.peek(issuePullKey(owner, repo, number))
 
     fun peekViewerRepositories(): List<RepoSummary>? = viewerReposCache.peek("MY")
 
@@ -624,7 +624,7 @@ class GitHubRepository(
         number: Int,
         forceRefresh: Boolean = false
     ): Result<List<PullFileChange>> {
-        val key = IssuePullKey(owner, repo, number)
+        val key = issuePullKey(owner, repo, number)
         if (!forceRefresh) {
             pullFilesCache.peekIfFresh(key)?.let { return Result.success(it) }
         }
