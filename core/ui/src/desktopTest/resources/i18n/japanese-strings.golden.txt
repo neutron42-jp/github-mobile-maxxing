@@ -406,6 +406,7 @@ fileStatusRemoved	削除
 fileStatusRenamed	名前変更
 fileUntitledName	ファイル
 filterNotificationsPlaceholder	通知を絞り込み...
+filterPullFilesPlaceholder	ファイル名で絞り込み...
 follow	フォロー
 followScopeErrorHint	トークンに 'user:follow' スコープがない可能性があります。設定からサインアウトして、再度サインインしてください。
 followUpdateFailed	フォロー状態の更新に失敗しました
@@ -634,6 +635,7 @@ noIssuesPresetAssigned	自分にアサイン
 noIssuesPresetCreated	自分が作成
 noIssuesPresetMentioned	メンション
 noIssuesPresetReviewRequested	レビュー依頼
+noMatchingPullFiles	絞り込みに一致するファイルはありません。
 noMatchingSystemFonts	一致するシステムフォントがありません
 noPublicRepos	公開リポジトリはありません。
 noRecentActivity	最近のアクティビティはまだありません。

@@ -406,6 +406,7 @@ fileStatusRemoved	REM
 fileStatusRenamed	REN
 fileUntitledName	file
 filterNotificationsPlaceholder	Filter by repo or title...
+filterPullFilesPlaceholder	Filter files by name...
 follow	Follow
 followScopeErrorHint	Your token may lack the 'user:follow' scope — sign out and sign in again (or add 'user:follow' scope).
 followUpdateFailed	Follow update failed
@@ -634,6 +635,7 @@ noIssuesPresetAssigned	assigned
 noIssuesPresetCreated	created
 noIssuesPresetMentioned	mentioned
 noIssuesPresetReviewRequested	review requested
+noMatchingPullFiles	No files match the filter.
 noMatchingSystemFonts	No matching system fonts
 noPublicRepos	No public repositories.
 noRecentActivity	No recent activity events yet.

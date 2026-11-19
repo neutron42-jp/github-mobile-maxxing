@@ -599,6 +599,8 @@ reactionFailed,,Reaction failed,リアクションに失敗しました
 addReactionDesc,,Add reaction,リアクションを追加
 reactedDesc,,Reacted,リアクション済み
 noFileDiffs,,No file diffs returned for this pull request.,このプルリクエストのファイル差分はありません。
+filterPullFilesPlaceholder,,Filter files by name...,ファイル名で絞り込み...
+noMatchingPullFiles,,No files match the filter.,絞り込みに一致するファイルはありません。
 reviewCommentLineTitle,String;Int,Review Comment: {0}:{1},レビューコメント: {0}:{1}
 fileCommentTitle,String,File Comment: {0},ファイルコメント: {0}
 addedInlineDiffComment,,Added inline diff comment,差分にインラインコメントを追加しました

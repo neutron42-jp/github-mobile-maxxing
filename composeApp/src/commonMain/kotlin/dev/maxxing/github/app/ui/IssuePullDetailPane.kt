@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -61,8 +63,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -83,6 +87,7 @@ import com.composables.icons.lucide.MessageSquarePlus
 import com.composables.icons.lucide.Pencil
 import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.RefreshCw
+import com.composables.icons.lucide.Search
 import com.composables.icons.lucide.Send
 import com.composables.icons.lucide.Tag
 import com.composables.icons.lucide.Trash2
@@ -134,6 +139,25 @@ private const val CHECKS_POLL_INTERVAL_MS = 30_000L
 
 // Stop polling a PR after ~30 minutes of foreground polling in total (e.g. runs stuck waiting for a runner).
 private const val CHECKS_POLL_MAX_COUNT = 60
+
+/**
+ * PRs with at most this many changed files open with every diff expanded; larger ones start
+ * collapsed and get a file-name filter at the top of the Files tab.
+ */
+internal const val PULL_FILES_COMPACT_MAX_COUNT = 6
+
+/**
+ * Narrows a PR's changed files by a case-insensitive substring match on the file name or,
+ * for renames, the previous file name. A blank [query] keeps every file.
+ */
+internal fun filterPullFiles(files: List<PullFileChange>, query: String): List<PullFileChange> {
+    val needle = query.trim()
+    if (needle.isEmpty()) return files
+    return files.filter { file ->
+        file.filename.contains(needle, ignoreCase = true) ||
+            file.previousFilename?.contains(needle, ignoreCase = true) == true
+    }
+}
 
 /**
  * Ref used to list a PR's check runs on the base repository. The head commit SHA
@@ -947,15 +971,60 @@ private fun IssuePullDetailPaneContent(
                     } else {
                         val expandedFiles = remember(targetKey, files) {
                             mutableStateMapOf<String, Boolean>().apply {
-                                val defaultOpen = files.size <= 6
+                                val defaultOpen = files.size <= PULL_FILES_COMPACT_MAX_COUNT
                                 files.forEach { put(it.filename, defaultOpen) }
                             }
                         }
+                        var fileFilterQuery by remember(targetKey) { mutableStateOf("") }
+                        val showFileFilter = files.size > PULL_FILES_COMPACT_MAX_COUNT
+                        // If a refresh shrinks the PR below the threshold the field disappears, so drop its query too.
+                        val activeFileFilter = if (showFileFilter) fileFilterQuery else ""
+                        val visibleFiles = remember(files, activeFileFilter) {
+                            filterPullFiles(files, activeFileFilter)
+                        }
+                        val focusManager = LocalFocusManager.current
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
+                            if (showFileFilter) {
+                                item(key = "files_filter", contentType = "files_filter") {
+                                    OutlinedTextField(
+                                        value = fileFilterQuery,
+                                        onValueChange = { fileFilterQuery = it },
+                                        placeholder = { Text(strings.filterPullFilesPlaceholder) },
+                                        leadingIcon = {
+                                            Icon(Lucide.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        },
+                                        suffix = {
+                                            Text(
+                                                text = "${visibleFiles.size}/${files.size}",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        },
+                                        trailingIcon = if (fileFilterQuery.isNotEmpty()) {
+                                            {
+                                                IconButton(
+                                                    onClick = {
+                                                        fileFilterQuery = ""
+                                                        focusManager.clearFocus()
+                                                    }
+                                                ) {
+                                                    Icon(Lucide.X, contentDescription = strings.clear, modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                        } else null,
+                                        singleLine = true,
+                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                        keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 8.dp)
+                                    )
+                                }
+                            }
                             if (filesLoading) {
                                 item(key = "files_loading", contentType = "loading") {
                                     MaxxingWavyProgress()
@@ -970,7 +1039,16 @@ private fun IssuePullDetailPaneContent(
                                     )
                                 }
                             }
-                            files.forEach { file ->
+                            if (!filesLoading && files.isNotEmpty() && visibleFiles.isEmpty()) {
+                                item(key = "files_no_match", contentType = "empty") {
+                                    Text(
+                                        text = strings.noMatchingPullFiles,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            visibleFiles.forEach { file ->
                                 val isExpanded = expandedFiles[file.filename] ?: true
                                 diffFileLazyItems(
                                     file = file,
