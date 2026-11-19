@@ -118,6 +118,17 @@ class DeviceFlowClient(
             return@flow
         }
 
+        // The verification URL is opened in the user's browser, so only GitHub's device-flow page is accepted.
+        if (!codeResponse.verificationUri.startsWith(EXPECTED_VERIFICATION_URI)) {
+            emit(
+                DeviceCodeState.Error(
+                    "GitHub returned an unexpected verification URL: ${codeResponse.verificationUri}",
+                    kind = DeviceFlowErrorKind.OTHER
+                )
+            )
+            return@flow
+        }
+
         var intervalSec = codeResponse.interval.coerceAtLeast(1)
         var elapsedSec = 0
 
@@ -354,6 +365,9 @@ class DeviceFlowClient(
 
     companion object {
         const val DEFAULT_OAUTH_SCOPE = "repo gist notifications read:user user:follow read:org"
+
+        /** Only this prefix is accepted for the device flow's verification URL, since the UI opens it in a browser. */
+        const val EXPECTED_VERIFICATION_URI = "https://github.com/login/device"
 
         /** Upper bound for one request to github.com, so a stalled token refresh cannot hold up API calls long. */
         const val AUTH_REQUEST_TIMEOUT_MILLIS = 15_000L
