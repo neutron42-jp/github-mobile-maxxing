@@ -82,6 +82,7 @@ import com.composables.icons.lucide.SlidersHorizontal
 import com.composables.icons.lucide.Type
 import dev.maxxing.github.app.AppContainer
 import dev.maxxing.github.app.MaxxingBuildConfig
+import dev.maxxing.github.app.PlatformCapabilities
 import dev.maxxing.github.app.SettingsSection
 import dev.maxxing.github.app.catchingSecureStorage
 import dev.maxxing.github.app.fonts.PlatformFontManager
@@ -188,35 +189,12 @@ fun SettingsScreen(
     }
 
     val categoryItems = remember(themePrefs, notifPrefs, osNotificationsBlocked, linkHandlingState, strings) {
-        listOf(
-            SettingsCategoryItem(
-                section = SettingsSection.APPEARANCE,
-                title = strings.settingsCategoryAppearance,
-                subtitle = formatAppearanceSummary(themePrefs, strings),
-                icon = Lucide.Palette
-            ),
-            SettingsCategoryItem(
-                section = SettingsSection.NOTIFICATIONS,
-                title = strings.settingsCategoryNotifications,
-                subtitle = formatNotificationsSummary(notifPrefs, osNotificationsBlocked, strings),
-                icon = if (notifPrefs.osNotificationsEnabled) Lucide.Bell else Lucide.BellOff,
-                isWarning = notifPrefs.osNotificationsEnabled && osNotificationsBlocked
-            ),
-            SettingsCategoryItem(
-                section = SettingsSection.GENERAL,
-                title = strings.settingsCategoryGeneral,
-                subtitle = formatGeneralSummary(themePrefs.language, linkHandlingState, strings),
-                icon = Lucide.SlidersHorizontal
-            ),
-            SettingsCategoryItem(
-                section = SettingsSection.APP_INFO,
-                title = strings.settingsCategoryAppInfo,
-                subtitle = formatAppBuildFooter(
-                    versionName = MaxxingBuildConfig.APP_VERSION_NAME,
-                    commitSha = MaxxingBuildConfig.APP_COMMIT_SHA
-                ),
-                icon = Lucide.Info
-            )
+        buildSettingsCategoryItems(
+            themePrefs = themePrefs,
+            notifPrefs = notifPrefs,
+            osNotificationsBlocked = osNotificationsBlocked,
+            linkHandlingState = linkHandlingState,
+            strings = strings
         )
     }
 
@@ -1294,7 +1272,7 @@ private fun AppInfoSettingsPage(
                             style = MaterialTheme.typography.titleLarge
                         )
                         Text(
-                            text = strings.signInSubtitle,
+                            text = strings.appInfoSubtitle,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1401,14 +1379,70 @@ private fun AppInfoMetadataRow(
     }
 }
 
+internal fun buildSettingsCategoryItems(
+    themePrefs: ThemePreferences,
+    notifPrefs: NotificationPreferences,
+    osNotificationsBlocked: Boolean,
+    linkHandlingState: GitHubLinkHandlingState,
+    strings: AppStrings,
+    capabilities: PlatformCapabilities = platformCapabilities,
+    versionName: String = MaxxingBuildConfig.APP_VERSION_NAME,
+    commitSha: String = MaxxingBuildConfig.APP_COMMIT_SHA
+): List<SettingsCategoryItem> = listOf(
+    SettingsCategoryItem(
+        section = SettingsSection.APPEARANCE,
+        title = strings.settingsCategoryAppearance,
+        subtitle = formatAppearanceSummary(
+            themePrefs = themePrefs,
+            strings = strings,
+            supportsDynamicColor = capabilities.supportsDynamicColorToggle
+        ),
+        icon = Lucide.Palette
+    ),
+    SettingsCategoryItem(
+        section = SettingsSection.NOTIFICATIONS,
+        title = strings.settingsCategoryNotifications,
+        subtitle = formatNotificationsSummary(
+            notifPrefs = notifPrefs,
+            osNotificationsBlocked = osNotificationsBlocked,
+            strings = strings,
+            supportsOsNotifications = capabilities.supportsOsNotifications
+        ),
+        icon = if (!capabilities.supportsOsNotifications || notifPrefs.osNotificationsEnabled) {
+            Lucide.Bell
+        } else {
+            Lucide.BellOff
+        },
+        isWarning = capabilities.supportsOsNotifications &&
+            notifPrefs.osNotificationsEnabled &&
+            osNotificationsBlocked
+    ),
+    SettingsCategoryItem(
+        section = SettingsSection.GENERAL,
+        title = strings.settingsCategoryGeneral,
+        subtitle = formatGeneralSummary(themePrefs.language, linkHandlingState, strings),
+        icon = Lucide.SlidersHorizontal
+    ),
+    SettingsCategoryItem(
+        section = SettingsSection.APP_INFO,
+        title = strings.settingsCategoryAppInfo,
+        subtitle = formatAppBuildFooter(
+            versionName = versionName,
+            commitSha = commitSha
+        ),
+        icon = Lucide.Info
+    )
+)
+
 internal fun formatAppearanceSummary(
     themePrefs: ThemePreferences,
-    strings: AppStrings
+    strings: AppStrings,
+    supportsDynamicColor: Boolean = true
 ): String {
     val modeLabel = DarkModeOption.entries
         .first { it.value == themePrefs.darkModeOverride }
         .label(strings)
-    val colorLabel = if (themePrefs.useDynamicColor) {
+    val colorLabel = if (supportsDynamicColor && themePrefs.useDynamicColor) {
         strings.settingsSummaryDynamicColor
     } else {
         MaxxingSeedPresets.firstOrNull { it.colorHex == themePrefs.seedColorHex }?.name
@@ -1427,8 +1461,10 @@ internal fun formatAppearanceSummary(
 internal fun formatNotificationsSummary(
     notifPrefs: NotificationPreferences,
     osNotificationsBlocked: Boolean,
-    strings: AppStrings
+    strings: AppStrings,
+    supportsOsNotifications: Boolean = true
 ): String = when {
+    !supportsOsNotifications -> strings.pollIntervalMinutes(notifPrefs.pollIntervalMinutes)
     !notifPrefs.osNotificationsEnabled -> strings.settingsSummaryNotificationsOff
     osNotificationsBlocked -> strings.settingsSummaryNotificationsBlocked
     notifPrefs.urgentOnly -> "${strings.urgentOnly} · ${strings.pollIntervalMinutes(notifPrefs.pollIntervalMinutes)}"

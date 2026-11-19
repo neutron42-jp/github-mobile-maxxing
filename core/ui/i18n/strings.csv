@@ -133,6 +133,7 @@ settingsSummaryNotificationsOff,,Off,オフ
 settingsSummaryNotificationsBlocked,,Blocked by system,システムでブロック中
 settingsSummaryLinksEnabled,,github.com links on,github.com リンク有効
 settingsSummaryLinksOff,,github.com links off,github.com リンク無効
+appInfoSubtitle,,"Fast, Material 3 Expressive GitHub client for Android, iOS & Linux.",Android・iOS・Linux 向けの高速な Material 3 Expressive GitHub クライアント。
 appInfoVersionLabel,,Version,バージョン
 appInfoCommitLabel,,Commit,コミット
 appInfoBuildLabel,,Build,ビルド

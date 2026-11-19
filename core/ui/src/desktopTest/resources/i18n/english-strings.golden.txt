@@ -120,6 +120,7 @@ appInfoBuildLabel	Build
 appInfoCommitLabel	Commit
 appInfoCopiedBuildInfo	Copied build info
 appInfoCopyBuildInfo	Copy build info
+appInfoSubtitle	Fast, Material 3 Expressive GitHub client for Android, iOS & Linux.
 appInfoVersionLabel	Version
 appInfoViewRepository	View on GitHub
 appearanceDark	Dark

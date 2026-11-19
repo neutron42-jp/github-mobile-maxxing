@@ -11,6 +11,9 @@ final class AppearanceE2ETests: XCTestCase {
         try signInWithPatIfNeeded(app)
         app.buttons["Settings"].tap()
         XCTAssertTrue(app.buttons["Sign Out"].waitForExistence(timeout: 15))
+        let appearanceRow = app.buttons.containing(NSPredicate(format: "label == 'Appearance' OR label BEGINSWITH 'Appearance,'")).firstMatch
+        XCTAssertTrue(appearanceRow.waitForExistence(timeout: 10), "Appearance row not found in Settings")
+        appearanceRow.tap()
         let selector = app.buttons.containing(NSPredicate(format: "label ENDSWITH ', Select option' AND (label BEGINSWITH 'System' OR label BEGINSWITH 'Dark' OR label BEGINSWITH 'Light')")).firstMatch
         for _ in 0..<4 where !(selector.exists && selector.isHittable) {
             let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))

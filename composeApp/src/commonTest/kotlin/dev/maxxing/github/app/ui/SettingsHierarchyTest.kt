@@ -1,5 +1,9 @@
 package dev.maxxing.github.app.ui
 
+import com.composables.icons.lucide.Bell
+import com.composables.icons.lucide.Lucide
+import dev.maxxing.github.app.PlatformCapabilities
+import dev.maxxing.github.app.SettingsSection
 import dev.maxxing.github.auth.GitHubLinkHandlingState
 import dev.maxxing.github.auth.NotificationPreferences
 import dev.maxxing.github.auth.ThemePreferences
@@ -10,6 +14,7 @@ import dev.maxxing.github.ui.i18n.EnglishStrings
 import dev.maxxing.github.ui.i18n.JapaneseStrings
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 class SettingsHierarchyTest {
 
@@ -21,6 +26,14 @@ class SettingsHierarchyTest {
         )
         assertEquals("System · Dynamic Color", formatAppearanceSummary(dynamicSystem, EnglishStrings))
         assertEquals("システム · ダイナミックカラー", formatAppearanceSummary(dynamicSystem, JapaneseStrings))
+        assertEquals(
+            "System · Iris",
+            formatAppearanceSummary(dynamicSystem, EnglishStrings, supportsDynamicColor = false)
+        )
+        assertEquals(
+            "システム · Iris",
+            formatAppearanceSummary(dynamicSystem, JapaneseStrings, supportsDynamicColor = false)
+        )
 
         val darkPresetWithPrimaryFont = ThemePreferences(
             seedColorHex = 0xFF6750A4,
@@ -90,6 +103,57 @@ class SettingsHierarchyTest {
             "オン · 1 分",
             formatNotificationsSummary(normal, osNotificationsBlocked = false, JapaneseStrings)
         )
+
+        assertEquals(
+            "1 min",
+            formatNotificationsSummary(
+                normal,
+                osNotificationsBlocked = true,
+                EnglishStrings,
+                supportsOsNotifications = false
+            )
+        )
+        assertEquals(
+            "5 分",
+            formatNotificationsSummary(
+                off,
+                osNotificationsBlocked = true,
+                JapaneseStrings,
+                supportsOsNotifications = false
+            )
+        )
+    }
+
+    @Test
+    fun buildSettingsCategoryItemsAppliesIosCapabilitiesToAppearanceAndNotifications() {
+        val iosCapabilities = PlatformCapabilities(
+            usesIosCopy = true,
+            supportsDynamicColorToggle = false,
+            supportsCustomFonts = false,
+            avoidsKeyboardOnSignIn = true,
+            supportsOsNotifications = false
+        )
+        val items = buildSettingsCategoryItems(
+            themePrefs = ThemePreferences(useDynamicColor = true, darkModeOverride = null),
+            notifPrefs = NotificationPreferences(
+                osNotificationsEnabled = false,
+                urgentOnly = true,
+                pollIntervalMinutes = 1
+            ),
+            osNotificationsBlocked = true,
+            linkHandlingState = GitHubLinkHandlingState(supportedOnPlatform = false),
+            strings = EnglishStrings,
+            capabilities = iosCapabilities,
+            versionName = "1.0.89",
+            commitSha = "abc1234"
+        )
+        val appearance = items.first { it.section == SettingsSection.APPEARANCE }
+        assertEquals("System · Iris", appearance.subtitle)
+
+        val notifications = items.first { it.section == SettingsSection.NOTIFICATIONS }
+        assertEquals("1 min", notifications.subtitle)
+        assertEquals(Lucide.Bell, notifications.icon)
+        assertFalse(notifications.isWarning)
     }
 
     @Test

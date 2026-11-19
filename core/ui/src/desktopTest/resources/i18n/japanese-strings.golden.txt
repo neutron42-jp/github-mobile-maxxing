@@ -120,6 +120,7 @@ appInfoBuildLabel	ビルド
 appInfoCommitLabel	コミット
 appInfoCopiedBuildInfo	ビルド情報をコピーしました
 appInfoCopyBuildInfo	ビルド情報をコピー
+appInfoSubtitle	Android・iOS・Linux 向けの高速な Material 3 Expressive GitHub クライアント。
 appInfoVersionLabel	バージョン
 appInfoViewRepository	GitHub で見る
 appearanceDark	ダーク

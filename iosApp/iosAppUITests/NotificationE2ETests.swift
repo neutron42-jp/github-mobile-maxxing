@@ -21,6 +21,9 @@ final class NotificationE2ETests: XCTestCase {
         app.launch()
         try signInWithPatIfNeeded(app)
         app.buttons["Settings"].tap()
+        let notificationsRow = app.buttons.containing(NSPredicate(format: "label == 'Notifications' OR label BEGINSWITH 'Notifications,'")).firstMatch
+        XCTAssertTrue(notificationsRow.waitForExistence(timeout: 15), "Notifications row not found in Settings")
+        notificationsRow.tap()
         let send = app.buttons["Send Test Notification"]
         XCTAssertTrue(send.waitForExistence(timeout: 15))
         send.tap()
