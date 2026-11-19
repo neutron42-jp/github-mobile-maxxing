@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.concurrent.Volatile
 import kotlin.time.TimeSource
 
 data class IssuePullTarget(
@@ -100,6 +101,14 @@ class AppContainer(
 
     private var updateCheckJob: Job? = null
     private var updateDownloadJob: Job? = null
+
+    @Volatile
+    var isAppInForeground: Boolean = false
+        private set
+
+    fun setAppInForeground(inForeground: Boolean) {
+        isAppInForeground = inForeground
+    }
 
     private val trackerState = MutableStateFlow(UnreadNotificationTrackerState())
     private val trackerClockOrigin = TimeSource.Monotonic.markNow()
@@ -177,10 +186,16 @@ class AppContainer(
         }
     }
 
-    suspend fun syncNotifications(): Result<NotificationCheckResult> {
+    suspend fun markNotificationsSeen(threads: List<NotificationThread>) {
+        notificationMonitor.markThreadsSeen(threads)
+    }
+
+    suspend fun syncNotifications(
+        suppressOsAlerts: Boolean = isAppInForeground
+    ): Result<NotificationCheckResult> {
         return syncNotificationsMutex.withLock {
             val syncStartedAtMs = trackerNowMs()
-            notificationMonitor.checkForNewNotifications().map { check ->
+            notificationMonitor.checkForNewNotifications(suppressOsAlerts = suppressOsAlerts).map { check ->
                 val reconciled = updateTracker {
                     it.reconcileFromServer(
                         fetchedUnread = check.allUnread,
@@ -188,7 +203,7 @@ class AppContainer(
                         nowMs = trackerNowMs()
                     )
                 }.currentThreads.orEmpty()
-                if (check.newlyArrivedForOs.isNotEmpty()) {
+                if (!suppressOsAlerts && check.newlyArrivedForOs.isNotEmpty()) {
                     showOsNotifications(check.newlyArrivedForOs)
                 }
                 val topTargets = reconciled.mapNotNull { thread ->

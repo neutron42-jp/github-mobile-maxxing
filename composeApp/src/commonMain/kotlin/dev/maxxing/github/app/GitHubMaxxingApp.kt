@@ -28,6 +28,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -36,12 +37,18 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import coil3.ImageLoader
 import coil3.compose.setSingletonImageLoaderFactory
 import coil3.memory.MemoryCache
@@ -70,6 +77,7 @@ import dev.maxxing.github.app.ui.UserProfileScreen
 import dev.maxxing.github.auth.openUrlInBrowser
 import dev.maxxing.github.model.AppBranding
 import dev.maxxing.github.model.AppLanguage
+import dev.maxxing.github.model.AuthSession
 import dev.maxxing.github.model.RepoSummary
 import dev.maxxing.github.network.createGitHubImageHttpClient
 import dev.maxxing.github.ui.components.MaxxingLoadingState
@@ -101,9 +109,18 @@ private enum class AppDestination(
     }
 }
 
+/**
+ * Stable session key for app-level side effects: stays equal across OAuth token refreshes
+ * (which replace [AuthSession]), while still distinguishing signed-out (`false to null`) from
+ * a signed-in session whose login has not been resolved yet (`true to null`).
+ */
+internal fun sessionEffectKey(session: AuthSession?): Pair<Boolean, String?> =
+    (session != null) to session?.userLogin?.trim()?.lowercase()?.ifEmpty { null }
+
 @Composable
 fun GitHubMaxxingApp(
     deepLinkUrl: String? = null,
+    deepLinkNonce: Long = 0L,
     onConsumeDeepLink: () -> Unit = {},
     onDarkThemeChanged: (Boolean) -> Unit = {},
     container: AppContainer = remember { AppContainer() },
@@ -148,7 +165,8 @@ fun GitHubMaxxingApp(
 
     val viewerProfile by container.viewerProfile.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
-    val appScope = rememberCoroutineScope()
+    val sessionKey = sessionEffectKey(session)
+    val isSignedIn = sessionKey.first
     var hasAutoCheckedUpdates by remember { mutableStateOf(false) }
 
     // A secure-storage failure while loading the session (e.g. iOS Keychain
@@ -172,45 +190,53 @@ fun GitHubMaxxingApp(
         }
     }
 
-    LaunchedEffect(session) {
-        if (session != null) {
-            val loaded = container.refreshViewerProfile()
-            container.warmUpWorkspace(loaded?.login ?: session?.userLogin)
-        }
+    // Keyed by signed-in state + login so token refreshes don't re-trigger warm-up,
+    // while signed-in sessions with an unresolved userLogin still fetch the viewer profile.
+    LaunchedEffect(sessionKey) {
+        if (!isSignedIn) return@LaunchedEffect
+        val loaded = container.refreshViewerProfile()
+        container.warmUpWorkspace(loaded?.login ?: session?.userLogin)
     }
 
-    LaunchedEffect(isInitialized, session, notifPrefs.osNotificationsEnabled) {
+    LaunchedEffect(isInitialized, isSignedIn, notifPrefs.osNotificationsEnabled) {
         // Wait for the stored session/prefs to load; otherwise the initial null session
         // would cancel the periodic background work on every cold start.
         if (!isInitialized) return@LaunchedEffect
         PlatformNotifier.syncBackgroundSchedule(
-            enabled = session != null && notifPrefs.osNotificationsEnabled
+            enabled = isSignedIn && notifPrefs.osNotificationsEnabled
         )
     }
 
-    // Immediate sync whenever app returns to foreground (ON_RESUME)
-    DisposableEffect(lifecycleOwner, session) {
-        if (session == null) return@DisposableEffect onDispose {}
+    // Keep foreground flag synced so background/foreground syncs never post OS alerts while open.
+    DisposableEffect(lifecycleOwner) {
+        val currentState = lifecycleOwner.lifecycle.currentState
+        container.setAppInForeground(currentState.isAtLeast(Lifecycle.State.STARTED))
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                appScope.launch {
-                    container.syncNotifications()
-                }
+            when (event) {
+                Lifecycle.Event.ON_START, Lifecycle.Event.ON_RESUME -> container.setAppInForeground(true)
+                Lifecycle.Event.ON_STOP -> container.setAppInForeground(false)
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            container.setAppInForeground(false)
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 
-    // Foreground real-time notification watcher across Android & Linux Desktop
-    LaunchedEffect(session, notifPrefs) {
-        if (session == null) return@LaunchedEffect
-        while (isActive) {
-            container.syncNotifications()
-            val intervalMs = (notifPrefs.pollIntervalMinutes.coerceAtLeast(1)) * 60_000L
-            delay(intervalMs)
+    // Foreground real-time notification watcher across Android & Linux Desktop.
+    // repeatOnLifecycle(STARTED) runs one immediate sync on launch / foreground return,
+    // then polls at the configured interval while visible and pauses in the background.
+    // Always suppresses OS alerts while open while still advancing seen markers.
+    LaunchedEffect(sessionKey, notifPrefs, lifecycleOwner) {
+        if (!isSignedIn) return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (isActive) {
+                container.syncNotifications(suppressOsAlerts = true)
+                val intervalMs = (notifPrefs.pollIntervalMinutes.coerceAtLeast(1)) * 60_000L
+                delay(intervalMs)
+            }
         }
     }
 
@@ -268,6 +294,7 @@ fun GitHubMaxxingApp(
                     MainAuthenticatedShell(
                         container = container,
                         deepLinkUrl = deepLinkUrl,
+                        deepLinkNonce = deepLinkNonce,
                         onConsumeDeepLink = onConsumeDeepLink,
                         inboxRequest = inboxRequest,
                         onConsumeInboxRequest = onConsumeInboxRequest
@@ -323,12 +350,19 @@ private fun SessionLoadErrorScreen(
 private fun MainAuthenticatedShell(
     container: AppContainer,
     deepLinkUrl: String?,
+    deepLinkNonce: Long,
     onConsumeDeepLink: () -> Unit,
     inboxRequest: Long?,
     onConsumeInboxRequest: () -> Unit
 ) {
     var navState by rememberSaveable(stateSaver = ShellNavStateSaver) { mutableStateOf(ShellNavState()) }
+    var visitedDestinations by remember { mutableStateOf(setOf(navState.currentDestination)) }
+    var tabResetEpochs by remember { mutableStateOf(emptyMap<ShellDestination, Int>()) }
     var notificationDeepLinkTarget by remember { mutableStateOf<IssuePullTarget?>(null) }
+
+    LaunchedEffect(navState.currentDestination) {
+        visitedDestinations = visitedDestinations + navState.currentDestination
+    }
     val unreadCount by container.unreadNotificationCount.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -337,7 +371,9 @@ private fun MainAuthenticatedShell(
         navState = navState.openUserProfile(targetLogin)
     }
 
-    LaunchedEffect(deepLinkUrl) {
+    // Nonce in the key so re-tapping the same deep link URL (same String value)
+    // still re-launches this effect; parsing itself is unchanged.
+    LaunchedEffect(deepLinkUrl, deepLinkNonce) {
         val raw = deepLinkUrl ?: return@LaunchedEffect
         when (val parsed = parseAppDeepLink(raw)) {
             is AppDeepLink.IssueOrPull -> {
@@ -417,7 +453,13 @@ private fun MainAuthenticatedShell(
                         )
                     },
                     selected = !navState.hasOverlay && navState.currentDestination == dest.shell,
-                    onClick = { navState = navState.selectBottomDestination(dest.shell) }
+                    onClick = {
+                        val wasSameActiveTab = !navState.hasOverlay && navState.currentDestination == dest.shell
+                        navState = navState.selectBottomDestination(dest.shell)
+                        if (wasSameActiveTab) {
+                            tabResetEpochs = tabResetEpochs + (dest.shell to ((tabResetEpochs[dest.shell] ?: 0) + 1))
+                        }
+                    }
                 )
             }
         }
@@ -435,49 +477,90 @@ private fun MainAuthenticatedShell(
                     onBack = { navState = navState.popBackOrReturnHome() },
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    when (navState.currentDestination) {
-                        ShellDestination.HOME -> HomeScreen(
-                            container = container,
-                            unreadCount = unreadCount,
-                            onNavigateInbox = { navState = navState.selectBottomDestination(ShellDestination.INBOX) },
-                            onNavigateIssuesPrs = { navState = navState.selectBottomDestination(ShellDestination.ISSUES_PRS) },
-                            onNavigateRepos = { navState = navState.selectBottomDestination(ShellDestination.REPOS) },
-                            onOpenGists = { navState = navState.copy(overlayGistsUser = "") },
-                            onOpenUser = openUserProfile,
-                            onMessage = showMessage
-                        )
-                        ShellDestination.INBOX -> NotificationsScreen(
-                            container = container,
-                            deepLinkTarget = notificationDeepLinkTarget,
-                            onConsumeDeepLink = {
-                                notificationDeepLinkTarget = null
-                                onConsumeDeepLink()
-                            },
-                            onMessage = showMessage
-                        )
-                        ShellDestination.ISSUES_PRS -> IssuesPullsScreen(
-                            container = container,
-                            onMessage = showMessage
-                        )
-                        ShellDestination.REPOS -> ReposScreen(
-                            container = container,
-                            onOpenUser = openUserProfile,
-                            onMessage = showMessage
-                        )
-                        ShellDestination.SETTINGS -> SettingsScreen(
-                            container = container,
-                            activeSection = navState.settingsSection,
-                            onSelectSection = { section ->
-                                navState = if (section != null) {
-                                    navState.openSettingsSection(section)
-                                } else {
-                                    navState.popSettingsSection()
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        val renderedDestinations = visitedDestinations + navState.currentDestination
+                        if (renderedDestinations.size > 1) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .zIndex(0.5f)
+                                    .pointerInput(Unit) {
+                                        awaitPointerEventScope {
+                                            while (true) {
+                                                awaitPointerEvent().changes.forEach { it.consume() }
+                                            }
+                                        }
+                                    }
+                            )
+                        }
+                        renderedDestinations.forEach { dest ->
+                            val isCurrentTab = dest == navState.currentDestination
+                            val isTabActive = isCurrentTab && !navState.hasOverlay
+                            val tabModifier = Modifier
+                                .fillMaxSize()
+                                .zIndex(if (isCurrentTab) 1f else 0f)
+                                .graphicsLayer { alpha = if (isCurrentTab) 1f else 0f }
+                                .then(
+                                    if (isCurrentTab) {
+                                        Modifier
+                                    } else {
+                                        Modifier
+                                            .focusProperties { canFocus = false }
+                                            .clearAndSetSemantics {}
+                                    }
+                                )
+                            Box(modifier = tabModifier) {
+                                key(dest, tabResetEpochs[dest] ?: 0) {
+                                    when (dest) {
+                                        ShellDestination.HOME -> HomeScreen(
+                                            container = container,
+                                            unreadCount = unreadCount,
+                                            onNavigateInbox = { navState = navState.selectBottomDestination(ShellDestination.INBOX) },
+                                            onNavigateIssuesPrs = { navState = navState.selectBottomDestination(ShellDestination.ISSUES_PRS) },
+                                            onNavigateRepos = { navState = navState.selectBottomDestination(ShellDestination.REPOS) },
+                                            onOpenGists = { navState = navState.copy(overlayGistsUser = "") },
+                                            onOpenUser = openUserProfile,
+                                            onMessage = showMessage
+                                        )
+                                        ShellDestination.INBOX -> NotificationsScreen(
+                                            container = container,
+                                            deepLinkTarget = notificationDeepLinkTarget,
+                                            onConsumeDeepLink = {
+                                                notificationDeepLinkTarget = null
+                                                onConsumeDeepLink()
+                                            },
+                                            isTabActive = isTabActive,
+                                            onMessage = showMessage
+                                        )
+                                        ShellDestination.ISSUES_PRS -> IssuesPullsScreen(
+                                            container = container,
+                                            isTabActive = isTabActive,
+                                            onMessage = showMessage
+                                        )
+                                        ShellDestination.REPOS -> ReposScreen(
+                                            container = container,
+                                            isTabActive = isTabActive,
+                                            onOpenUser = openUserProfile,
+                                            onMessage = showMessage
+                                        )
+                                        ShellDestination.SETTINGS -> SettingsScreen(
+                                            container = container,
+                                            activeSection = navState.settingsSection,
+                                            onSelectSection = { section ->
+                                                navState = if (section != null) {
+                                                    navState.openSettingsSection(section)
+                                                } else {
+                                                    navState.popSettingsSection()
+                                                }
+                                            },
+                                            onOpenUser = openUserProfile,
+                                            onSignedOut = { navState = navState.selectBottomDestination(ShellDestination.HOME) },
+                                            onMessage = showMessage
+                                        )
+                                    }
                                 }
-                            },
-                            onOpenUser = openUserProfile,
-                            onSignedOut = { navState = navState.selectBottomDestination(ShellDestination.HOME) },
-                            onMessage = showMessage
-                        )
+                            }
+                        }
                     }
                 }
 

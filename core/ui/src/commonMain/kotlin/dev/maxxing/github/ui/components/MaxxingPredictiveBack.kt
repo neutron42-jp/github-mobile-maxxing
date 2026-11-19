@@ -140,6 +140,7 @@ fun <T> MaxxingPredictiveOverlayHost(
     target: T?,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    backEnabled: Boolean = true,
     contentKey: (T) -> Any = { it as Any },
     content: @Composable (T) -> Unit
 ) {
@@ -157,7 +158,7 @@ fun <T> MaxxingPredictiveOverlayHost(
         val active = target ?: lastTarget
         if (active != null) {
             MaxxingPredictiveBackContainer(
-                enabled = target != null,
+                enabled = backEnabled && target != null,
                 onBack = onBack,
                 modifier = Modifier.fillMaxSize()
             ) {

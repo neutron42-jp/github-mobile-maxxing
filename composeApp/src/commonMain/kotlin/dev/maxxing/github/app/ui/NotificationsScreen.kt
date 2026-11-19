@@ -141,6 +141,7 @@ fun NotificationsScreen(
     container: AppContainer,
     deepLinkTarget: IssuePullTarget? = null,
     onConsumeDeepLink: () -> Unit = {},
+    isTabActive: Boolean = true,
     onMessage: (String) -> Unit
 ) {
     val navigator = rememberListDetailPaneScaffoldNavigator<String>()
@@ -242,7 +243,7 @@ fun NotificationsScreen(
 
         scope.launch {
             if (reqFilter == InboxFilter.UNREAD && forceRefresh) {
-                container.syncNotifications()
+                container.syncNotifications(suppressOsAlerts = true)
                     .onSuccess { check ->
                         if (seq != requestSeq) return@onSuccess
                         threads = check.allUnread
@@ -274,8 +275,13 @@ fun NotificationsScreen(
                     if (seq != requestSeq) return@onSuccess
                     if (reqFilter == InboxFilter.UNREAD) {
                         container.updateUnreadThreads(loaded)
+                        container.markNotificationsSeen(loaded)
                         threads = container.unreadThreads.value ?: loaded
                     } else {
+                        val unreadInList = loaded.filter { it.unread }
+                        if (unreadInList.isNotEmpty()) {
+                            container.markNotificationsSeen(unreadInList)
+                        }
                         threads = loaded
                     }
                     prefetchVisible(loaded)
@@ -342,7 +348,7 @@ fun NotificationsScreen(
     }
 
     MaxxingPredictiveBackContainer(
-        enabled = isFilterInputActive || navigator.canNavigateBack(),
+        enabled = isTabActive && (isFilterInputActive || navigator.canNavigateBack()),
         onBack = {
             when {
                 isFilterInputActive -> {

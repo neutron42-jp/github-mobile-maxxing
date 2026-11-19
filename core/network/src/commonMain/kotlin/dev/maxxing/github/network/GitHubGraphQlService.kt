@@ -220,8 +220,8 @@ class GitHubGraphQlService(
         number: Int
     ): IssueOrPullDetail {
         val query = """
-            query {
-              repository(owner: "$owner", name: "$repo") {
+            query(${'$'}owner: String!, ${'$'}name: String!) {
+              repository(owner: ${'$'}owner, name: ${'$'}name) {
                 viewerPermission
                 issueOrPullRequest(number: $number) {
                   __typename
@@ -284,6 +284,7 @@ class GitHubGraphQlService(
                     deletions
                     changedFiles
                     mergeable
+                    mergeStateStatus
                     reviewDecision
                     author { login avatarUrl url }
                     labels(first: 10) { nodes { name color description } }
@@ -357,7 +358,7 @@ class GitHubGraphQlService(
             }
         """.trimIndent()
 
-        val data = execute(query)
+        val data = execute(query, variables = mapOf("owner" to owner, "name" to repo))
         val repoNode = data.obj("repository")
         val viewerPermission = repoNode?.str("viewerPermission")?.uppercase()
         val item = repoNode?.obj("issueOrPullRequest")
@@ -475,6 +476,7 @@ class GitHubGraphQlService(
             deletions = item.int("deletions") ?: 0,
             changedFilesCount = item.int("changedFiles") ?: 0,
             mergeable = item.str("mergeable"),
+            mergeStateStatus = item.str("mergeStateStatus"),
             reviewDecision = item.str("reviewDecision"),
             checkRollup = statusState?.let { CheckRollupSummary(state = it) },
             htmlUrl = item.str("url") ?: "",
@@ -744,8 +746,8 @@ class GitHubGraphQlService(
         }
         val data = execute(
             """
-            query {
-              repository(owner: "$owner", name: "$name") {
+            query(${'$'}owner: String!, ${'$'}name: String!) {
+              repository(owner: ${'$'}owner, name: ${'$'}name) {
                 $field(first: 30, states: $statesClause, orderBy: { field: UPDATED_AT, direction: DESC }) {
                   nodes {
                     id
@@ -762,7 +764,8 @@ class GitHubGraphQlService(
                 }
               }
             }
-            """.trimIndent()
+            """.trimIndent(),
+            variables = mapOf("owner" to owner, "name" to name)
         )
         val nodes = data.obj("repository")?.obj(field)?.arr("nodes")
             ?: return emptyList()

@@ -6,6 +6,9 @@ import dev.maxxing.github.auth.SessionManager
 import dev.maxxing.github.auth.ThemePreferences
 import dev.maxxing.github.auth.TokenStore
 import dev.maxxing.github.model.AuthSession
+import dev.maxxing.github.model.NotificationReason
+import dev.maxxing.github.model.NotificationSubjectType
+import dev.maxxing.github.model.NotificationThread
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -14,6 +17,8 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
@@ -334,5 +339,143 @@ class NotificationMonitorTest {
 
         val second = monitor.checkForNewNotifications().getOrThrow()
         assertEquals(listOf("t_first"), second.newlyArrivedForOs.map { it.id })
+    }
+
+    @Test
+    fun foregroundCheckAndMarkThreadsSeenSuppressSubsequentBackgroundAlerts() = runTest {
+        var callCount = 0
+        val engine = MockEngine {
+            callCount++
+            val payload = when (callCount) {
+                1 -> "[]"
+                else -> """
+                    [
+                      {
+                        "id": "t_seen_in_app",
+                        "unread": true,
+                        "reason": "mention",
+                        "updated_at": "2026-11-19T10:00:00Z",
+                        "subject": { "title": "Seen in app", "type": "Issue", "url": "https://api.github.com/repos/a/b/issues/12" },
+                        "repository": { "name": "b", "full_name": "a/b", "owner": { "login": "a" } }
+                      }
+                    ]
+                """.trimIndent()
+            }
+            respond(
+                content = payload,
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+
+        val store = InMemoryTokenStore()
+        val sessionManager = SessionManager(
+            tokenStore = store,
+            deviceFlowClient = DeviceFlowClient(HttpClient(engine))
+        )
+        sessionManager.initialize()
+
+        val httpClient = HttpClient(engine) {
+            install(ContentNegotiation) {
+                json(Json { ignoreUnknownKeys = true; isLenient = true })
+            }
+        }
+        val repo = GitHubRepository(sessionManager = sessionManager, httpClient = httpClient)
+        val monitor = NotificationMonitor(sessionManager, repo)
+
+        // Establish baseline
+        monitor.checkForNewNotifications().getOrThrow()
+
+        // While app is open (foreground), notifications arrive and are viewed:
+        // no OS alert should fire now, AND markers advance so background check won't re-alert later.
+        val foregroundResult = monitor.checkForNewNotifications(suppressOsAlerts = true).getOrThrow()
+        assertEquals(listOf("t_seen_in_app"), foregroundResult.allUnread.map { it.id })
+        assertTrue(foregroundResult.newlyArrivedForOs.isEmpty())
+
+        val subsequentBackground = monitor.checkForNewNotifications(suppressOsAlerts = false).getOrThrow()
+        assertTrue(subsequentBackground.newlyArrivedForOs.isEmpty())
+
+        // Also test explicit markThreadsSeen from Inbox cache/display path
+        val newerUnread = listOf(
+            NotificationThread(
+                id = "t_inbox_viewed",
+                unread = true,
+                reason = NotificationReason.COMMENT,
+                updatedAt = "2026-11-19T11:00:00Z",
+                subjectTitle = "Viewed in inbox",
+                subjectType = NotificationSubjectType.ISSUE,
+                subjectUrl = "https://api.github.com/repos/a/b/issues/13",
+                latestCommentUrl = null,
+                repoFullName = "a/b",
+                repoOwner = "a",
+                repoName = "b"
+            )
+        )
+        monitor.markThreadsSeen(newerUnread)
+        assertEquals("2026-11-19T11:00:00Z", store.loadSeenNotificationMarkers()["t_inbox_viewed"])
+    }
+
+    @Test
+    fun concurrentChecksAreSerializedAndDoNotEmitDuplicateAlerts() = runTest {
+        val firstRequestStarted = CompletableDeferred<Unit>()
+        val allowFirstResponse = CompletableDeferred<Unit>()
+        var callCount = 0
+
+        val engine = MockEngine {
+            callCount++
+            if (callCount == 1) {
+                // Baseline call
+                respond("[]", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+            } else {
+                if (callCount == 2) {
+                    firstRequestStarted.complete(Unit)
+                    allowFirstResponse.await()
+                }
+                respond(
+                    content = """
+                        [
+                          {
+                            "id": "t_race",
+                            "unread": true,
+                            "reason": "mention",
+                            "updated_at": "2026-11-19T05:00:00Z",
+                            "subject": { "title": "Race check", "type": "Issue", "url": "https://api.github.com/repos/a/b/issues/1" },
+                            "repository": { "name": "b", "full_name": "a/b", "owner": { "login": "a" } }
+                          }
+                        ]
+                    """.trimIndent(),
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(HttpHeaders.ContentType, "application/json")
+                )
+            }
+        }
+
+        val store = InMemoryTokenStore()
+        val sessionManager = SessionManager(
+            tokenStore = store,
+            deviceFlowClient = DeviceFlowClient(HttpClient(engine))
+        )
+        sessionManager.initialize()
+
+        val httpClient = HttpClient(engine) {
+            install(ContentNegotiation) {
+                json(Json { ignoreUnknownKeys = true; isLenient = true })
+            }
+        }
+        val repo = GitHubRepository(sessionManager = sessionManager, httpClient = httpClient)
+        val monitor = NotificationMonitor(sessionManager, repo)
+
+        // Establish baseline first
+        monitor.checkForNewNotifications().getOrThrow()
+
+        // Launch two overlapping checks; Mutex must serialize them so the thread alerts only once
+        val first = async { monitor.checkForNewNotifications().getOrThrow() }
+        firstRequestStarted.await()
+        val second = async { monitor.checkForNewNotifications().getOrThrow() }
+        allowFirstResponse.complete(Unit)
+
+        val alertedIds = first.await().newlyArrivedForOs.map { it.id } +
+            second.await().newlyArrivedForOs.map { it.id }
+        assertEquals(listOf("t_race"), alertedIds)
     }
 }

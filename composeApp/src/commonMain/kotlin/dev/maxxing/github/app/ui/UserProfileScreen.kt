@@ -144,13 +144,18 @@ fun UserProfileScreen(
 
     var isLoading by remember(login) { mutableStateOf(profile == null) }
     var tabLoading by remember(login) { mutableStateOf(false) }
+    // Non-Compose counters so stale responses are dropped without extra recompositions.
+    val profileRequestGuard = remember(login) { LatestRequestGuard() }
+    val tabRequestGuard = remember(login) { LatestRequestGuard() }
     var isRefreshing by remember(login) { mutableStateOf(false) }
     var errorMsg by remember(login) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val strings = appStrings()
 
     fun loadProfile(forceRefresh: Boolean = false) {
+        val reqSeq = profileRequestGuard.next()
         scope.launch {
+            if (!profileRequestGuard.isLatest(reqSeq)) return@launch
             if (profile == null) isLoading = true
             if (forceRefresh) isRefreshing = true
             errorMsg = null
@@ -161,38 +166,48 @@ fun UserProfileScreen(
 
                 profJob.await()
                     .onSuccess { p ->
-                        profile = p
-                        isFollowing = p.viewerIsFollowing
-                        container.repository.getUserRepositories(login, isOrganization = p.isOrganization, forceRefresh = forceRefresh)
-                            .onSuccess { repos = it }
+                        if (profileRequestGuard.isLatest(reqSeq)) {
+                            profile = p
+                            isFollowing = p.viewerIsFollowing
+                            container.repository.getUserRepositories(login, isOrganization = p.isOrganization, forceRefresh = forceRefresh)
+                                .onSuccess { if (profileRequestGuard.isLatest(reqSeq)) repos = it }
+                        }
                     }
-                    .onFailure { errorMsg = strings.errorMessage(it, strings.failedLoadProfile) }
+                    .onFailure {
+                        if (profileRequestGuard.isLatest(reqSeq)) {
+                            errorMsg = strings.errorMessage(it, strings.failedLoadProfile)
+                        }
+                    }
 
-                orgsJob.await().onSuccess { orgs = it }
-                calJob.await().onSuccess { calendar = it }
+                orgsJob.await().onSuccess { if (profileRequestGuard.isLatest(reqSeq)) orgs = it }
+                calJob.await().onSuccess { if (profileRequestGuard.isLatest(reqSeq)) calendar = it }
             }
-            isLoading = false
-            isRefreshing = false
+            if (profileRequestGuard.isLatest(reqSeq)) {
+                isLoading = false
+                isRefreshing = false
+            }
         }
     }
 
     fun loadActiveTab(tab: ProfileTab, forceRefresh: Boolean = false) {
         val currentProfile = profile ?: return
+        val reqSeq = tabRequestGuard.next()
         scope.launch {
+            if (!tabRequestGuard.isLatest(reqSeq)) return@launch
             tabLoading = true
             when (tab) {
                 ProfileTab.REPOS -> container.repository.getUserRepositories(login, currentProfile.isOrganization, forceRefresh)
-                    .onSuccess { repos = it }
+                    .onSuccess { if (tabRequestGuard.isLatest(reqSeq)) repos = it }
                 ProfileTab.STARRED -> container.repository.getUserStarredRepositories(login, forceRefresh)
-                    .onSuccess { starred = it }
+                    .onSuccess { if (tabRequestGuard.isLatest(reqSeq)) starred = it }
                 ProfileTab.ACTIVITY -> container.repository.getUserEvents(login, forceRefresh)
-                    .onSuccess { events = it }
+                    .onSuccess { if (tabRequestGuard.isLatest(reqSeq)) events = it }
                 ProfileTab.FOLLOWERS -> container.repository.getUserFollowers(login, forceRefresh)
-                    .onSuccess { followers = it }
+                    .onSuccess { if (tabRequestGuard.isLatest(reqSeq)) followers = it }
                 ProfileTab.FOLLOWING -> container.repository.getUserFollowing(login, forceRefresh)
-                    .onSuccess { following = it }
+                    .onSuccess { if (tabRequestGuard.isLatest(reqSeq)) following = it }
             }
-            tabLoading = false
+            if (tabRequestGuard.isLatest(reqSeq)) tabLoading = false
         }
     }
 

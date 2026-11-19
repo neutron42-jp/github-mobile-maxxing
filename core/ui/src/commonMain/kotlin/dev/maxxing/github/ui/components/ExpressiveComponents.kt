@@ -38,6 +38,7 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FloatingToolbarDefaults
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
@@ -80,6 +81,7 @@ import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.Star
+import com.composables.icons.lucide.Trash2
 import com.composables.icons.lucide.UserCheck
 import com.composables.icons.lucide.UserPlus
 import dev.maxxing.github.model.LabelTag
@@ -664,9 +666,11 @@ fun RepoLabelsPickerDialog(
     canCreateLabel: Boolean = true,
     newLabelName: String = "",
     onNewLabelNameChange: (String) -> Unit = {},
-    onCreateLabel: ((String) -> Unit)? = null
+    onCreateLabel: ((String) -> Unit)? = null,
+    onDeleteLabel: ((LabelTag) -> Unit)? = null
 ) {
     val strings = appStrings()
+    var pendingDeleteLabel by remember { mutableStateOf<LabelTag?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -697,7 +701,23 @@ fun RepoLabelsPickerDialog(
                                 checked = checked,
                                 onCheckedChange = { isChecked -> onToggleLabel(label.name, isChecked) }
                             )
-                            GitHubLabelChip(name = label.name, colorHex = label.colorHex)
+                            Box(modifier = Modifier.weight(1f)) {
+                                GitHubLabelChip(name = label.name, colorHex = label.colorHex)
+                            }
+                            if (canCreateLabel && onDeleteLabel != null) {
+                                IconButton(
+                                    enabled = !isBusy,
+                                    onClick = { pendingDeleteLabel = label },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        Lucide.Trash2,
+                                        contentDescription = strings.deleteLabelDesc,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -736,4 +756,35 @@ fun RepoLabelsPickerDialog(
             TextButton(onClick = onDismiss) { Text(strings.cancel) }
         }
     )
+
+    pendingDeleteLabel?.let { targetLabel ->
+        AlertDialog(
+            onDismissRequest = { if (!isBusy) pendingDeleteLabel = null },
+            title = { Text(strings.labelDeleteTitle) },
+            text = { Text(strings.labelDeleteConfirm(targetLabel.name)) },
+            confirmButton = {
+                Button(
+                    enabled = !isBusy,
+                    onClick = {
+                        pendingDeleteLabel = null
+                        onDeleteLabel?.invoke(targetLabel)
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    Text(strings.deleteAction)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !isBusy,
+                    onClick = { pendingDeleteLabel = null }
+                ) {
+                    Text(strings.cancel)
+                }
+            }
+        )
+    }
 }

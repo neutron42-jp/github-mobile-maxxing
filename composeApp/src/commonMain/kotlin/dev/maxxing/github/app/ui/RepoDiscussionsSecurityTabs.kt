@@ -150,6 +150,7 @@ internal fun RepoDiscussionsTabContent(
                 isLoading && discussions == null -> {
                     Column(
                         modifier = Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
                         MaxxingLoadingState(message = appStrings().discussionsLoading)
@@ -352,7 +353,11 @@ internal fun DiscussionDetailView(
 
         when {
             isLoading && detail == null -> {
-                Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
                     MaxxingLoadingState(message = appStrings().discussionLoading)
                 }
             }
@@ -615,7 +620,11 @@ internal fun RepoSecurityTabContent(
         ) {
             when {
                 isLoading && overview == null -> {
-                    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
                         MaxxingLoadingState(message = appStrings().securityChecking)
                     }
                 }

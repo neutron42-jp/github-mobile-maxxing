@@ -3,6 +3,8 @@ package dev.maxxing.github.network
 import dev.maxxing.github.auth.SessionManager
 import dev.maxxing.github.model.NotificationReason
 import dev.maxxing.github.model.NotificationThread
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 data class NotificationCheckResult(
     val allUnread: List<NotificationThread>,
@@ -36,15 +38,41 @@ class NotificationMonitor(
      */
     private val canPostOsNotifications: () -> Boolean = { true }
 ) {
-    suspend fun checkForNewNotifications(): Result<NotificationCheckResult> {
+    private val checkMutex = Mutex()
+
+    suspend fun markThreadsSeen(threads: List<NotificationThread>) = checkMutex.withLock {
+        if (sessionManager.session.value == null || threads.isEmpty()) return@withLock
+        val previousMarkers = sessionManager.loadSeenNotificationMarkers()
+        val nextMarkers = previousMarkers.toMutableMap()
+        var changed = previousMarkers[BASELINE_MARKER_KEY] != "1"
+        for (thread in threads) {
+            if (nextMarkers[thread.id] != thread.updatedAt) {
+                nextMarkers[thread.id] = thread.updatedAt
+                changed = true
+            }
+        }
+        if (!changed) return@withLock
+        nextMarkers[BASELINE_MARKER_KEY] = "1"
+        val activeIds = threads.mapTo(HashSet()) { it.id }
+        val trimmed = if (nextMarkers.size > 200) {
+            nextMarkers.filterKeys { it in activeIds || it == BASELINE_MARKER_KEY }
+        } else {
+            nextMarkers
+        }
+        sessionManager.saveSeenNotificationMarkers(trimmed)
+    }
+
+    suspend fun checkForNewNotifications(
+        suppressOsAlerts: Boolean = false
+    ): Result<NotificationCheckResult> = checkMutex.withLock {
         if (sessionManager.session.value == null) {
-            return Result.success(NotificationCheckResult(emptyList(), emptyList()))
+            return@withLock Result.success(NotificationCheckResult(emptyList(), emptyList()))
         }
 
         val prefs = sessionManager.notificationPreferences.value
         val previousMarkers = sessionManager.loadSeenNotificationMarkers()
 
-        return repository.getNotifications(all = false, participating = false).map { unread ->
+        repository.getNotifications(all = false, participating = false).map { unread ->
             val nextMarkers = previousMarkers.toMutableMap()
             val candidates = mutableListOf<NotificationThread>()
 
@@ -57,7 +85,7 @@ class NotificationMonitor(
                 nextMarkers[thread.id] = thread.updatedAt
             }
 
-            val forOs = if (!prefs.osNotificationsEnabled) {
+            val forOs = if (suppressOsAlerts || !prefs.osNotificationsEnabled) {
                 emptyList()
             } else if (prefs.urgentOnly) {
                 candidates.filter { it.reason in URGENT_REASONS }
@@ -67,7 +95,11 @@ class NotificationMonitor(
 
             // If OS alerts are wanted but cannot be shown right now, keep the previous markers
             // for the would-be-alerted threads so they are not lost.
-            val heldBack = if (forOs.isNotEmpty() && !canPostOsNotifications()) forOs else emptyList()
+            val heldBack = if (!suppressOsAlerts && forOs.isNotEmpty() && !canPostOsNotifications()) {
+                forOs
+            } else {
+                emptyList()
+            }
             for (thread in heldBack) {
                 val prev = previousMarkers[thread.id]
                 if (prev == null) nextMarkers.remove(thread.id) else nextMarkers[thread.id] = prev
@@ -88,7 +120,7 @@ class NotificationMonitor(
 
             NotificationCheckResult(
                 allUnread = unread,
-                newlyArrivedForOs = if (heldBack.isEmpty()) forOs else emptyList()
+                newlyArrivedForOs = if (suppressOsAlerts || heldBack.isNotEmpty()) emptyList() else forOs
             )
         }
     }

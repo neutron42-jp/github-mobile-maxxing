@@ -23,8 +23,11 @@ import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 class GitHubServicesTest {
 
@@ -346,5 +349,66 @@ class GitHubServicesTest {
         assertEquals(1, searched.size)
         assertEquals("ui/compose-ui", searched[0].fullName)
         assertEquals(1, repo.peekSearchRepositories("compose")?.size)
+    }
+
+    @Test
+    fun graphQlServicePassesOwnerAndNameAsVariables() = runTest {
+        val capturedPayloads = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            val bodyText = (request.body as OutgoingContent.ByteArrayContent).bytes().decodeToString()
+            capturedPayloads.add(bodyText)
+            val responseJson = if (bodyText.contains("issueOrPullRequest")) {
+                """
+                {
+                  "data": {
+                    "repository": {
+                      "viewerPermission": "READ",
+                      "issueOrPullRequest": {
+                        "__typename": "Issue",
+                        "id": "I_1",
+                        "number": 7,
+                        "title": "Sample",
+                        "state": "OPEN",
+                        "url": "https://github.com/octo/app/issues/7",
+                        "createdAt": "2026-11-15T00:00:00Z",
+                        "updatedAt": "2026-11-15T00:00:00Z",
+                        "body": "",
+                        "author": { "login": "octo", "avatarUrl": "" },
+                        "labels": { "nodes": [] },
+                        "assignees": { "nodes": [] },
+                        "reactionGroups": [],
+                        "timelineItems": { "nodes": [] }
+                      }
+                    }
+                  }
+                }
+                """.trimIndent()
+            } else {
+                """{"data":{"repository":{"issues":{"nodes":[]}}}}"""
+            }
+            respond(
+                content = responseJson,
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+
+        val gql = GitHubGraphQlService(createClient(engine))
+        val untrustedOwner = "octo\", name: \"injected"
+        val untrustedRepo = "app\" ) { __schema { types { name } } }"
+
+        gql.fetchIssueOrPullDetail(untrustedOwner, untrustedRepo, 7)
+        gql.fetchRepoIssuesAndPulls(untrustedOwner, untrustedRepo, pullRequests = false)
+
+        assertEquals(2, capturedPayloads.size)
+        for (raw in capturedPayloads) {
+            val payload = Json.parseToJsonElement(raw).jsonObject
+            val query = payload["query"]!!.jsonPrimitive.content
+            val variables = payload["variables"]!!.jsonObject
+            assertFalse(query.contains("injected"), "owner must not be interpolated into GraphQL query")
+            assertFalse(query.contains("__schema"), "repo must not be interpolated into GraphQL query")
+            assertEquals(untrustedOwner, variables["owner"]!!.jsonPrimitive.content)
+            assertEquals(untrustedRepo, variables["name"]!!.jsonPrimitive.content)
+        }
     }
 }

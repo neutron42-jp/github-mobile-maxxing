@@ -152,6 +152,7 @@ import dev.maxxing.github.model.IssueOrPullState
 import dev.maxxing.github.model.IssueOrPullSummary
 import dev.maxxing.github.model.IssueStateFilter
 import dev.maxxing.github.model.LabelTag
+import dev.maxxing.github.model.MilestoneSummary
 import dev.maxxing.github.model.PullFileChange
 import dev.maxxing.github.model.ReleaseSummary
 import dev.maxxing.github.model.RepoDetail
@@ -278,6 +279,7 @@ private val TRENDING_LANGUAGES = listOf("All", "Kotlin", "TypeScript", "Python",
 @Composable
 fun ReposScreen(
     container: AppContainer,
+    isTabActive: Boolean = true,
     onOpenUser: (String) -> Unit = {},
     onMessage: (String) -> Unit
 ) {
@@ -316,12 +318,14 @@ fun ReposScreen(
         MaxxingPredictiveOverlayHost(
             target = repoStack.lastOrNull(),
             onBack = { repoStack = repoStack.dropLast(1) },
+            backEnabled = isTabActive && selectedIssueTarget == null,
             contentKey = { it.first.fullName }
         ) { (repo, initialPath) ->
             RepoDetailScreen(
                 repo = repo,
                 container = container,
                 initialFilePath = initialPath,
+                backEnabled = isTabActive && selectedIssueTarget == null,
                 onBack = { repoStack = repoStack.dropLast(1) },
                 onOpenIssueOrPull = { selectedIssueTarget = it },
                 onOpenRepo = { nextRepo -> pushRepo(nextRepo) },
@@ -332,7 +336,8 @@ fun ReposScreen(
 
         MaxxingPredictiveOverlayHost(
             target = selectedIssueTarget,
-            onBack = { selectedIssueTarget = null }
+            onBack = { selectedIssueTarget = null },
+            backEnabled = isTabActive
         ) { target ->
             IssuePullDetailPane(
                 target = target,
@@ -1170,6 +1175,7 @@ fun RepoDetailScreen(
     repo: RepoSummary,
     container: AppContainer,
     initialFilePath: String? = null,
+    backEnabled: Boolean = true,
     onBack: () -> Unit,
     onOpenIssueOrPull: (IssuePullTarget) -> Unit,
     onOpenRepo: (RepoSummary) -> Unit = {},
@@ -1219,6 +1225,33 @@ fun RepoDetailScreen(
     var pullsLoading by remember(repo.fullName) { mutableStateOf(false) }
     var issuesError by remember(repo.fullName) { mutableStateOf<String?>(null) }
     var pullsError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    // Only the latest issues/pulls request may update the state above.
+    val issuesRequestGuard = remember(repo.fullName) { LatestRequestGuard() }
+    val pullsRequestGuard = remember(repo.fullName) { LatestRequestGuard() }
+    var issuesSection by remember(repo.fullName) { mutableStateOf(RepoIssuesSection.ISSUES) }
+    var repoLabels by remember(repo.fullName) {
+        mutableStateOf(container.repository.peekRepoLabels(repo.owner, repo.name))
+    }
+    var labelsLoading by remember(repo.fullName) { mutableStateOf(false) }
+    var labelsError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    var showLabelEditorDialog by remember(repo.fullName) { mutableStateOf(false) }
+    var editingLabel by remember(repo.fullName) { mutableStateOf<LabelTag?>(null) }
+    var labelEditorSubmitting by remember(repo.fullName) { mutableStateOf(false) }
+    var labelEditorError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    var deletingLabelTarget by remember(repo.fullName) { mutableStateOf<LabelTag?>(null) }
+    var labelDeleteBusy by remember(repo.fullName) { mutableStateOf(false) }
+    var repoMilestones by remember(repo.fullName) {
+        mutableStateOf(container.repository.peekRepoMilestones(repo.owner, repo.name, state = "all"))
+    }
+    var milestonesLoading by remember(repo.fullName) { mutableStateOf(false) }
+    var milestonesError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    var milestoneActionBusy by remember(repo.fullName) { mutableStateOf(false) }
+    var showMilestoneEditorDialog by remember(repo.fullName) { mutableStateOf(false) }
+    var editingMilestone by remember(repo.fullName) { mutableStateOf<MilestoneSummary?>(null) }
+    var milestoneEditorSubmitting by remember(repo.fullName) { mutableStateOf(false) }
+    var milestoneEditorError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    var deletingMilestoneTarget by remember(repo.fullName) { mutableStateOf<MilestoneSummary?>(null) }
+    var milestoneDeleteBusy by remember(repo.fullName) { mutableStateOf(false) }
     var isLoading by remember(repo.fullName) { mutableStateOf(detail == null && entries.isEmpty()) }
     var showCreatePrDialog by remember(repo.fullName) { mutableStateOf(false) }
     var creatingPr by remember(repo.fullName) { mutableStateOf(false) }
@@ -1286,6 +1319,8 @@ fun RepoDetailScreen(
     }
     var actionsLoading by remember(repo.fullName) { mutableStateOf(false) }
     var actionsError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    // Only the latest actions request may update the workflow state.
+    val actionsRequestGuard = remember(repo.fullName) { LatestRequestGuard() }
     var openedRun by remember(repo.fullName) { mutableStateOf<WorkflowRunSummary?>(null) }
     var runJobs by remember(repo.fullName) { mutableStateOf<List<WorkflowJobSummary>?>(null) }
     var jobsLoading by remember(repo.fullName) { mutableStateOf(false) }
@@ -1297,6 +1332,8 @@ fun RepoDetailScreen(
     var releases by remember(repo.fullName) { mutableStateOf(container.repository.peekReleases(repo.owner, repo.name)) }
     var releasesLoading by remember(repo.fullName) { mutableStateOf(false) }
     var releasesError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    // Only the latest releases request may update the state above.
+    val releasesRequestGuard = remember(repo.fullName) { LatestRequestGuard() }
     var showCreateReleaseDialog by remember(repo.fullName) { mutableStateOf(false) }
     var creatingRelease by remember(repo.fullName) { mutableStateOf(false) }
     var createReleaseError by remember(repo.fullName) { mutableStateOf<String?>(null) }
@@ -1320,11 +1357,14 @@ fun RepoDetailScreen(
     }
     var securityLoading by remember(repo.fullName) { mutableStateOf(false) }
     var securityError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    // Only the latest security/insights requests may update the state above.
+    val securityRequestGuard = remember(repo.fullName) { LatestRequestGuard() }
     var insightsData by remember(repo.fullName) {
         mutableStateOf(container.repository.peekRepoInsights(repo.owner, repo.name))
     }
     var insightsLoading by remember(repo.fullName) { mutableStateOf(false) }
     var insightsError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    val insightsRequestGuard = remember(repo.fullName) { LatestRequestGuard() }
     var fullScreenDiffContext by remember(repo.fullName) { mutableStateOf<Pair<PullFileChange, List<PullFileChange>>?>(null) }
 
     fun loadDiscussions(categoryId: String? = selectedDiscussionCategoryId, forceRefresh: Boolean = false) {
@@ -1382,23 +1422,32 @@ fun RepoDetailScreen(
     }
 
     fun loadSecurityOverview(forceRefresh: Boolean = false) {
+        val reqSeq = securityRequestGuard.next()
         scope.launch {
             val cached = container.repository.peekRepoSecurityOverview(repo.owner, repo.name)
             if (cached != null) {
-                securityOverview = cached
-                securityLoading = false
-            } else {
-                securityLoading = true
-            }
-            securityError = null
-            container.repository.getRepoSecurityOverview(repo.owner, repo.name, forceRefresh = forceRefresh)
-                .onSuccess {
-                    securityOverview = it
+                if (securityRequestGuard.isLatest(reqSeq)) {
+                    securityOverview = cached
                     securityLoading = false
                 }
+            } else if (securityRequestGuard.isLatest(reqSeq)) {
+                securityLoading = true
+            }
+            if (securityRequestGuard.isLatest(reqSeq)) {
+                securityError = null
+            }
+            container.repository.getRepoSecurityOverview(repo.owner, repo.name, forceRefresh = forceRefresh)
+                .onSuccess {
+                    if (securityRequestGuard.isLatest(reqSeq)) {
+                        securityOverview = it
+                        securityLoading = false
+                    }
+                }
                 .onFailure {
-                    securityError = strings.errorMessage(it, strings.failedLoadSecurity)
-                    securityLoading = false
+                    if (securityRequestGuard.isLatest(reqSeq)) {
+                        securityError = strings.errorMessage(it, strings.failedLoadSecurity)
+                        securityLoading = false
+                    }
                 }
         }
     }
@@ -1408,69 +1457,96 @@ fun RepoDetailScreen(
             ?: repo.owner.ifBlank { repo.fullName.substringBefore('/', "") }.trim()
         val targetRepo = detail?.summary?.name?.takeIf { it.isNotBlank() }
             ?: repo.name.ifBlank { repo.fullName.substringAfter('/', repo.name) }.trim()
+        val reqSeq = insightsRequestGuard.next()
         scope.launch {
             val cached = container.repository.peekRepoInsights(targetOwner, targetRepo)
             if (cached != null) {
-                insightsData = cached
-                insightsLoading = false
-            } else {
-                insightsLoading = true
-            }
-            insightsError = null
-            container.repository.getRepoInsights(targetOwner, targetRepo, forceRefresh = forceRefresh)
-                .onSuccess {
-                    insightsData = it
+                if (insightsRequestGuard.isLatest(reqSeq)) {
+                    insightsData = cached
                     insightsLoading = false
                 }
+            } else if (insightsRequestGuard.isLatest(reqSeq)) {
+                insightsLoading = true
+            }
+            if (insightsRequestGuard.isLatest(reqSeq)) {
+                insightsError = null
+            }
+            container.repository.getRepoInsights(targetOwner, targetRepo, forceRefresh = forceRefresh)
+                .onSuccess {
+                    if (insightsRequestGuard.isLatest(reqSeq)) {
+                        insightsData = it
+                        insightsLoading = false
+                    }
+                }
                 .onFailure {
-                    insightsError = strings.errorMessage(it, strings.failedLoadInsights)
-                    insightsLoading = false
+                    if (insightsRequestGuard.isLatest(reqSeq)) {
+                        insightsError = strings.errorMessage(it, strings.failedLoadInsights)
+                        insightsLoading = false
+                    }
                 }
         }
     }
 
     fun loadReleases(forceRefresh: Boolean = false) {
+        val reqSeq = releasesRequestGuard.next()
         scope.launch {
             val cached = container.repository.peekReleases(repo.owner, repo.name)
             if (cached != null) {
-                releases = cached
-                releasesLoading = false
-            } else {
-                releasesLoading = true
-            }
-            releasesError = null
-            container.repository.getReleases(repo.owner, repo.name, forceRefresh = forceRefresh)
-                .onSuccess {
-                    releases = it
+                if (releasesRequestGuard.isLatest(reqSeq)) {
+                    releases = cached
                     releasesLoading = false
                 }
+            } else if (releasesRequestGuard.isLatest(reqSeq)) {
+                releasesLoading = true
+            }
+            if (releasesRequestGuard.isLatest(reqSeq)) {
+                releasesError = null
+            }
+            container.repository.getReleases(repo.owner, repo.name, forceRefresh = forceRefresh)
+                .onSuccess {
+                    if (releasesRequestGuard.isLatest(reqSeq)) {
+                        releases = it
+                        releasesLoading = false
+                    }
+                }
                 .onFailure {
-                    releasesError = strings.errorMessage(it, strings.failedLoadReleases)
-                    releasesLoading = false
+                    if (releasesRequestGuard.isLatest(reqSeq)) {
+                        releasesError = strings.errorMessage(it, strings.failedLoadReleases)
+                        releasesLoading = false
+                    }
                 }
         }
     }
 
     fun loadActions(workflowId: Long? = selectedWorkflowId, forceRefresh: Boolean = false) {
+        val reqSeq = actionsRequestGuard.next()
         scope.launch {
             val cached = container.repository.peekWorkflowRuns(repo.owner, repo.name, workflowId)
             if (cached != null) {
-                workflowRuns = cached
-                actionsLoading = false
-            } else {
-                actionsLoading = true
-            }
-            actionsError = null
-            container.repository.getWorkflows(repo.owner, repo.name, forceRefresh = forceRefresh)
-                .onSuccess { workflows = it }
-            container.repository.getWorkflowRuns(repo.owner, repo.name, workflowId, forceRefresh = forceRefresh)
-                .onSuccess {
-                    workflowRuns = it
+                if (actionsRequestGuard.isLatest(reqSeq)) {
+                    workflowRuns = cached
                     actionsLoading = false
                 }
+            } else if (actionsRequestGuard.isLatest(reqSeq)) {
+                actionsLoading = true
+            }
+            if (actionsRequestGuard.isLatest(reqSeq)) {
+                actionsError = null
+            }
+            container.repository.getWorkflows(repo.owner, repo.name, forceRefresh = forceRefresh)
+                .onSuccess { if (actionsRequestGuard.isLatest(reqSeq)) workflows = it }
+            container.repository.getWorkflowRuns(repo.owner, repo.name, workflowId, forceRefresh = forceRefresh)
+                .onSuccess {
+                    if (actionsRequestGuard.isLatest(reqSeq)) {
+                        workflowRuns = it
+                        actionsLoading = false
+                    }
+                }
                 .onFailure {
-                    actionsError = strings.errorMessage(it, strings.failedLoadActions)
-                    actionsLoading = false
+                    if (actionsRequestGuard.isLatest(reqSeq)) {
+                        actionsError = strings.errorMessage(it, strings.failedLoadActions)
+                        actionsLoading = false
+                    }
                 }
         }
     }
@@ -1683,53 +1759,117 @@ fun RepoDetailScreen(
     }
 
     fun loadRepoIssues(filter: IssueStateFilter, forceRefresh: Boolean = false) {
+        val reqSeq = issuesRequestGuard.next()
         scope.launch {
             val cached = container.repository.peekRepoIssuesOrPulls(repo.owner, repo.name, pullRequests = false, stateFilter = filter)
             if (cached != null) {
-                repoIssues = cached
-                issuesLoading = false
-            } else {
+                if (issuesRequestGuard.isLatest(reqSeq)) {
+                    repoIssues = cached
+                    issuesLoading = false
+                }
+            } else if (issuesRequestGuard.isLatest(reqSeq)) {
                 repoIssues = null
                 issuesLoading = true
             }
-            issuesError = null
+            if (issuesRequestGuard.isLatest(reqSeq)) {
+                issuesError = null
+            }
             container.repository.getRepoIssuesOrPulls(repo.owner, repo.name, pullRequests = false, stateFilter = filter, forceRefresh = forceRefresh)
                 .onSuccess { loaded ->
-                    repoIssues = loaded
-                    issuesLoading = false
-                    container.prefetchIssuePullTargets(
-                        loaded.take(3).map { IssuePullTarget(repo.owner, repo.name, it.number, it.title) }
-                    )
+                    if (issuesRequestGuard.isLatest(reqSeq)) {
+                        repoIssues = loaded
+                        issuesLoading = false
+                        container.prefetchIssuePullTargets(
+                            loaded.take(3).map { IssuePullTarget(repo.owner, repo.name, it.number, it.title) }
+                        )
+                    }
                 }
                 .onFailure {
-                    issuesError = strings.errorMessage(it, strings.failedLoadIssues)
-                    issuesLoading = false
+                    if (issuesRequestGuard.isLatest(reqSeq)) {
+                        issuesError = strings.errorMessage(it, strings.failedLoadIssues)
+                        issuesLoading = false
+                    }
+                }
+        }
+    }
+
+    fun loadRepoLabelsList(forceRefresh: Boolean = false) {
+        scope.launch {
+            val cached = if (forceRefresh) null else container.repository.peekRepoLabels(repo.owner, repo.name)
+            if (cached != null) {
+                repoLabels = cached
+                availableIssueLabels = cached
+                labelsLoading = false
+            } else {
+                labelsLoading = true
+            }
+            labelsError = null
+            container.repository.getRepoLabels(repo.owner, repo.name, forceRefresh = forceRefresh)
+                .onSuccess { loaded ->
+                    repoLabels = loaded
+                    availableIssueLabels = loaded
+                    labelsLoading = false
+                }
+                .onFailure { err ->
+                    labelsError = strings.errorMessage(err, strings.failedLoadLabels)
+                    labelsLoading = false
+                }
+        }
+    }
+
+    fun loadRepoMilestonesList(forceRefresh: Boolean = false) {
+        scope.launch {
+            val cached = if (forceRefresh) null else container.repository.peekRepoMilestones(repo.owner, repo.name, state = "all")
+            if (cached != null) {
+                repoMilestones = cached
+                milestonesLoading = false
+            } else {
+                milestonesLoading = true
+            }
+            milestonesError = null
+            container.repository.getRepoMilestones(repo.owner, repo.name, state = "all", forceRefresh = forceRefresh)
+                .onSuccess { loaded ->
+                    repoMilestones = loaded
+                    milestonesLoading = false
+                }
+                .onFailure { err ->
+                    milestonesError = strings.errorMessage(err, strings.failedLoadMilestones)
+                    milestonesLoading = false
                 }
         }
     }
 
     fun loadRepoPulls(filter: IssueStateFilter, forceRefresh: Boolean = false) {
+        val reqSeq = pullsRequestGuard.next()
         scope.launch {
             val cached = container.repository.peekRepoIssuesOrPulls(repo.owner, repo.name, pullRequests = true, stateFilter = filter)
             if (cached != null) {
-                repoPulls = cached
-                pullsLoading = false
-            } else {
+                if (pullsRequestGuard.isLatest(reqSeq)) {
+                    repoPulls = cached
+                    pullsLoading = false
+                }
+            } else if (pullsRequestGuard.isLatest(reqSeq)) {
                 repoPulls = null
                 pullsLoading = true
             }
-            pullsError = null
+            if (pullsRequestGuard.isLatest(reqSeq)) {
+                pullsError = null
+            }
             container.repository.getRepoIssuesOrPulls(repo.owner, repo.name, pullRequests = true, stateFilter = filter, forceRefresh = forceRefresh)
                 .onSuccess { loaded ->
-                    repoPulls = loaded
-                    pullsLoading = false
-                    container.prefetchIssuePullTargets(
-                        loaded.take(3).map { IssuePullTarget(repo.owner, repo.name, it.number, it.title) }
-                    )
+                    if (pullsRequestGuard.isLatest(reqSeq)) {
+                        repoPulls = loaded
+                        pullsLoading = false
+                        container.prefetchIssuePullTargets(
+                            loaded.take(3).map { IssuePullTarget(repo.owner, repo.name, it.number, it.title) }
+                        )
+                    }
                 }
                 .onFailure {
-                    pullsError = strings.errorMessage(it, strings.failedLoadPulls)
-                    pullsLoading = false
+                    if (pullsRequestGuard.isLatest(reqSeq)) {
+                        pullsError = strings.errorMessage(it, strings.failedLoadPulls)
+                        pullsLoading = false
+                    }
                 }
         }
     }
@@ -1743,6 +1883,10 @@ fun RepoDetailScreen(
         showCreateDiscussionDialog ||
         showCreatePrDialog ||
         showCreateIssueDialog ||
+        showLabelEditorDialog ||
+        showMilestoneEditorDialog ||
+        deletingLabelTarget != null ||
+        deletingMilestoneTarget != null ||
         fullScreenDiffContext != null
 
     val effectiveParent = detail?.summary?.parent ?: repo.parent
@@ -1840,9 +1984,13 @@ fun RepoDetailScreen(
         }
     }
 
-    LaunchedEffect(activeTab, issueStateFilter, repo.fullName) {
+    LaunchedEffect(activeTab, issuesSection, issueStateFilter, repo.fullName) {
         if (activeTab == RepoDetailTab.ISSUES) {
-            loadRepoIssues(issueStateFilter, forceRefresh = false)
+            when (issuesSection) {
+                RepoIssuesSection.ISSUES -> loadRepoIssues(issueStateFilter, forceRefresh = false)
+                RepoIssuesSection.LABELS -> loadRepoLabelsList(forceRefresh = false)
+                RepoIssuesSection.MILESTONES -> loadRepoMilestonesList(forceRefresh = false)
+            }
         }
     }
 
@@ -1891,7 +2039,7 @@ fun RepoDetailScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         MaxxingPredictiveBackContainer(
-            enabled = hasInnerRepoBack && !hasOpenEditor,
+            enabled = backEnabled && hasInnerRepoBack && !hasOpenEditor,
             onBack = {
                 when {
                     activeTab == RepoDetailTab.ACTIONS && openedLogJob != null -> {
@@ -2358,15 +2506,9 @@ fun RepoDetailScreen(
                             onClick = {
                                 activeTab = tab
                                 headerCollapseTracker.expand()
-                                if (tab != RepoDetailTab.CODE) {
-                                    showCommitsView = false
-                                    showCompareView = false
-                                    openedCommitSha = null
-                                } else {
-                                    showCommitsView = false
-                                    showCompareView = false
-                                    openedCommitSha = null
-                                }
+                                showCommitsView = false
+                                showCompareView = false
+                                openedCommitSha = null
                                 if (tab != RepoDetailTab.ACTIONS) {
                                     openedRun = null
                                     openedLogJob = null
@@ -2977,14 +3119,109 @@ fun RepoDetailScreen(
                     items = repoIssues,
                     isLoading = issuesLoading,
                     errorMsg = issuesError,
-                    onRefresh = { loadRepoIssues(issueStateFilter, forceRefresh = true) },
-                    onCreateNew = if (capabilities.canCreateIssue) {
-                        { showCreateIssueDialog = true }
-                    } else null,
+                    onRefresh = {
+                        when (issuesSection) {
+                            RepoIssuesSection.ISSUES -> loadRepoIssues(issueStateFilter, forceRefresh = true)
+                            RepoIssuesSection.LABELS -> loadRepoLabelsList(forceRefresh = true)
+                            RepoIssuesSection.MILESTONES -> loadRepoMilestonesList(forceRefresh = true)
+                        }
+                    },
+                    onCreateNew = when (issuesSection) {
+                        RepoIssuesSection.ISSUES -> if (capabilities.canCreateIssue) {
+                            { showCreateIssueDialog = true }
+                        } else null
+                        RepoIssuesSection.LABELS -> if (capabilities.canPush) {
+                            {
+                                editingLabel = null
+                                labelEditorError = null
+                                showLabelEditorDialog = true
+                            }
+                        } else null
+                        RepoIssuesSection.MILESTONES -> if (capabilities.canPush) {
+                            {
+                                editingMilestone = null
+                                milestoneEditorError = null
+                                showMilestoneEditorDialog = true
+                            }
+                        } else null
+                    },
                     onOpenItem = { item ->
                         onOpenIssueOrPull(
                             IssuePullTarget(repo.owner, repo.name, item.number, item.title)
                         )
+                    },
+                    showStateFilters = issuesSection == RepoIssuesSection.ISSUES,
+                    headerTitle = when (issuesSection) {
+                        RepoIssuesSection.ISSUES -> null
+                        RepoIssuesSection.LABELS -> strings.repoIssuesSectionLabels
+                        RepoIssuesSection.MILESTONES -> strings.repoIssuesSectionMilestones
+                    },
+                    sectionPicker = {
+                        RepoIssuesSectionDropdownButton(
+                            currentSection = issuesSection,
+                            onSelectSection = { issuesSection = it }
+                        )
+                    },
+                    refreshDescriptionOverride = when (issuesSection) {
+                        RepoIssuesSection.ISSUES -> null
+                        RepoIssuesSection.LABELS -> strings.repoRefreshLabels
+                        RepoIssuesSection.MILESTONES -> strings.repoRefreshMilestones
+                    },
+                    customBody = when (issuesSection) {
+                        RepoIssuesSection.ISSUES -> null
+                        RepoIssuesSection.LABELS -> {
+                            {
+                                RepoLabelsManagementContent(
+                                    labels = repoLabels,
+                                    isLoading = labelsLoading,
+                                    errorMsg = labelsError,
+                                    canManage = capabilities.canPush,
+                                    onRefresh = { loadRepoLabelsList(forceRefresh = true) },
+                                    onEditLabel = { label ->
+                                        editingLabel = label
+                                        labelEditorError = null
+                                        showLabelEditorDialog = true
+                                    },
+                                    onDeleteLabel = { label -> deletingLabelTarget = label }
+                                )
+                            }
+                        }
+                        RepoIssuesSection.MILESTONES -> {
+                            {
+                                RepoMilestonesManagementContent(
+                                    milestones = repoMilestones,
+                                    isLoading = milestonesLoading,
+                                    errorMsg = milestonesError,
+                                    canManage = capabilities.canPush,
+                                    isBusy = milestoneActionBusy,
+                                    onRefresh = { loadRepoMilestonesList(forceRefresh = true) },
+                                    onEditMilestone = { ms ->
+                                        editingMilestone = ms
+                                        milestoneEditorError = null
+                                        showMilestoneEditorDialog = true
+                                    },
+                                    onToggleState = { ms ->
+                                        val nextState = if (ms.state.equals("open", ignoreCase = true)) "closed" else "open"
+                                        scope.launch {
+                                            milestoneActionBusy = true
+                                            container.repository.updateRepoMilestone(
+                                                owner = repo.owner,
+                                                repo = repo.name,
+                                                number = ms.number,
+                                                state = nextState
+                                            ).onSuccess {
+                                                onMessage(strings.milestoneUpdatedMessage(it.title))
+                                                loadRepoMilestonesList(forceRefresh = true)
+                                            }.onFailure {
+                                                onMessage(strings.errorMessage(it, strings.failedUpdateMilestone))
+                                            }
+                                            milestoneActionBusy = false
+                                        }
+                                    },
+                                    onDeleteMilestone = { ms -> deletingMilestoneTarget = ms }
+                                )
+                            }
+                        }
                     }
                 )
             }
@@ -3207,9 +3444,216 @@ fun RepoDetailScreen(
                             .onFailure { onMessage(strings.errorMessage(it, strings.failedCreateLabel)) }
                         issueLabelActionBusy = false
                     }
+                },
+                onDeleteLabel = { label ->
+                    scope.launch {
+                        issueLabelActionBusy = true
+                        container.repository.deleteRepoLabel(repo.owner, repo.name, label.name)
+                            .onSuccess {
+                                availableIssueLabels = availableIssueLabels.filterNot { it.name == label.name }
+                                repoLabels = repoLabels?.filterNot { it.name == label.name }
+                                selectedNewIssueLabels = selectedNewIssueLabels - label.name
+                                onMessage(strings.labelDeletedMessage(label.name))
+                            }
+                            .onFailure { onMessage(strings.errorMessage(it, strings.failedDeleteLabel)) }
+                        issueLabelActionBusy = false
+                    }
                 }
             )
         }
+    }
+
+    if (showLabelEditorDialog) {
+        RepoLabelEditorDialog(
+            editingLabel = editingLabel,
+            isSubmitting = labelEditorSubmitting,
+            errorMsg = labelEditorError,
+            onDismiss = {
+                showLabelEditorDialog = false
+                labelEditorError = null
+            },
+            onSave = { name, colorHex, description ->
+                scope.launch {
+                    labelEditorSubmitting = true
+                    labelEditorError = null
+                    val targetEditing = editingLabel
+                    val result = if (targetEditing == null) {
+                        container.repository.createRepoLabel(
+                            owner = repo.owner,
+                            repo = repo.name,
+                            name = name,
+                            colorHex = colorHex,
+                            description = description
+                        )
+                    } else {
+                        container.repository.updateRepoLabel(
+                            owner = repo.owner,
+                            repo = repo.name,
+                            currentName = targetEditing.name,
+                            newName = name,
+                            colorHex = colorHex,
+                            description = description
+                        )
+                    }
+                    result.onSuccess { saved ->
+                        showLabelEditorDialog = false
+                        editingLabel = null
+                        onMessage(
+                            if (targetEditing == null) strings.createdLabelMessage(saved.name)
+                            else strings.labelUpdatedMessage(saved.name)
+                        )
+                        loadRepoLabelsList(forceRefresh = true)
+                    }.onFailure { err ->
+                        labelEditorError = strings.errorMessage(
+                            err,
+                            if (targetEditing == null) strings.failedCreateLabel else strings.failedUpdateLabel
+                        )
+                    }
+                    labelEditorSubmitting = false
+                }
+            }
+        )
+    }
+
+    deletingLabelTarget?.let { targetLabel ->
+        AlertDialog(
+            onDismissRequest = { if (!labelDeleteBusy) deletingLabelTarget = null },
+            title = { Text(strings.labelDeleteTitle) },
+            text = { Text(strings.labelDeleteConfirm(targetLabel.name)) },
+            confirmButton = {
+                Button(
+                    enabled = !labelDeleteBusy,
+                    onClick = {
+                        scope.launch {
+                            labelDeleteBusy = true
+                            container.repository.deleteRepoLabel(repo.owner, repo.name, targetLabel.name)
+                                .onSuccess {
+                                    deletingLabelTarget = null
+                                    availableIssueLabels = availableIssueLabels.filterNot { it.name == targetLabel.name }
+                                    selectedNewIssueLabels = selectedNewIssueLabels - targetLabel.name
+                                    onMessage(strings.labelDeletedMessage(targetLabel.name))
+                                    loadRepoLabelsList(forceRefresh = true)
+                                }
+                                .onFailure { err ->
+                                    deletingLabelTarget = null
+                                    onMessage(strings.errorMessage(err, strings.failedDeleteLabel))
+                                }
+                            labelDeleteBusy = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    Text(strings.deleteAction)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !labelDeleteBusy,
+                    onClick = { deletingLabelTarget = null }
+                ) {
+                    Text(strings.cancel)
+                }
+            }
+        )
+    }
+
+    if (showMilestoneEditorDialog) {
+        RepoMilestoneEditorDialog(
+            editingMilestone = editingMilestone,
+            isSubmitting = milestoneEditorSubmitting,
+            errorMsg = milestoneEditorError,
+            onDismiss = {
+                showMilestoneEditorDialog = false
+                milestoneEditorError = null
+            },
+            onSave = { title, description, dueOnIso, clearDueOn ->
+                scope.launch {
+                    milestoneEditorSubmitting = true
+                    milestoneEditorError = null
+                    val targetEditing = editingMilestone
+                    val result = if (targetEditing == null) {
+                        container.repository.createRepoMilestone(
+                            owner = repo.owner,
+                            repo = repo.name,
+                            title = title,
+                            description = description,
+                            dueOn = dueOnIso
+                        )
+                    } else {
+                        container.repository.updateRepoMilestone(
+                            owner = repo.owner,
+                            repo = repo.name,
+                            number = targetEditing.number,
+                            title = title,
+                            description = description,
+                            dueOn = dueOnIso,
+                            clearDueOn = clearDueOn
+                        )
+                    }
+                    result.onSuccess { saved ->
+                        showMilestoneEditorDialog = false
+                        editingMilestone = null
+                        onMessage(
+                            if (targetEditing == null) strings.milestoneCreatedMessage(saved.title)
+                            else strings.milestoneUpdatedMessage(saved.title)
+                        )
+                        loadRepoMilestonesList(forceRefresh = true)
+                    }.onFailure { err ->
+                        milestoneEditorError = strings.errorMessage(
+                            err,
+                            if (targetEditing == null) strings.failedCreateMilestone else strings.failedUpdateMilestone
+                        )
+                    }
+                    milestoneEditorSubmitting = false
+                }
+            }
+        )
+    }
+
+    deletingMilestoneTarget?.let { targetMilestone ->
+        AlertDialog(
+            onDismissRequest = { if (!milestoneDeleteBusy) deletingMilestoneTarget = null },
+            title = { Text(strings.milestoneDeleteTitle) },
+            text = { Text(strings.milestoneDeleteConfirm(targetMilestone.title)) },
+            confirmButton = {
+                Button(
+                    enabled = !milestoneDeleteBusy,
+                    onClick = {
+                        scope.launch {
+                            milestoneDeleteBusy = true
+                            container.repository.deleteRepoMilestone(repo.owner, repo.name, targetMilestone.number)
+                                .onSuccess {
+                                    deletingMilestoneTarget = null
+                                    onMessage(strings.milestoneDeletedMessage(targetMilestone.title))
+                                    loadRepoMilestonesList(forceRefresh = true)
+                                }
+                                .onFailure { err ->
+                                    deletingMilestoneTarget = null
+                                    onMessage(strings.errorMessage(err, strings.failedDeleteMilestone))
+                                }
+                            milestoneDeleteBusy = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    Text(strings.deleteAction)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !milestoneDeleteBusy,
+                    onClick = { deletingMilestoneTarget = null }
+                ) {
+                    Text(strings.cancel)
+                }
+            }
+        )
     }
 
     fullScreenDiffContext?.let { (activeFile, allFiles) ->
@@ -3505,18 +3949,21 @@ fun RepoDetailScreen(
             branches = detail?.branches.orEmpty().map { it.name }.ifEmpty { listOf(currentRef) },
             defaultBranch = currentRef,
             busy = actionsBusy,
-            onDismiss = { showDispatchDialog = false },
+            onDismiss = { if (!actionsBusy) showDispatchDialog = false },
             onDispatch = { workflowId, ref, inputs ->
                 actionsBusy = true
                 scope.launch {
-                    container.repository.dispatchWorkflow(repo.owner, repo.name, workflowId, ref, inputs)
-                        .onSuccess {
-                            showDispatchDialog = false
-                            onMessage(strings.actionsDispatchedMessage(ref))
-                            loadActions(selectedWorkflowId, forceRefresh = true)
-                        }
-                        .onFailure { onMessage(strings.errorMessage(it, strings.actionsDispatchFailed)) }
-                    actionsBusy = false
+                    try {
+                        container.repository.dispatchWorkflow(repo.owner, repo.name, workflowId, ref, inputs)
+                            .onSuccess {
+                                showDispatchDialog = false
+                                onMessage(strings.actionsDispatchedMessage(ref))
+                                loadActions(selectedWorkflowId, forceRefresh = true)
+                            }
+                            .onFailure { onMessage(strings.errorMessage(it, strings.actionsDispatchFailed)) }
+                    } finally {
+                        actionsBusy = false
+                    }
                 }
             }
         )
@@ -3599,7 +4046,12 @@ private fun RepoIssuesOrPullsTabContent(
     errorMsg: String?,
     onRefresh: () -> Unit,
     onCreateNew: (() -> Unit)? = null,
-    onOpenItem: (IssueOrPullSummary) -> Unit
+    onOpenItem: (IssueOrPullSummary) -> Unit,
+    showStateFilters: Boolean = true,
+    headerTitle: String? = null,
+    sectionPicker: (@Composable () -> Unit)? = null,
+    refreshDescriptionOverride: String? = null,
+    customBody: (@Composable () -> Unit)? = null
 ) {
     val strings = appStrings()
 
@@ -3611,14 +4063,25 @@ private fun RepoIssuesOrPullsTabContent(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IssueStateFilter.entries.forEach { sf ->
-                FilterChip(
-                    selected = stateFilter == sf,
-                    onClick = { onSelectFilter(sf) },
-                    label = { Text(strings.issueStateFilterLabel(sf)) }
+            if (showStateFilters) {
+                IssueStateFilter.entries.forEach { sf ->
+                    FilterChip(
+                        selected = stateFilter == sf,
+                        onClick = { onSelectFilter(sf) },
+                        label = { Text(strings.issueStateFilterLabel(sf)) }
+                    )
+                }
+            } else if (!headerTitle.isNullOrBlank()) {
+                Text(
+                    text = headerTitle,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             Spacer(Modifier.weight(1f))
+            sectionPicker?.invoke()
             if (onCreateNew != null) {
                 OutlinedButton(
                     onClick = onCreateNew,
@@ -3632,10 +4095,16 @@ private fun RepoIssuesOrPullsTabContent(
             IconButton(onClick = onRefresh) {
                 Icon(
                     Lucide.RefreshCw,
-                    contentDescription = if (isPullRequests) strings.repoRefreshPulls else strings.repoRefreshIssues,
+                    contentDescription = refreshDescriptionOverride
+                        ?: if (isPullRequests) strings.repoRefreshPulls else strings.repoRefreshIssues,
                     modifier = Modifier.size(18.dp)
                 )
             }
+        }
+
+        if (customBody != null) {
+            customBody()
+            return@Column
         }
 
         if (isLoading && !items.isNullOrEmpty()) {

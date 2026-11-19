@@ -8,8 +8,11 @@ import kotlinx.serialization.json.Json
 import java.awt.Desktop
 import java.io.File
 import java.net.URI
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.nio.file.attribute.PosixFilePermission
+import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.TimeUnit
 
 private class LinuxDesktopTokenStore : TokenStore {
@@ -33,8 +36,7 @@ private class LinuxDesktopTokenStore : TokenStore {
     override suspend fun saveSession(session: AuthSession) = withContext(Dispatchers.IO) {
         val encoded = json.encodeToString(session)
         if (!trySecretToolStore(encoded)) {
-            sessionFile.writeText(encoded)
-            restrictPermissions(sessionFile)
+            writeOwnerOnlyFileAtomically(sessionFile, encoded)
         } else if (sessionFile.exists()) {
             sessionFile.delete()
         }
@@ -122,43 +124,111 @@ private class LinuxDesktopTokenStore : TokenStore {
         }
     }
 
-    private fun trySecretToolStore(secret: String): Boolean {
-        return try {
-            val process = ProcessBuilder(
+    private fun trySecretToolStore(secret: String): Boolean =
+        runCommandWithTimeout(
+            command = listOf(
                 "secret-tool", "store",
                 "--label=github-mobile-maxxing GitHub Session",
                 "service", "github-mobile-maxxing",
                 "account", "github"
-            ).start()
-            process.outputStream.bufferedWriter().use { it.write(secret) }
-            process.waitFor() == 0
-        } catch (_: Exception) {
-            false
-        }
-    }
+            ),
+            stdinText = secret
+        ) != null
 
-    private fun trySecretToolLookup(): String? {
-        return try {
-            val process = ProcessBuilder(
+    private fun trySecretToolLookup(): String? =
+        runCommandWithTimeout(
+            command = listOf(
                 "secret-tool", "lookup",
                 "service", "github-mobile-maxxing",
                 "account", "github"
-            ).start()
-            val out = process.inputStream.bufferedReader().readText().trim()
-            if (process.waitFor() == 0 && out.isNotEmpty()) out else null
-        } catch (_: Exception) {
-            null
-        }
-    }
+            ),
+            captureStdout = true
+        )?.trim()?.takeIf { it.isNotEmpty() }
 
-    private fun trySecretToolClear() {
-        runCatching {
-            ProcessBuilder(
+    private fun trySecretToolClear(): Boolean =
+        runCommandWithTimeout(
+            command = listOf(
                 "secret-tool", "clear",
                 "service", "github-mobile-maxxing",
                 "account", "github"
-            ).start().waitFor()
+            )
+        ) != null
+}
+
+/**
+ * Plaintext fallback write: creates the temp file owner-only (POSIX 0600) so the secret is
+ * never briefly readable by others, then swaps it into [targetFile] via rename.
+ */
+internal fun writeOwnerOnlyFileAtomically(targetFile: File, content: String) {
+    val target = targetFile.toPath()
+    val tmp = Files.createTempFile(
+        target.parent,
+        "${targetFile.name}.",
+        ".tmp",
+        PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------"))
+    )
+    try {
+        Files.writeString(tmp, content)
+        try {
+            Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING)
         }
+        runCatching {
+            val perms = setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)
+            Files.setPosixFilePermissions(target, perms)
+        }
+    } finally {
+        runCatching { Files.deleteIfExists(tmp) }
+    }
+}
+
+/**
+ * Runs a local helper command (such as `secret-tool`) with a hard timeout.
+ * Returns stdout (or empty string when [captureStdout] is false) on exit code 0, or null on
+ * failure or timeout.
+ */
+internal fun runCommandWithTimeout(
+    command: List<String>,
+    stdinText: String? = null,
+    captureStdout: Boolean = false,
+    timeoutMs: Long = 10_000L
+): String? {
+    var process: Process? = null
+    return try {
+        val pb = ProcessBuilder(command).redirectError(ProcessBuilder.Redirect.DISCARD)
+        if (!captureStdout) pb.redirectOutput(ProcessBuilder.Redirect.DISCARD)
+        val started = pb.start()
+        process = started
+
+        val writerThread = if (stdinText != null) {
+            Thread {
+                runCatching { started.outputStream.bufferedWriter().use { it.write(stdinText) } }
+            }.apply { isDaemon = true; start() }
+        } else {
+            runCatching { started.outputStream.close() }
+            null
+        }
+
+        var output = ""
+        val readerThread = if (captureStdout) {
+            Thread {
+                output = runCatching { started.inputStream.bufferedReader().use { it.readText() } }.getOrDefault("")
+            }.apply { isDaemon = true; start() }
+        } else {
+            null
+        }
+
+        if (!started.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {
+            started.destroyForcibly()
+            return null
+        }
+        writerThread?.join(1_000L)
+        readerThread?.join(1_000L)
+        if (started.exitValue() == 0) output else null
+    } catch (_: Exception) {
+        process?.destroyForcibly()
+        null
     }
 }
 

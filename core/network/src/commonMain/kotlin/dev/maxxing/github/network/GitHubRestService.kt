@@ -61,6 +61,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.encodeURLPathPart
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -947,6 +948,23 @@ class GitHubRestService(
         }
     }
 
+    private fun RestWorkflowRunDto.toSummary(): WorkflowRunSummary = WorkflowRunSummary(
+        id = id,
+        runNumber = runNumber,
+        name = name.orEmpty().ifBlank { displayTitle.orEmpty() },
+        displayTitle = displayTitle.orEmpty().ifBlank { name.orEmpty() },
+        headBranch = headBranch.orEmpty(),
+        headSha = headSha,
+        event = event,
+        status = status,
+        conclusion = conclusion,
+        actorLogin = actor?.login.orEmpty(),
+        actorAvatarUrl = actor?.avatarUrl.orEmpty(),
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+        htmlUrl = htmlUrl
+    )
+
     suspend fun fetchWorkflowRuns(
         owner: String,
         repo: String,
@@ -966,24 +984,17 @@ class GitHubRestService(
         if (!res.status.isSuccess()) {
             throw GitHubApiException(res.status.value, "Failed to load workflow runs (${res.status.value})")
         }
-        return res.bodyOrDefaultOnEmpty<RestWorkflowRunsResponse> { RestWorkflowRunsResponse() }.workflowRuns.map {
-            WorkflowRunSummary(
-                id = it.id,
-                runNumber = it.runNumber,
-                name = it.name.orEmpty().ifBlank { it.displayTitle.orEmpty() },
-                displayTitle = it.displayTitle.orEmpty().ifBlank { it.name.orEmpty() },
-                headBranch = it.headBranch.orEmpty(),
-                headSha = it.headSha,
-                event = it.event,
-                status = it.status,
-                conclusion = it.conclusion,
-                actorLogin = it.actor?.login.orEmpty(),
-                actorAvatarUrl = it.actor?.avatarUrl.orEmpty(),
-                createdAt = it.createdAt,
-                updatedAt = it.updatedAt,
-                htmlUrl = it.htmlUrl
-            )
+        return res.bodyOrDefaultOnEmpty<RestWorkflowRunsResponse> { RestWorkflowRunsResponse() }
+            .workflowRuns
+            .map { it.toSummary() }
+    }
+
+    suspend fun fetchWorkflowRun(owner: String, repo: String, runId: Long): WorkflowRunSummary {
+        val res = httpClient.get("${repoPath(owner, repo)}/actions/runs/$runId")
+        if (!res.status.isSuccess()) {
+            throw GitHubApiException(res.status.value, "Failed to load workflow run #$runId (${res.status.value})")
         }
+        return res.body<RestWorkflowRunDto>().toSummary()
     }
 
     suspend fun fetchWorkflowRunJobs(owner: String, repo: String, runId: Long): List<WorkflowJobSummary> {
@@ -1346,7 +1357,18 @@ class GitHubRestService(
             setBody(MergePullRequest(mergeMethod = method.apiValue, commitTitle = commitTitle))
         }
         if (!res.status.isSuccess()) {
-            throw GitHubApiException(res.status.value, "Merge failed (${res.status.value})")
+            val rawBody = runCatching { res.bodyAsText() }.getOrNull().orEmpty()
+            val apiMsg = runCatching {
+                restJson.parseToJsonElement(rawBody).let { el ->
+                    (el as? JsonObject)?.get("message")?.jsonPrimitive?.contentOrNull
+                }
+            }.getOrNull()?.takeIf { it.isNotBlank() }
+            val message = if (apiMsg != null) {
+                "$apiMsg (${res.status.value})"
+            } else {
+                "Merge failed (${res.status.value})"
+            }
+            throw GitHubApiException(res.status.value, message)
         }
     }
 
@@ -1519,6 +1541,15 @@ class GitHubRestService(
         return res.bodyOrDefaultOnEmpty<List<RestGistDto>> { emptyList() }.map { it.toGistSummary() }
     }
 
+    /** Checks whether the viewer has starred [encodedId], propagating coroutine cancellation. */
+    private suspend fun isGistStarred(encodedId: String): Boolean = try {
+        httpClient.get("$baseUrl/gists/$encodedId/star").status.value == 204
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Throwable) {
+        false
+    }
+
     suspend fun fetchGistDetail(gistId: String): GistDetail {
         val encodedId = normalizeGistId(gistId).encodeURLPathPart()
         val res = httpClient.get("$baseUrl/gists/$encodedId")
@@ -1526,9 +1557,7 @@ class GitHubRestService(
             throw gistApiException(res.status.value, "load gist")
         }
         val dto = res.body<RestGistDto>()
-        val isStarred = runCatching {
-            httpClient.get("$baseUrl/gists/$encodedId/star").status.value == 204
-        }.getOrDefault(false)
+        val isStarred = isGistStarred(encodedId)
         return dto.toGistDetail(viewerHasStarred = isStarred)
     }
 
@@ -1579,9 +1608,7 @@ class GitHubRestService(
             throw gistApiException(res.status.value, "update gist")
         }
         val dto = res.body<RestGistDto>()
-        val isStarred = runCatching {
-            httpClient.get("$baseUrl/gists/$encodedId/star").status.value == 204
-        }.getOrDefault(false)
+        val isStarred = isGistStarred(encodedId)
         return dto.toGistDetail(viewerHasStarred = isStarred)
     }
 
@@ -2141,7 +2168,7 @@ class GitHubRestService(
     }
 
     suspend fun fetchRepoLabels(owner: String, repo: String, perPage: Int = 100): List<LabelTag> {
-        val res = httpClient.get("$baseUrl/repos/$owner/$repo/labels") {
+        val res = httpClient.get("${repoPath(owner, repo)}/labels") {
             parameter("per_page", perPage)
         }
         if (!res.status.isSuccess()) {
@@ -2160,7 +2187,7 @@ class GitHubRestService(
         description: String = ""
     ): LabelTag {
         val cleanColor = colorHex.removePrefix("#").trim().take(6).ifBlank { "6E40C9" }
-        val res = httpClient.post("$baseUrl/repos/$owner/$repo/labels") {
+        val res = httpClient.post("${repoPath(owner, repo)}/labels") {
             contentType(ContentType.Application.Json)
             setBody(CreateLabelRequest(name = name.trim(), color = cleanColor, description = description.trim()))
         }
@@ -2171,26 +2198,130 @@ class GitHubRestService(
         return LabelTag(name = dto.name, colorHex = dto.color, description = dto.description)
     }
 
-    suspend fun fetchRepoMilestones(owner: String, repo: String, perPage: Int = 50): List<MilestoneSummary> {
-        val res = httpClient.get("$baseUrl/repos/$owner/$repo/milestones") {
-            parameter("state", "open")
+    suspend fun updateRepoLabel(
+        owner: String,
+        repo: String,
+        currentName: String,
+        newName: String,
+        colorHex: String,
+        description: String = ""
+    ): LabelTag {
+        val cleanColor = colorHex.removePrefix("#").trim().take(6).ifBlank { "6E40C9" }
+        val payload = buildJsonObject {
+            put("new_name", newName.trim())
+            put("color", cleanColor)
+            put("description", description.trim())
+        }
+        val encodedName = currentName.trim().encodeURLPathPart()
+        val res = httpClient.patch("${repoPath(owner, repo)}/labels/$encodedName") {
+            contentType(ContentType.Application.Json)
+            setBody(payload)
+        }
+        if (!res.status.isSuccess()) {
+            throw GitHubApiException(res.status.value, "Failed to update label (${res.status.value})")
+        }
+        val dto = res.body<RestSearchLabelDto>()
+        return LabelTag(name = dto.name, colorHex = dto.color, description = dto.description)
+    }
+
+    suspend fun deleteRepoLabel(owner: String, repo: String, name: String) {
+        val encodedName = name.trim().encodeURLPathPart()
+        val res = httpClient.delete("${repoPath(owner, repo)}/labels/$encodedName")
+        if (!res.status.isSuccess()) {
+            throw GitHubApiException(res.status.value, "Failed to delete label (${res.status.value})")
+        }
+    }
+
+    suspend fun fetchRepoMilestones(
+        owner: String,
+        repo: String,
+        state: String = "open",
+        perPage: Int = 50
+    ): List<MilestoneSummary> {
+        val res = httpClient.get("${repoPath(owner, repo)}/milestones") {
+            parameter("state", state)
             parameter("per_page", perPage)
         }
         if (!res.status.isSuccess()) {
             throw GitHubApiException(res.status.value, "Failed to load milestones (${res.status.value})")
         }
-        return res.bodyOrDefaultOnEmpty<List<RestMilestoneDto>> { emptyList() }.map {
-            MilestoneSummary(
-                number = it.number,
-                title = it.title,
-                description = it.description,
-                state = it.state,
-                dueOn = it.dueOn,
-                openIssues = it.openIssues,
-                closedIssues = it.closedIssues
-            )
+        return res.bodyOrDefaultOnEmpty<List<RestMilestoneDto>> { emptyList() }.map { it.toSummary() }
+    }
+
+    suspend fun createRepoMilestone(
+        owner: String,
+        repo: String,
+        title: String,
+        state: String = "open",
+        description: String? = null,
+        dueOn: String? = null
+    ): MilestoneSummary {
+        val payload = buildJsonObject {
+            put("title", title.trim())
+            put("state", state)
+            if (!description.isNullOrBlank()) {
+                put("description", description.trim())
+            }
+            if (!dueOn.isNullOrBlank()) {
+                put("due_on", dueOn.trim())
+            }
+        }
+        val res = httpClient.post("${repoPath(owner, repo)}/milestones") {
+            contentType(ContentType.Application.Json)
+            setBody(payload)
+        }
+        if (!res.status.isSuccess()) {
+            throw GitHubApiException(res.status.value, "Failed to create milestone (${res.status.value})")
+        }
+        return res.body<RestMilestoneDto>().toSummary()
+    }
+
+    suspend fun updateRepoMilestone(
+        owner: String,
+        repo: String,
+        number: Int,
+        title: String? = null,
+        state: String? = null,
+        description: String? = null,
+        dueOn: String? = null,
+        clearDueOn: Boolean = false
+    ): MilestoneSummary {
+        val payload = buildJsonObject {
+            if (title != null) put("title", title.trim())
+            if (state != null) put("state", state)
+            if (description != null) put("description", description.trim())
+            if (clearDueOn) {
+                put("due_on", JsonNull)
+            } else if (!dueOn.isNullOrBlank()) {
+                put("due_on", dueOn.trim())
+            }
+        }
+        val res = httpClient.patch("${repoPath(owner, repo)}/milestones/$number") {
+            contentType(ContentType.Application.Json)
+            setBody(payload)
+        }
+        if (!res.status.isSuccess()) {
+            throw GitHubApiException(res.status.value, "Failed to update milestone (${res.status.value})")
+        }
+        return res.body<RestMilestoneDto>().toSummary()
+    }
+
+    suspend fun deleteRepoMilestone(owner: String, repo: String, number: Int) {
+        val res = httpClient.delete("${repoPath(owner, repo)}/milestones/$number")
+        if (!res.status.isSuccess()) {
+            throw GitHubApiException(res.status.value, "Failed to delete milestone (${res.status.value})")
         }
     }
+
+    private fun RestMilestoneDto.toSummary(): MilestoneSummary = MilestoneSummary(
+        number = number,
+        title = title,
+        description = description,
+        state = state,
+        dueOn = dueOn,
+        openIssues = openIssues,
+        closedIssues = closedIssues
+    )
 
     suspend fun fetchRepoAssignees(owner: String, repo: String, perPage: Int = 50): List<UserSummary> {
         val res = httpClient.get("$baseUrl/repos/$owner/$repo/assignees") {

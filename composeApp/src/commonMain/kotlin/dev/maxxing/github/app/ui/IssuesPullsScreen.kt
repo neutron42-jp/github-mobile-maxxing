@@ -89,6 +89,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun IssuesPullsScreen(
     container: AppContainer,
+    isTabActive: Boolean = true,
     onMessage: (String) -> Unit
 ) {
     // String content keys keep the navigator saveable into the Android Bundle; IssuePullTarget is not.
@@ -189,7 +190,7 @@ fun IssuesPullsScreen(
     }
 
     MaxxingPredictiveBackContainer(
-        enabled = navigator.canNavigateBack(),
+        enabled = isTabActive && navigator.canNavigateBack(),
         onBack = { scope.launch { navigator.navigateBack() } },
         modifier = Modifier.fillMaxSize()
     ) {
