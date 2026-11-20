@@ -168,7 +168,8 @@ internal fun PullReviewModeScreen(
     onMergeClick: (MergeMethod) -> Unit,
     onMessage: (String) -> Unit,
     onDismiss: () -> Unit,
-    initialFilename: String? = null
+    initialFilename: String? = null,
+    allowedMergeMethods: List<MergeMethod> = MergeMethod.entries
 ) {
     val strings = appStrings()
     val graphitePalette = LocalGraphitePalette.current
@@ -259,8 +260,7 @@ internal fun PullReviewModeScreen(
     val canMergeFromCompletion = isOpenPr &&
         !detail.isDraft &&
         detail.viewerCanMerge &&
-        !isPullConflicting(detail.mergeable, detail.mergeStateStatus) &&
-        resolvePullMergeBlockReason(detail, checkRuns, strings) == null
+        canConfirmPullMerge(detail)
 
     val toggleCurrentFileViewed: () -> Unit = {
         val entry = currentEntry
@@ -481,6 +481,7 @@ internal fun PullReviewModeScreen(
                             isOwnPr = isOwnPr,
                             canMerge = canMergeFromCompletion,
                             selectedMergeMethod = selectedMergeMethod,
+                            allowedMergeMethods = allowedMergeMethods,
                             actionBusy = actionBusy,
                             onApprove = {
                                 if (pendingComments.isNotEmpty() || reviewSummaryBody.isNotBlank()) {
@@ -1228,7 +1229,8 @@ private fun ReviewCompletionBanner(
     onComment: () -> Unit,
     onSelectMergeMethod: (MergeMethod) -> Unit,
     onMerge: (MergeMethod) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    allowedMergeMethods: List<MergeMethod> = MergeMethod.entries
 ) {
     val strings = appStrings()
     val graphitePalette = LocalGraphitePalette.current
@@ -1323,8 +1325,9 @@ private fun ReviewCompletionBanner(
                         Text(strings.reviewCommentLabel, maxLines = 1, softWrap = false)
                     }
                     if (canMerge) {
-                        val mergeOptions = remember(strings) {
-                            MergeMethod.entries.map {
+                        val validMethods = allowedMergeMethods.ifEmpty { MergeMethod.entries }
+                        val mergeOptions = remember(strings, validMethods) {
+                            validMethods.map {
                                 SplitActionOption(
                                     value = it,
                                     label = strings.mergeMethodLabel(it),
@@ -1334,7 +1337,7 @@ private fun ReviewCompletionBanner(
                             }
                         }
                         MaxxingSplitActionButton(
-                            selectedOption = mergeOptions.first { it.value == selectedMergeMethod },
+                            selectedOption = mergeOptions.firstOrNull { it.value == selectedMergeMethod } ?: mergeOptions.first(),
                             options = mergeOptions,
                             enabled = !actionBusy,
                             onSelectOption = onSelectMergeMethod,

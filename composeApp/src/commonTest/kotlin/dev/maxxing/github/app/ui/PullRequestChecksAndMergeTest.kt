@@ -5,12 +5,15 @@ import dev.maxxing.github.model.CheckRunSummary
 import dev.maxxing.github.model.IssueOrPullDetail
 import dev.maxxing.github.model.IssueOrPullKind
 import dev.maxxing.github.model.IssueOrPullState
+import dev.maxxing.github.model.MergeMethod
 import dev.maxxing.github.model.UserSummary
 import dev.maxxing.github.network.GitHubApiException
 import dev.maxxing.github.ui.i18n.EnglishStrings
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class PullRequestChecksAndMergeTest {
 
@@ -111,6 +114,38 @@ class PullRequestChecksAndMergeTest {
                 GitHubApiException(405, "Pull Request is not mergeable (405)"),
                 EnglishStrings
             )
+        )
+    }
+
+    @Test
+    fun unstableAndUnknownWithPendingChecksAllowMergingAndEffectiveMethodRespectsRepoSettings() {
+        val pendingRun = CheckRunSummary(id = 1L, name = "optional", status = "in_progress")
+        assertNull(
+            resolvePullMergeBlockReason(
+                samplePull(mergeStateStatus = "UNSTABLE", rollupState = "PENDING"),
+                listOf(pendingRun),
+                EnglishStrings
+            )
+        )
+        assertNull(
+            resolvePullMergeBlockReason(
+                samplePull(mergeable = "UNKNOWN", mergeStateStatus = "UNKNOWN", rollupState = "PENDING"),
+                listOf(pendingRun),
+                EnglishStrings
+            )
+        )
+
+        assertTrue(canConfirmPullMerge(samplePull(mergeable = "MERGEABLE", mergeStateStatus = "UNSTABLE")))
+        assertTrue(canConfirmPullMerge(samplePull(mergeable = "UNKNOWN", mergeStateStatus = "BLOCKED")))
+        assertFalse(canConfirmPullMerge(samplePull(mergeable = "CONFLICTING", mergeStateStatus = "DIRTY")))
+
+        assertEquals(
+            MergeMethod.MERGE,
+            resolveEffectiveMergeMethod(MergeMethod.SQUASH, listOf(MergeMethod.MERGE, MergeMethod.REBASE))
+        )
+        assertEquals(
+            MergeMethod.SQUASH,
+            resolveEffectiveMergeMethod(MergeMethod.SQUASH, listOf(MergeMethod.SQUASH, MergeMethod.MERGE))
         )
     }
 }

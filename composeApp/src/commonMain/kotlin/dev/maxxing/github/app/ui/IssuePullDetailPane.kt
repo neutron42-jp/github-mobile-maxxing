@@ -205,6 +205,17 @@ internal fun isPullConflicting(mergeable: String?, mergeStateStatus: String?): B
     mergeable.equals("CONFLICTING", ignoreCase = true) ||
         mergeStateStatus?.uppercase() == "DIRTY"
 
+internal fun canConfirmPullMerge(detail: IssueOrPullDetail): Boolean =
+    !isPullConflicting(detail.mergeable, detail.mergeStateStatus)
+
+internal fun resolveEffectiveMergeMethod(
+    preferred: MergeMethod,
+    allowedMethods: List<MergeMethod>
+): MergeMethod {
+    val valid = allowedMethods.ifEmpty { MergeMethod.entries }
+    return if (preferred in valid) preferred else valid.first()
+}
+
 internal fun resolvePullMergeBlockReason(
     detail: IssueOrPullDetail,
     checkRuns: List<CheckRunSummary>?,
@@ -216,8 +227,8 @@ internal fun resolvePullMergeBlockReason(
     }
     val hasPendingChecks = hasPendingCheckRuns(checkRuns) ||
         detail.checkRollup?.state?.uppercase() in setOf("PENDING", "EXPECTED")
-    // Allow UNSTABLE / CLEAN / HAS_HOOKS if checks are non-required, unless individual checks are still pending
-    if (hasPendingChecks && mergeState !in setOf("CLEAN", "HAS_HOOKS")) {
+    // Allow CLEAN / HAS_HOOKS / UNSTABLE / UNKNOWN without blocking non-required or in-flight checks.
+    if (hasPendingChecks && mergeState == "BLOCKED") {
         return strings.issueMergeBlockedPendingChecks
     }
     if (mergeState == "BEHIND") {
@@ -352,6 +363,16 @@ private fun IssuePullDetailPaneContent(
     var reviewEvent by remember(targetKey) { mutableStateOf(ReviewEvent.APPROVE) }
     var selectedMergeMethod by remember(targetKey) { mutableStateOf(MergeMethod.SQUASH) }
     var actionBusy by remember(targetKey) { mutableStateOf(false) }
+
+    val allowedMergeMethods = remember(detail?.allowedMergeMethods) {
+        detail?.allowedMergeMethods?.takeIf { it.isNotEmpty() } ?: MergeMethod.entries
+    }
+    LaunchedEffect(allowedMergeMethods) {
+        val next = resolveEffectiveMergeMethod(selectedMergeMethod, allowedMergeMethods)
+        if (next != selectedMergeMethod) {
+            selectedMergeMethod = next
+        }
+    }
 
     var showLabelsDialog by remember(targetKey) { mutableStateOf(false) }
     var availableLabels by remember(targetKey) { mutableStateOf<List<LabelTag>>(emptyList()) }
@@ -1260,6 +1281,7 @@ private fun IssuePullDetailPaneContent(
                     primaryAction = primaryAction,
                     canCloseOrReopen = item.viewerCanCloseOrReopen,
                     selectedMergeMethod = selectedMergeMethod,
+                    allowedMergeMethods = allowedMergeMethods,
                     actionBusy = actionBusy,
                     onCommentClick = { showCommentDialog = true },
                     onReviewClick = { showReviewDialog = true },
@@ -1340,6 +1362,7 @@ private fun IssuePullDetailPaneContent(
             checkRuns = checkRuns,
             container = container,
             selectedMergeMethod = selectedMergeMethod,
+            allowedMergeMethods = allowedMergeMethods,
             onSelectMergeMethod = { selectedMergeMethod = it },
             onSyncStateUpdated = { reviewSyncState = it },
             onReloadDetail = { loadDetail(forceRefresh = true) },
@@ -2091,7 +2114,7 @@ private fun IssuePullDetailPaneContent(
             },
             confirmButton = {
                 Button(
-                    enabled = !actionBusy && mergeBlockReason == null,
+                    enabled = !actionBusy && canConfirmPullMerge(item),
                     onClick = {
                         pendingMergeConfirmMethod = null
                         scope.launch {
@@ -2138,7 +2161,8 @@ internal fun IssuePullFloatingToolbar(
     onStateToggleClick: (willOpen: Boolean) -> Unit,
     modifier: Modifier = Modifier,
     scrollState: ScrollState = rememberScrollState(),
-    onConflictingClick: () -> Unit = {}
+    onConflictingClick: () -> Unit = {},
+    allowedMergeMethods: List<MergeMethod> = MergeMethod.entries
 ) {
     val strings = appStrings()
     val toolbarButtonColors = MaxxingFloatingToolbarDefaults.vibrantButtonColors()
@@ -2188,8 +2212,9 @@ internal fun IssuePullFloatingToolbar(
             when (primaryAction) {
                 PrPrimaryAction.MERGE -> {
                     Spacer(Modifier.width(4.dp))
-                    val mergeOptions = remember(strings) {
-                        MergeMethod.entries.map {
+                    val validMethods = allowedMergeMethods.ifEmpty { MergeMethod.entries }
+                    val mergeOptions = remember(strings, validMethods) {
+                        validMethods.map {
                             SplitActionOption(
                                 value = it,
                                 label = strings.mergeMethodLabel(it),
@@ -2199,7 +2224,7 @@ internal fun IssuePullFloatingToolbar(
                         }
                     }
                     MaxxingSplitActionButton(
-                        selectedOption = mergeOptions.first { it.value == selectedMergeMethod },
+                        selectedOption = mergeOptions.firstOrNull { it.value == selectedMergeMethod } ?: mergeOptions.first(),
                         options = mergeOptions,
                         enabled = !actionBusy,
                         colors = toolbarButtonColors,

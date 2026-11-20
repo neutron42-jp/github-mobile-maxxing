@@ -173,7 +173,8 @@ data class IssueOrPullDetail(
     val viewerCanEditMetadata: Boolean = false,
     val headRefOid: String? = null,
     val reactions: List<ReactionSummary> = emptyList(),
-    val requestedReviewers: List<UserSummary> = emptyList()
+    val requestedReviewers: List<UserSummary> = emptyList(),
+    val allowedMergeMethods: List<MergeMethod> = MergeMethod.entries
 )
 
 @Serializable

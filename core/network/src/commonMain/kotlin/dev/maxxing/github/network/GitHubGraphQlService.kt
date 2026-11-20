@@ -18,6 +18,7 @@ import dev.maxxing.github.model.IssueOrPullState
 import dev.maxxing.github.model.IssueOrPullSummary
 import dev.maxxing.github.model.IssueStateFilter
 import dev.maxxing.github.model.LabelTag
+import dev.maxxing.github.model.MergeMethod
 import dev.maxxing.github.model.MilestoneSummary
 import dev.maxxing.github.model.PendingPullReview
 import dev.maxxing.github.model.PullReviewComment
@@ -262,6 +263,9 @@ class GitHubGraphQlService(
             query(${'$'}owner: String!, ${'$'}name: String!) {
               repository(owner: ${'$'}owner, name: ${'$'}name) {
                 viewerPermission
+                mergeCommitAllowed
+                squashMergeAllowed
+                rebaseMergeAllowed
                 issueOrPullRequest(number: $number) {
                   __typename
                   ... on Issue {
@@ -406,6 +410,14 @@ class GitHubGraphQlService(
         val viewerCanUpdate = item.bool("viewerCanUpdate") ?: false
         val canTriage = viewerPermission in TRIAGE_OR_HIGHER_PERMS
         val canWrite = viewerPermission in WRITE_OR_HIGHER_PERMS
+        val mergeCommitAllowed = repoNode.bool("mergeCommitAllowed") ?: true
+        val squashMergeAllowed = repoNode.bool("squashMergeAllowed") ?: true
+        val rebaseMergeAllowed = repoNode.bool("rebaseMergeAllowed") ?: true
+        val allowedMergeMethods = buildList {
+            if (squashMergeAllowed) add(MergeMethod.SQUASH)
+            if (mergeCommitAllowed) add(MergeMethod.MERGE)
+            if (rebaseMergeAllowed) add(MergeMethod.REBASE)
+        }.ifEmpty { MergeMethod.entries }
 
         val typeName = item.str("__typename") ?: "Issue"
         val isPr = typeName == "PullRequest"
@@ -527,7 +539,8 @@ class GitHubGraphQlService(
             viewerCanEditMetadata = canTriage,
             headRefOid = item.str("headRefOid"),
             reactions = parseReactionGroups(item.arr("reactionGroups")),
-            requestedReviewers = requestedReviewers
+            requestedReviewers = requestedReviewers,
+            allowedMergeMethods = allowedMergeMethods
         )
     }
 
