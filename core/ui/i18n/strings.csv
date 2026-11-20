@@ -1024,6 +1024,23 @@ failedCreateMilestone,,Failed to create milestone,マイルストーンの作成
 milestoneUpdatedMessage,String,Updated milestone {0},マイルストーン {0} を更新しました
 milestoneDeletedMessage,String,Deleted milestone {0},マイルストーン {0} を削除しました
 failedDeleteMilestone,,Failed to delete milestone,マイルストーンの削除に失敗しました
+# Issue & PR Media Attachments
+editorAttachMedia,,Attach,添付
+editorAttachingMedia,,Uploading...,アップロード中...
+editorAttachFailed,,"Couldn't attach the file. Check your connection and try again.",ファイルを添付できませんでした。接続を確認して、もう一度お試しください。
+editorAttachEmpty,,The selected file is empty.,選択したファイルは空です。
+editorAttachUnsupportedType,,"This file type can't be attached here. Use GitHub Web to upload the file, then paste the link into the editor.",この形式のファイルはここでは添付できません。GitHub Web でアップロードし、生成されたリンクをエディターに貼り付けてください。
+editorAttachImageTooLarge,,"Images must be 10 MB or smaller. Choose a smaller image.",画像は 10 MB 以下にしてください。小さい画像を選択してください。
+editorAttachVideoTooLarge,,"Videos must be 100 MB or smaller. Choose a smaller video.",動画は 100 MB 以下にしてください。小さい動画を選択してください。
+editorAttachWritePermission,,"Attaching files needs write access to this repository and a token that supports attachments. Use GitHub Web to upload the file, then paste the link here.",ファイルを添付するには、このリポジトリへの書き込み権限と添付に対応したトークンが必要です。GitHub Web でアップロードし、リンクをここに貼り付けてください。
+editorAttachCredentialUnsupported,,"This sign-in method can't attach files. Use GitHub Web to upload the file, then paste the link here, or sign in with a token that supports attachments.",このサインイン方法ではファイルを添付できません。GitHub Web でアップロードしてリンクをここに貼り付けるか、添付に対応したトークンでサインインしてください。
+editorAttachRejected,,"GitHub rejected the attachment. Use GitHub Web to upload the file, then paste the link here.",GitHub が添付を拒否しました。GitHub Web でアップロードし、リンクをここに貼り付けてください。
+editorAttachUnexpectedResponse,,GitHub returned an unexpected response. Nothing was attached.,GitHub から予期しない応答が返されました。ファイルは添付されていません。
+editorAttachRedirected,,GitHub returned an unexpected redirect. Nothing was attached.,GitHub から予期しないリダイレクトが返されました。ファイルは添付されていません。
+editorAttachAccountChanged,,The signed-in account changed. Select the file again.,サインイン中のアカウントが変更されました。ファイルを選択し直してください。
+editorAttachChooserTitle,,"Select photo, video, or file",写真・動画・ファイルを選択
+editorAttachPickPhotoVideo,,Photo or Video,写真または動画
+editorAttachPickFile,,Browse Files,ファイルを選択
 # One-handed PR Review Mode
 reviewModeStartAction,,Review,レビュー開始
 reviewModeContinueAction,,Resume Review,レビューを再開

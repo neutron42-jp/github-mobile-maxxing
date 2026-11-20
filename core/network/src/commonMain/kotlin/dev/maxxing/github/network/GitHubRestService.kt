@@ -59,6 +59,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Url
+import io.ktor.http.content.ByteArrayContent
 import io.ktor.http.contentType
 import io.ktor.http.encodeURLPathPart
 import io.ktor.http.isSuccess
@@ -2694,6 +2695,123 @@ class GitHubRestService(
             releaseTag = releaseTag,
             createdAt = dto.createdAt
         )
+    }
+
+    /**
+     * Uploads one image or video through GitHub's native user-attachments endpoint.
+     *
+     * This mirrors gh v2.103.3: the destination repository is resolved to its numeric REST id, the
+     * existing session bearer is sent only to the exact uploads.github.com POST path, and the raw
+     * bytes are sent as `application/octet-stream`. The returned URL is validated before it is
+     * allowed into Markdown.
+     */
+    suspend fun uploadAttachment(
+        targetOwner: String,
+        targetRepo: String,
+        fileName: String,
+        bytes: ByteArray
+    ): UploadedAttachment {
+        val cleanName = fileName.trim().substringAfterLast('/').substringAfterLast('\\').ifBlank { "attachment" }
+        when (val validation = validateAttachmentFile(cleanName, bytes.size.toLong())) {
+            AttachmentValidation.Empty -> throw AttachmentException.Empty()
+            is AttachmentValidation.UnsupportedType -> throw AttachmentException.UnsupportedType(cleanName)
+            is AttachmentValidation.TooLarge -> throw AttachmentException.TooLarge(
+                fileName = cleanName,
+                kind = validation.format.kind,
+                sizeBytes = validation.sizeBytes
+            )
+            is AttachmentValidation.Valid -> Unit
+        }
+        val format = attachmentFormatFor(cleanName) ?: throw AttachmentException.UnsupportedType(cleanName)
+        val repositoryId = fetchAttachmentRepositoryId(targetOwner, targetRepo)
+
+        val response = try {
+            // Ktor's redirect plugin follows only GET/HEAD, so a 3xx here is returned to us and rejected
+            // below instead of forwarding the bearer and the attachment bytes to a redirect target.
+            httpClient.post(USER_ATTACHMENT_UPLOAD_URL) {
+                header(HttpHeaders.Accept, "application/vnd.github+json")
+                parameter("name", cleanName)
+                parameter("content_type", format.contentType)
+                parameter("repository_id", repositoryId.toString())
+                header(HttpHeaders.ContentType, ContentType.Application.OctetStream.toString())
+                setBody(ByteArrayContent(bytes, ContentType.Application.OctetStream))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            throw AttachmentException.Network(e)
+        }
+
+        when {
+            response.status.value in 300..399 -> throw AttachmentException.Redirected(response.status.value)
+            response.status == HttpStatusCode.Unauthorized -> throw AttachmentException.UnsupportedCredential()
+            response.status == HttpStatusCode.Forbidden ||
+                response.status == HttpStatusCode.NotFound -> throw AttachmentException.WriteAccessRequired()
+            response.status == HttpStatusCode.PayloadTooLarge ||
+                response.status == HttpStatusCode.UnprocessableEntity -> {
+                val detail = runCatching { response.bodyAsText() }.getOrNull()?.takeIf { it.isNotBlank() }
+                throw AttachmentException.Rejected(response.status.value, detail)
+            }
+            !response.status.isSuccess() -> throw GitHubApiException(
+                response.status.value,
+                "Failed to upload attachment (${response.status.value})"
+            )
+        }
+
+        val bodyText = try {
+            response.bodyAsText()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            throw AttachmentException.Network(e)
+        }
+        val assetUrl = runCatching {
+            (restJson.parseToJsonElement(bodyText) as? JsonObject)
+                ?.get("url")
+                ?.jsonPrimitive
+                ?.contentOrNull
+        }.getOrNull()
+        val validatedUrl = validateUserAttachmentUrl(assetUrl) ?: throw AttachmentException.InvalidResponse()
+
+        return UploadedAttachment(
+            fileName = cleanName,
+            contentType = format.contentType,
+            url = validatedUrl,
+            markdownSnippet = formatAttachmentMarkdown(cleanName, format.contentType, validatedUrl)
+        )
+    }
+
+    /**
+     * Resolves the numeric REST id of the actual destination repository and, when the API reports
+     * explicit permissions, refuses an account that cannot push. An absent permissions block is
+     * left to the upload endpoint instead of guessing from the viewer's login.
+     */
+    private suspend fun fetchAttachmentRepositoryId(owner: String, repo: String): Long {
+        val response = try {
+            httpClient.get(repoPath(owner, repo))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            throw AttachmentException.Network(e)
+        }
+        when {
+            response.status == HttpStatusCode.Unauthorized -> throw AttachmentException.UnsupportedCredential()
+            response.status == HttpStatusCode.Forbidden ||
+                response.status == HttpStatusCode.NotFound -> throw AttachmentException.WriteAccessRequired()
+            !response.status.isSuccess() -> throw GitHubApiException(
+                response.status.value,
+                "Failed to resolve the attachment repository (${response.status.value})"
+            )
+        }
+        val dto = runCatching {
+            restJson.decodeFromString<RestRepoDto>(response.bodyAsText())
+        }.getOrNull() ?: throw AttachmentException.InvalidResponse()
+        if (dto.id <= 0L) throw AttachmentException.InvalidResponse()
+        val permissions = dto.permissions
+        if (permissions != null && !permissions.admin && !permissions.maintain && !permissions.push) {
+            throw AttachmentException.WriteAccessRequired()
+        }
+        return dto.id
     }
 
     private fun parseReason(raw: String): NotificationReason = when (raw.lowercase()) {

@@ -99,6 +99,7 @@ import com.composables.icons.lucide.Users
 import com.composables.icons.lucide.X
 import dev.maxxing.github.app.AppContainer
 import dev.maxxing.github.app.IssuePullTarget
+import dev.maxxing.github.app.attachments.rememberEditorAttachmentController
 import dev.maxxing.github.auth.openUrlInBrowser
 import dev.maxxing.github.model.CheckRunSummary
 import dev.maxxing.github.model.IssueOrPullDetail
@@ -134,6 +135,7 @@ import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.RepoLabelsPickerDialog
 import dev.maxxing.github.ui.components.SplitActionOption
 import dev.maxxing.github.ui.components.UserAvatar
+import dev.maxxing.github.ui.components.appendAttachmentMarkdown
 import dev.maxxing.github.ui.components.diffFileLazyItems
 import dev.maxxing.github.ui.i18n.AppStrings
 import dev.maxxing.github.ui.i18n.appStrings
@@ -390,6 +392,7 @@ private fun IssuePullDetailPaneContent(
 
     val scope = rememberCoroutineScope()
     val strings = appStrings()
+    val attachmentController = rememberEditorAttachmentController(container, target.owner, target.repo, onMessage)
     val graphitePalette = LocalGraphitePalette.current
 
     var pendingDiffCommentTarget by remember(targetKey) { mutableStateOf<Triple<String, Int?, String>?>(null) }
@@ -1361,6 +1364,7 @@ private fun IssuePullDetailPaneContent(
             syncState = reviewSyncState,
             checkRuns = checkRuns,
             container = container,
+            attachmentController = attachmentController,
             selectedMergeMethod = selectedMergeMethod,
             allowedMergeMethods = allowedMergeMethods,
             onSelectMergeMethod = { selectedMergeMethod = it },
@@ -1425,12 +1429,18 @@ private fun IssuePullDetailPaneContent(
             title = strings.issueCommentTitle(target.number),
             subtitle = "${target.owner}/${target.repo}",
             saveLabel = strings.issueCommentPost,
-            canSave = commentDraft.isNotBlank(),
+            canSave = commentDraft.isNotBlank() && !attachmentController.isUploading,
             isSubmitting = actionBusy,
             bodyValue = commentDraft,
             onBodyChange = { commentDraft = it },
             bodyLabel = strings.issueCommentLabel,
             supportsMarkdownPreview = true,
+            onAttachMedia = {
+                attachmentController.attach { snippet ->
+                    commentDraft = appendAttachmentMarkdown(commentDraft, snippet)
+                }
+            },
+            isAttachingMedia = attachmentController.isUploading,
             onDismiss = { showCommentDialog = false },
             onSave = {
                 val text = commentDraft
@@ -1467,12 +1477,19 @@ private fun IssuePullDetailPaneContent(
             } else {
                 strings.issueSubmitAction
             },
-            canSave = reviewEvent == ReviewEvent.APPROVE || reviewBody.isNotBlank() || pendingDraftCount > 0,
+            canSave = (reviewEvent == ReviewEvent.APPROVE || reviewBody.isNotBlank() || pendingDraftCount > 0) &&
+                !attachmentController.isUploading,
             isSubmitting = actionBusy,
             bodyValue = reviewBody,
             onBodyChange = { reviewBody = it },
             bodyLabel = strings.issueReviewSummaryLabel,
             supportsMarkdownPreview = true,
+            onAttachMedia = {
+                attachmentController.attach { snippet ->
+                    reviewBody = appendAttachmentMarkdown(reviewBody, snippet)
+                }
+            },
+            isAttachingMedia = attachmentController.isUploading,
             onDismiss = { showReviewDialog = false },
             onSave = {
                 val event = reviewEvent
@@ -1740,7 +1757,8 @@ private fun IssuePullDetailPaneContent(
             else strings.fileCommentTitle(filePath.substringAfterLast('/')),
             subtitle = filePath,
             saveLabel = strings.issueCommentPost,
-            canSave = diffCommentBody.trim().isNotBlank() && !commitSha.isNullOrBlank(),
+            canSave = diffCommentBody.trim().isNotBlank() && !commitSha.isNullOrBlank() &&
+                !attachmentController.isUploading,
             isSubmitting = actionBusy,
             errorMsg = diffCommentError,
             bodyValue = diffCommentBody,
@@ -1750,6 +1768,12 @@ private fun IssuePullDetailPaneContent(
             },
             bodyLabel = strings.diffCommentBodyLabel,
             supportsMarkdownPreview = true,
+            onAttachMedia = {
+                attachmentController.attach { snippet ->
+                    diffCommentBody = appendAttachmentMarkdown(diffCommentBody, snippet)
+                }
+            },
+            isAttachingMedia = attachmentController.isUploading,
             onDismiss = {
                 if (!actionBusy) {
                     pendingDiffCommentTarget = null
@@ -1793,7 +1817,7 @@ private fun IssuePullDetailPaneContent(
             title = strings.issueEditCommentTitle,
             subtitle = strings.commentOnIssueSubtitle(c.author.login, target.number),
             saveLabel = strings.save,
-            canSave = editingCommentBody.trim().isNotBlank(),
+            canSave = editingCommentBody.trim().isNotBlank() && !attachmentController.isUploading,
             isSubmitting = actionBusy,
             errorMsg = editingCommentError,
             bodyValue = editingCommentBody,
@@ -1803,6 +1827,12 @@ private fun IssuePullDetailPaneContent(
             },
             bodyLabel = strings.editCommentBodyLabel,
             supportsMarkdownPreview = true,
+            onAttachMedia = {
+                attachmentController.attach { snippet ->
+                    editingCommentBody = appendAttachmentMarkdown(editingCommentBody, snippet)
+                }
+            },
+            isAttachingMedia = attachmentController.isUploading,
             onDismiss = {
                 if (!actionBusy) {
                     editingComment = null

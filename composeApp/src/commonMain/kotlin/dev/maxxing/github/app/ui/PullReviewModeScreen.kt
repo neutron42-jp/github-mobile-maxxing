@@ -98,6 +98,7 @@ import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.MessageSquare
 import com.composables.icons.lucide.MessageSquarePlus
 import com.composables.icons.lucide.Minus
+import com.composables.icons.lucide.Paperclip
 import com.composables.icons.lucide.Pencil
 import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.Send
@@ -106,6 +107,7 @@ import com.composables.icons.lucide.Trash2
 import com.composables.icons.lucide.X
 import dev.maxxing.github.app.AppContainer
 import dev.maxxing.github.app.IssuePullTarget
+import dev.maxxing.github.app.attachments.EditorAttachmentController
 import dev.maxxing.github.model.CheckRunSummary
 import dev.maxxing.github.model.DiffHunk
 import dev.maxxing.github.model.DiffLine
@@ -130,6 +132,7 @@ import dev.maxxing.github.ui.components.MaxxingSplitActionButton
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.SplitActionOption
 import dev.maxxing.github.ui.components.UserAvatar
+import dev.maxxing.github.ui.components.appendAttachmentMarkdown
 import dev.maxxing.github.ui.components.collectWidestDiffLineCandidates
 import dev.maxxing.github.ui.components.computeDiffMaxLineDigits
 import dev.maxxing.github.ui.components.computeHunkWordHighlights
@@ -161,6 +164,7 @@ internal fun PullReviewModeScreen(
     syncState: PullReviewSyncState?,
     checkRuns: List<CheckRunSummary>?,
     container: AppContainer,
+    attachmentController: EditorAttachmentController,
     selectedMergeMethod: MergeMethod,
     onSelectMergeMethod: (MergeMethod) -> Unit,
     onSyncStateUpdated: (PullReviewSyncState) -> Unit,
@@ -1023,6 +1027,16 @@ internal fun PullReviewModeScreen(
             saveAsPending = composerSaveAsPending,
             onSaveAsPendingChange = { composerSaveAsPending = it },
             isSubmitting = actionBusy,
+            isAttachingMedia = attachmentController.isUploading,
+            onAttachMedia = {
+                attachmentController.attach { snippet ->
+                    if (composerMode == ComposerMode.SUGGESTION) {
+                        composerSuggestionNote = appendAttachmentMarkdown(composerSuggestionNote, snippet)
+                    } else {
+                        composerCommentBody = appendAttachmentMarkdown(composerCommentBody, snippet)
+                    }
+                }
+            },
             onDismiss = { if (!actionBusy) composerTarget = null },
             onSave = {
                 val editing = activeTarget.editingPendingComment
@@ -1787,6 +1801,8 @@ private fun ReviewCommentComposerOverlay(
     saveAsPending: Boolean,
     onSaveAsPendingChange: (Boolean) -> Unit,
     isSubmitting: Boolean,
+    isAttachingMedia: Boolean,
+    onAttachMedia: () -> Unit,
     onDismiss: () -> Unit,
     onSave: () -> Unit
 ) {
@@ -1855,8 +1871,22 @@ private fun ReviewCommentComposerOverlay(
                                 Spacer(Modifier.width(4.dp))
                                 Text(if (isPreviewMode) strings.writeMode else strings.previewMode, maxLines = 1, softWrap = false)
                             }
+                            IconButton(
+                                enabled = !isSubmitting && !isAttachingMedia && !isPreviewMode,
+                                onClick = onAttachMedia
+                            ) {
+                                if (isAttachingMedia) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                } else {
+                                    Icon(
+                                        Lucide.Paperclip,
+                                        contentDescription = strings.editorAttachMedia,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
                             Button(
-                                enabled = canSave && !isSubmitting,
+                                enabled = canSave && !isSubmitting && !isAttachingMedia,
                                 onClick = onSave,
                                 modifier = Modifier.padding(end = 4.dp)
                             ) {

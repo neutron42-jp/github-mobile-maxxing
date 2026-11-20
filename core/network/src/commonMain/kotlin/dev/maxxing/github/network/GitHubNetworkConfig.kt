@@ -17,8 +17,10 @@ import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.header
 import io.ktor.http.DEFAULT_PORT
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.URLBuilder
+import io.ktor.http.URLProtocol
 import io.ktor.http.Url
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -93,8 +95,9 @@ class GitHubNetworkConfig(
 
     private fun HttpClient.installAuthorization() {
         plugin(HttpSend).intercept { request ->
-            if (!request.url.isApiUrl()) {
-                // Never send the token to other hosts (e.g. a redirect to a log download URL).
+            if (!request.url.isAuthorizedGithubRequest(request.method)) {
+                // Never send the token to other hosts (e.g. a redirect to a log download URL) or
+                // to an endpoint outside the one user-attachment upload path.
                 request.headers.remove(HttpHeaders.Authorization)
                 return@intercept execute(request)
             }
@@ -116,10 +119,26 @@ class GitHubNetworkConfig(
         if (token != null) headers.append(HttpHeaders.Authorization, "Bearer $token")
     }
 
+    private fun URLBuilder.isAuthorizedGithubRequest(method: HttpMethod): Boolean =
+        isApiUrl() || isUserAttachmentUpload(method)
+
     private fun URLBuilder.isApiUrl(): Boolean =
         protocol == apiUrl.protocol &&
             host.equals(apiUrl.host, ignoreCase = true) &&
             port.effectivePort(protocol.defaultPort) == apiUrl.port
+
+    /**
+     * The user-attachments upload endpoint is the only non-API request that may receive the session token.
+     * Both the origin and the exact POST path are pinned; queries carry the name, content type and repository id.
+     */
+    private fun URLBuilder.isUserAttachmentUpload(method: HttpMethod): Boolean =
+        method == HttpMethod.Post &&
+            protocol == URLProtocol.HTTPS &&
+            host == USER_ATTACHMENT_UPLOAD_HOST &&
+            port.effectivePort(protocol.defaultPort) == 443 &&
+            encodedPathSegments.joinToString("/") == USER_ATTACHMENT_UPLOAD_PATH &&
+            user.isNullOrEmpty() &&
+            password.isNullOrEmpty()
 }
 
 /** [URLBuilder.port] is [DEFAULT_PORT] (0) when the URL does not name a port. */

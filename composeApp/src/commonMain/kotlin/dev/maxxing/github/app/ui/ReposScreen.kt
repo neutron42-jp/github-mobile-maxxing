@@ -139,6 +139,7 @@ import com.composables.icons.lucide.Users
 import com.composables.icons.lucide.X
 import dev.maxxing.github.app.AppContainer
 import dev.maxxing.github.app.IssuePullTarget
+import dev.maxxing.github.app.attachments.rememberEditorAttachmentController
 import dev.maxxing.github.auth.openUrlInBrowser
 import dev.maxxing.github.auth.shareText
 import dev.maxxing.github.model.BranchCompareResult
@@ -193,6 +194,7 @@ import dev.maxxing.github.ui.components.MaxxingTopHeaderDefaults
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.StarActionButton
 import dev.maxxing.github.ui.components.UserAvatar
+import dev.maxxing.github.ui.components.appendAttachmentMarkdown
 import dev.maxxing.github.ui.components.diffFileLazyItems
 import dev.maxxing.github.ui.components.expressiveAnimateContentSize
 import dev.maxxing.github.ui.components.formatCompactCount
@@ -1364,6 +1366,7 @@ fun RepoDetailScreen(
     var showCreatePrDialog by remember(repo.fullName) { mutableStateOf(false) }
     var creatingPr by remember(repo.fullName) { mutableStateOf(false) }
     var createPrError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    val issuePrAttachmentController = rememberEditorAttachmentController(container, repo.owner, repo.name, onMessage)
 
     var showFileEditorDialog by remember(repo.fullName) { mutableStateOf(false) }
     var editingExistingFile by remember(repo.fullName) { mutableStateOf<FileContent?>(null) }
@@ -3504,13 +3507,19 @@ fun RepoDetailScreen(
             title = strings.repoNewIssueTitle,
             subtitle = repo.fullName,
             saveLabel = if (creatingIssue) strings.creating else strings.create,
-            canSave = newIssueTitle.isNotBlank() && !creatingIssue,
+            canSave = newIssueTitle.isNotBlank() && !creatingIssue && !issuePrAttachmentController.isUploading,
             isSubmitting = creatingIssue,
             errorMsg = createIssueError,
             bodyValue = newIssueBody,
             onBodyChange = { newIssueBody = it },
             bodyLabel = strings.repoDescriptionMarkdown,
             supportsMarkdownPreview = true,
+            onAttachMedia = {
+                issuePrAttachmentController.attach { snippet ->
+                    newIssueBody = appendAttachmentMarkdown(newIssueBody, snippet)
+                }
+            },
+            isAttachingMedia = issuePrAttachmentController.isUploading,
             onDismiss = {
                 if (!creatingIssue) {
                     showCreateIssueDialog = false
@@ -4001,6 +4010,8 @@ fun RepoDetailScreen(
             initialBase = defaultBase,
             isSubmitting = creatingPr,
             errorMsg = createPrError,
+            onAttachMedia = { onSnippet -> issuePrAttachmentController.attach(onSnippet) },
+            isAttachingMedia = issuePrAttachmentController.isUploading,
             onDismiss = { showCreatePrDialog = false },
             onCreate = { title, body, head, base, isDraft ->
                 scope.launch {
@@ -4154,6 +4165,8 @@ private fun CreatePullRequestDialog(
     initialBase: String,
     isSubmitting: Boolean,
     errorMsg: String?,
+    onAttachMedia: ((String) -> Unit) -> Unit,
+    isAttachingMedia: Boolean,
     onDismiss: () -> Unit,
     onCreate: (title: String, body: String, head: String, base: String, draft: Boolean) -> Unit
 ) {
@@ -4168,13 +4181,15 @@ private fun CreatePullRequestDialog(
         title = strings.repoNewPrTitle,
         subtitle = "${head.ifBlank { "head" }} → ${base.ifBlank { "base" }}",
         saveLabel = if (isSubmitting) strings.creating else strings.repoCreatePrButton,
-        canSave = title.trim().isNotBlank() && head.isNotBlank() && base.isNotBlank(),
+        canSave = title.trim().isNotBlank() && head.isNotBlank() && base.isNotBlank() && !isAttachingMedia,
         isSubmitting = isSubmitting,
         errorMsg = errorMsg,
         bodyValue = body,
         onBodyChange = { body = it },
         bodyLabel = strings.repoDescriptionMarkdown,
         supportsMarkdownPreview = true,
+        onAttachMedia = { onAttachMedia { snippet -> body = appendAttachmentMarkdown(body, snippet) } },
+        isAttachingMedia = isAttachingMedia,
         onDismiss = onDismiss,
         onSave = { onCreate(title.trim(), body.trim(), head.trim(), base.trim(), isDraft) },
         headerContent = {

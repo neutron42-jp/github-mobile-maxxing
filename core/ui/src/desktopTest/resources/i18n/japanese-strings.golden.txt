@@ -296,6 +296,22 @@ dynamicColorTitle	Android 壁紙ダイナミックカラー
 editCommentBodyLabel	コメント本文 (Markdown)
 editCommentDesc	コメントを編集
 editLabelDesc	ラベルを編集
+editorAttachAccountChanged	サインイン中のアカウントが変更されました。ファイルを選択し直してください。
+editorAttachChooserTitle	写真・動画・ファイルを選択
+editorAttachCredentialUnsupported	このサインイン方法ではファイルを添付できません。GitHub Web でアップロードしてリンクをここに貼り付けるか、添付に対応したトークンでサインインしてください。
+editorAttachEmpty	選択したファイルは空です。
+editorAttachFailed	ファイルを添付できませんでした。接続を確認して、もう一度お試しください。
+editorAttachImageTooLarge	画像は 10 MB 以下にしてください。小さい画像を選択してください。
+editorAttachMedia	添付
+editorAttachPickFile	ファイルを選択
+editorAttachPickPhotoVideo	写真または動画
+editorAttachRedirected	GitHub から予期しないリダイレクトが返されました。ファイルは添付されていません。
+editorAttachRejected	GitHub が添付を拒否しました。GitHub Web でアップロードし、リンクをここに貼り付けてください。
+editorAttachUnexpectedResponse	GitHub から予期しない応答が返されました。ファイルは添付されていません。
+editorAttachUnsupportedType	この形式のファイルはここでは添付できません。GitHub Web でアップロードし、生成されたリンクをエディターに貼り付けてください。
+editorAttachVideoTooLarge	動画は 100 MB 以下にしてください。小さい動画を選択してください。
+editorAttachWritePermission	ファイルを添付するには、このリポジトリへの書き込み権限と添付に対応したトークンが必要です。GitHub Web でアップロードし、リンクをここに貼り付けてください。
+editorAttachingMedia	アップロード中...
 editorCharCountOne	7301 文字
 editorCharCountOther	7301 文字
 editorLineCountOne	7301 行

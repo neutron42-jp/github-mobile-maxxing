@@ -1248,6 +1248,26 @@ class GitHubRepository(
         }
     }
 
+    /**
+     * Uploads an image or video through GitHub's native user-attachments storage.
+     *
+     * Runs as a non-cancellable mutation so a completed upload is not lost when the editor closes,
+     * but a success is never delivered to a caller that has already navigated away.
+     */
+    suspend fun uploadAttachment(
+        targetOwner: String,
+        targetRepo: String,
+        fileName: String,
+        bytes: ByteArray
+    ): Result<UploadedAttachment> = runMutationCancellable {
+        restService.uploadAttachment(
+            targetOwner = targetOwner,
+            targetRepo = targetRepo,
+            fileName = fileName,
+            bytes = bytes
+        )
+    }
+
     suspend fun deleteRepoFile(
         owner: String,
         repo: String,

@@ -296,6 +296,22 @@ dynamicColorTitle	Android Wallpaper Dynamic Color
 editCommentBodyLabel	Comment body (Markdown)
 editCommentDesc	Edit comment
 editLabelDesc	Edit label
+editorAttachAccountChanged	The signed-in account changed. Select the file again.
+editorAttachChooserTitle	Select photo, video, or file
+editorAttachCredentialUnsupported	This sign-in method can't attach files. Use GitHub Web to upload the file, then paste the link here, or sign in with a token that supports attachments.
+editorAttachEmpty	The selected file is empty.
+editorAttachFailed	Couldn't attach the file. Check your connection and try again.
+editorAttachImageTooLarge	Images must be 10 MB or smaller. Choose a smaller image.
+editorAttachMedia	Attach
+editorAttachPickFile	Browse Files
+editorAttachPickPhotoVideo	Photo or Video
+editorAttachRedirected	GitHub returned an unexpected redirect. Nothing was attached.
+editorAttachRejected	GitHub rejected the attachment. Use GitHub Web to upload the file, then paste the link here.
+editorAttachUnexpectedResponse	GitHub returned an unexpected response. Nothing was attached.
+editorAttachUnsupportedType	This file type can't be attached here. Use GitHub Web to upload the file, then paste the link into the editor.
+editorAttachVideoTooLarge	Videos must be 100 MB or smaller. Choose a smaller video.
+editorAttachWritePermission	Attaching files needs write access to this repository and a token that supports attachments. Use GitHub Web to upload the file, then paste the link here.
+editorAttachingMedia	Uploading...
 editorCharCountOne	7301 char
 editorCharCountOther	7301 chars
 editorLineCountOne	7301 line
