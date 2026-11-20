@@ -6,7 +6,7 @@ import kotlin.test.assertEquals
 class MaxxingSwipeableTabPagerTest {
 
     @Test
-    fun `vertical and diagonal scrolls yield instead of misfiring horizontal tab swipe`() {
+    fun verticalAndDiagonalScrollsYieldInsteadOfMisfiringHorizontalTabSwipe() {
         val touchSlop = 16f
         val activationSlop = 40f
 
@@ -51,7 +51,7 @@ class MaxxingSwipeableTabPagerTest {
     }
 
     @Test
-    fun `deliberate horizontal swipe locks only when target direction is valid`() {
+    fun deliberateHorizontalSwipeLocksOnlyWhenTargetDirectionIsValid() {
         val touchSlop = 16f
         val activationSlop = 40f
 
@@ -95,7 +95,7 @@ class MaxxingSwipeableTabPagerTest {
     }
 
     @Test
-    fun `resolveSwipeTargetPage handles threshold, fling velocity, and single-page clamping`() {
+    fun resolveSwipeTargetPageHandlesThresholdFlingVelocityAndClamping() {
         // Dragging >= 30% toward next page advances by 1
         assertEquals(
             2,
