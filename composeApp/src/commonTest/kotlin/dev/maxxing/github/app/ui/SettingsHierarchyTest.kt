@@ -6,6 +6,7 @@ import dev.maxxing.github.app.AppUpdateCheckState
 import dev.maxxing.github.app.PlatformCapabilities
 import dev.maxxing.github.app.SettingsSection
 import dev.maxxing.github.app.update.AppBuildVersion
+import dev.maxxing.github.app.update.AppVersionChannel
 import dev.maxxing.github.app.update.AvailableAppUpdate
 import dev.maxxing.github.auth.GitHubLinkHandlingState
 import dev.maxxing.github.auth.NotificationPreferences
@@ -161,7 +162,7 @@ class SettingsHierarchyTest {
                 ),
                 versionLabel = "v1.0.90",
                 versionKey = "v1.0.90:v1.0.90",
-                parsedVersion = AppBuildVersion(1, 0, 90, isNightly = false, commitSha = null),
+                parsedVersion = AppBuildVersion(1, 0, 90, AppVersionChannel.STABLE),
                 isPrerelease = false
             )
         )
