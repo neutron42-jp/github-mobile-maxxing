@@ -62,6 +62,7 @@ import com.composables.icons.lucide.ArrowRight
 import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.ChevronRight
 import com.composables.icons.lucide.FileCode
+import com.composables.icons.lucide.ListChecks
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Maximize2
 import com.composables.icons.lucide.MessageSquarePlus
@@ -405,6 +406,7 @@ fun MaxxingFullScreenDiffViewer(
     onSelectFile: ((PullFileChange) -> Unit)? = null,
     onCommentFile: (() -> Unit)? = null,
     onCommentLine: ((DiffLine) -> Unit)? = null,
+    onOpenReviewMode: (() -> Unit)? = null,
     backEnabled: Boolean = true
 ) {
     var wrapLines by remember { mutableStateOf(false) }
@@ -500,6 +502,17 @@ fun MaxxingFullScreenDiffViewer(
                             )
                             TextButton(onClick = { wrapLines = !wrapLines }) {
                                 Text(if (wrapLines) strings.diffScrollMode else strings.diffWrapMode, maxLines = 1, softWrap = false)
+                            }
+                            if (onOpenReviewMode != null) {
+                                TextButton(onClick = onOpenReviewMode) {
+                                    Icon(
+                                        imageVector = Lucide.ListChecks,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(strings.reviewModeTitle, maxLines = 1, softWrap = false)
+                                }
                             }
                             if (onCommentFile != null) {
                                 IconButton(onClick = onCommentFile) {

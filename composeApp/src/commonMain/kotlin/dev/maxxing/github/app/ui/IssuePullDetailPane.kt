@@ -67,6 +67,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -644,20 +645,30 @@ private fun IssuePullDetailPaneContent(
                                         text = "${item.repoFullName} #${item.number}",
                                         style = MaterialTheme.typography.labelLarge,
                                         color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.weight(1f)
                                     )
                                     if (isPr && files.isNotEmpty()) {
-                                        IconButton(
+                                        FilledTonalButton(
                                             onClick = {
                                                 reviewModeInitialFilename = null
                                                 showReviewMode = true
-                                            }
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                            modifier = Modifier.height(34.dp)
                                         ) {
                                             Icon(
                                                 Lucide.ListChecks,
-                                                contentDescription = strings.reviewModeTitle,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(18.dp)
+                                                contentDescription = null,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                            Spacer(Modifier.width(5.dp))
+                                            Text(
+                                                text = strings.reviewModeTitle,
+                                                style = MaterialTheme.typography.labelMedium,
+                                                maxLines = 1,
+                                                softWrap = false
                                             )
                                         }
                                     }
@@ -742,8 +753,18 @@ private fun IssuePullDetailPaneContent(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             item {
+                                val viewedStates = reviewSyncState?.viewedStates.orEmpty()
+                                val viewedFilesCount = files.count { viewedStates[it.filename] == FileViewedState.VIEWED }
                                 DetailHeaderCard(
                                     item = item,
+                                    filesCount = files.size,
+                                    viewedFilesCount = viewedFilesCount,
+                                    onStartReviewMode = if (isPr && files.isNotEmpty()) {
+                                        {
+                                            reviewModeInitialFilename = null
+                                            showReviewMode = true
+                                        }
+                                    } else null,
                                     onEditLabels = {
                                         selectedLabelNames = item.labels.map { it.name }.toSet()
                                         showLabelsDialog = true
@@ -1065,6 +1086,10 @@ private fun IssuePullDetailPaneContent(
                                     val viewedFilesCount = files.count { viewedStates[it.filename] == FileViewedState.VIEWED }
                                     val pendingDraftCount = reviewSyncState?.pendingReview?.comments?.size ?: 0
                                     ElevatedCard(
+                                        onClick = {
+                                            reviewModeInitialFilename = null
+                                            showReviewMode = true
+                                        },
                                         shape = MaterialTheme.shapes.large,
                                         colors = CardDefaults.elevatedCardColors(
                                             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
@@ -1076,7 +1101,7 @@ private fun IssuePullDetailPaneContent(
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                                                .padding(horizontal = 14.dp, vertical = 12.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
@@ -1093,6 +1118,11 @@ private fun IssuePullDetailPaneContent(
                                                     fontWeight = FontWeight.SemiBold
                                                 )
                                                 Text(
+                                                    text = strings.reviewModeBannerSubtitle,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                                Text(
                                                     text = buildString {
                                                         append(strings.reviewModeViewedCounter(viewedFilesCount, files.size))
                                                         if (pendingDraftCount > 0) {
@@ -1101,7 +1131,7 @@ private fun IssuePullDetailPaneContent(
                                                         }
                                                     },
                                                     style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    color = MaterialTheme.colorScheme.primary
                                                 )
                                             }
                                             Button(
@@ -1344,6 +1374,14 @@ private fun IssuePullDetailPaneContent(
                         diffCommentBody = ""
                         pendingDiffCommentTarget = Triple(activeFile.filename, lineNum, side)
                     }
+                }
+            } else null,
+            onOpenReviewMode = if (files.isNotEmpty()) {
+                {
+                    val fname = activeFile.filename
+                    fullScreenDiffFile = null
+                    reviewModeInitialFilename = fname
+                    showReviewMode = true
                 }
             } else null,
             backEnabled = !hasDialogAbove
@@ -2283,6 +2321,9 @@ private fun DraftNoticeCard() {
 @Composable
 private fun DetailHeaderCard(
     item: IssueOrPullDetail,
+    filesCount: Int = 0,
+    viewedFilesCount: Int = 0,
+    onStartReviewMode: (() -> Unit)? = null,
     onEditLabels: () -> Unit,
     onEditAssignees: () -> Unit,
     onEditMilestone: () -> Unit,
@@ -2378,6 +2419,29 @@ private fun DetailHeaderCard(
                         text = "+${item.additions} / -${item.deletions}",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            if (onStartReviewMode != null && filesCount > 0) {
+                FilledTonalButton(
+                    onClick = onStartReviewMode,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        Lucide.ListChecks,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = when {
+                            viewedFilesCount > 0 -> strings.reviewModeHeaderResumeCta(viewedFilesCount, filesCount)
+                            filesCount == 1 -> strings.reviewModeHeaderCtaOne(filesCount)
+                            else -> strings.reviewModeHeaderCtaOther(filesCount)
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }

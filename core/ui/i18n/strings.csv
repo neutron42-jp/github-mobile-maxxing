@@ -1095,3 +1095,8 @@ reviewModePendingDiscardError,,Failed to discard pending review,保留中レビ�
 reviewModeRenamedFrom,String,Renamed from {0},変更前: {0}
 reviewModeSmartOrderNote,,Generated & deleted files placed at the end,自動生成・削除ファイルは末尾に配置されています
 reviewModeDiffCommentCount,Int,{0} comments,{0} 件のコメント
+
+reviewModeHeaderCtaOne,Int,Review changes in Review Mode ({0} file),レビューモードで変更を確認（{0} ファイル）
+reviewModeHeaderCtaOther,Int,Review changes in Review Mode ({0} files),レビューモードで変更を確認（{0} ファイル）
+reviewModeHeaderResumeCta,Int;Int,Resume Review Mode ({0}/{1} viewed),レビューモードを再開（確認済み {0}/{1}）
+reviewModeBannerSubtitle,,One-handed file-by-file swipe review,1ファイルずつスワイプして片手でレビュー

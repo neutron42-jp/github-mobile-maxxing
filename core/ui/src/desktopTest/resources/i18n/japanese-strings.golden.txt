@@ -882,6 +882,7 @@ reviewModeAllViewedWithPending	保留中の下書きコメント 7301 件を含�
 reviewModeAutoCollapsedBinary	バイナリまたは大容量ファイルのため差分を表示できません。
 reviewModeAutoCollapsedDeleted	削除のみのファイルのため折りたたんでいます。
 reviewModeAutoCollapsedGenerated	自動生成・lock ファイルのため折りたたんでいます。
+reviewModeBannerSubtitle	1ファイルずつスワイプして片手でレビュー
 reviewModeCloseDesc	レビューモードを終了
 reviewModeCommentMode	コメント
 reviewModeContinueAction	レビューを再開
@@ -897,6 +898,9 @@ reviewModeEditCommentTitle	保留中コメントを編集
 reviewModeExpandRangeUp	選択範囲を上に広げる
 reviewModeFilesListDesc	ファイル一覧
 reviewModeFilesListTitle	変更ファイル一覧
+reviewModeHeaderCtaOne	レビューモードで変更を確認（7301 ファイル）
+reviewModeHeaderCtaOther	レビューモードで変更を確認（7301 ファイル）
+reviewModeHeaderResumeCta	レビューモードを再開（確認済み 7301/7302）
 reviewModeHideDiffAction	差分を折りたたむ
 reviewModeLineRangeLabel	7301〜7302 行目
 reviewModeLineSingleLabel	7301 行目

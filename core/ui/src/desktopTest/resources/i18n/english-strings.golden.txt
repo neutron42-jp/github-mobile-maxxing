@@ -882,6 +882,7 @@ reviewModeAllViewedWithPending	Ready to submit your review with 7301 pending dra
 reviewModeAutoCollapsedBinary	Binary or large file cannot be rendered inline.
 reviewModeAutoCollapsedDeleted	Deleted file collapsed for mobile review.
 reviewModeAutoCollapsedGenerated	Generated or lock file collapsed for mobile review.
+reviewModeBannerSubtitle	One-handed file-by-file swipe review
 reviewModeCloseDesc	Exit review mode
 reviewModeCommentMode	Comment
 reviewModeContinueAction	Resume Review
@@ -897,6 +898,9 @@ reviewModeEditCommentTitle	Edit Pending Comment
 reviewModeExpandRangeUp	Expand start line up
 reviewModeFilesListDesc	File list
 reviewModeFilesListTitle	Changed Files
+reviewModeHeaderCtaOne	Review changes in Review Mode (7301 file)
+reviewModeHeaderCtaOther	Review changes in Review Mode (7301 files)
+reviewModeHeaderResumeCta	Resume Review Mode (7301/7302 viewed)
 reviewModeHideDiffAction	Collapse diff
 reviewModeLineRangeLabel	Lines 7301–7302
 reviewModeLineSingleLabel	Line 7301
