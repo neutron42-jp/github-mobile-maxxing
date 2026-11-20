@@ -189,7 +189,8 @@ fun buildHighlightedDiffLineText(
     content: String,
     highlightRanges: List<IntRange>,
     defaultColor: Color,
-    highlightBackground: Color
+    highlightBackground: Color,
+    highlightTextColor: Color = defaultColor
 ): AnnotatedString {
     if (highlightRanges.isEmpty() || content.isEmpty()) {
         return AnnotatedString(content)
@@ -207,7 +208,7 @@ fun buildHighlightedDiffLineText(
             if (end > start) {
                 withStyle(
                     SpanStyle(
-                        color = defaultColor,
+                        color = highlightTextColor,
                         background = highlightBackground,
                         fontWeight = FontWeight.SemiBold
                     )

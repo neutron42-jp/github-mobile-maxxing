@@ -2,6 +2,7 @@ package dev.maxxing.github.ui.components
 
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -47,6 +48,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -72,6 +75,8 @@ import dev.maxxing.github.model.DiffLineKind
 import dev.maxxing.github.model.FileChangeStatus
 import dev.maxxing.github.model.PullFileChange
 import dev.maxxing.github.ui.i18n.appStrings
+import dev.maxxing.github.ui.theme.GraphiteContrast
+import dev.maxxing.github.ui.theme.LocalGraphitePalette
 
 /**
  * Emits flat, virtualized LazyColumn items for a PR file diff so large diffs scroll at 120fps.
@@ -167,6 +172,11 @@ private fun DiffFileHeaderRow(
     onOpenFullScreen: (() -> Unit)? = null
 ) {
     val strings = appStrings()
+    val graphitePalette = LocalGraphitePalette.current
+    val additionsColor = GraphiteContrast.additionsCounterColor(
+        MaterialTheme.colorScheme,
+        graphitePalette
+    )
     val statusColor = when (file.status) {
         FileChangeStatus.ADDED -> Color(0xFF16A34A)
         FileChangeStatus.REMOVED -> MaterialTheme.colorScheme.error
@@ -215,7 +225,7 @@ private fun DiffFileHeaderRow(
             Text(
                 text = "+${file.additions}",
                 style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF22C55E),
+                color = additionsColor,
                 fontWeight = FontWeight.Bold
             )
             Spacer(Modifier.width(6.dp))
@@ -304,47 +314,47 @@ fun DiffLineRow(
     modifier: Modifier = Modifier.fillMaxWidth(),
     onClick: (() -> Unit)? = null
 ) {
-    val lineBg = when {
-        selected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-        line.kind == DiffLineKind.ADDED -> Color(0xFF22C55E).copy(alpha = 0.14f)
-        line.kind == DiffLineKind.REMOVED -> MaterialTheme.colorScheme.error.copy(alpha = 0.14f)
-        line.kind == DiffLineKind.META -> MaterialTheme.colorScheme.surfaceContainerHighest
-        else -> MaterialTheme.colorScheme.surfaceContainerLow
-    }
-    val wordHighlightBg = when (line.kind) {
-        DiffLineKind.ADDED -> Color(0xFF22C55E).copy(alpha = 0.36f)
-        DiffLineKind.REMOVED -> MaterialTheme.colorScheme.error.copy(alpha = 0.34f)
-        else -> Color.Transparent
-    }
+    val colorScheme = MaterialTheme.colorScheme
+    val graphitePalette = LocalGraphitePalette.current
+    val lineColors = GraphiteContrast.diffLineColors(
+        colorScheme = colorScheme,
+        kind = line.kind,
+        selected = selected,
+        graphitePalette = graphitePalette
+    )
     val prefix = when (line.kind) {
         DiffLineKind.ADDED -> "+"
         DiffLineKind.REMOVED -> "-"
         DiffLineKind.META -> " "
         DiffLineKind.CONTEXT -> " "
     }
-    val prefixColor = when (line.kind) {
-        DiffLineKind.ADDED -> Color(0xFF16A34A)
-        DiffLineKind.REMOVED -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    val selectionBorder = lineColors.selectionBorder
+    val verticalPadding = if (selectionBorder != null) maxOf(verticalPaddingDp, 1.5f) else verticalPaddingDp
 
     Row(
         modifier = modifier
-            .background(lineBg)
+            .background(lineColors.background)
+            .then(
+                if (selectionBorder != null) {
+                    Modifier.border(1.5.dp, selectionBorder).semantics { this.selected = true }
+                } else {
+                    Modifier
+                }
+            )
             .let { if (onClick != null) it.clickable(onClick = onClick) else it }
-            .padding(horizontal = 10.dp, vertical = verticalPaddingDp.dp),
+            .padding(horizontal = 10.dp, vertical = verticalPadding.dp),
         verticalAlignment = Alignment.Top
     ) {
         Text(
             text = line.oldLineNumber?.toString()?.padStart(lineDigits, ' ') ?: " ".repeat(lineDigits),
             style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            color = lineColors.lineNumber
         )
         Spacer(Modifier.width(6.dp))
         Text(
             text = line.newLineNumber?.toString()?.padStart(lineDigits, ' ') ?: " ".repeat(lineDigits),
             style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            color = lineColors.lineNumber
         )
         Spacer(Modifier.width(8.dp))
         Text(
@@ -353,22 +363,30 @@ fun DiffLineRow(
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold
             ),
-            color = prefixColor
+            color = lineColors.prefix
         )
         Spacer(Modifier.width(4.dp))
-        val textColor = MaterialTheme.colorScheme.onSurface
+        val textColor = lineColors.content
+        val wordHighlightBg = lineColors.inlineSpanBackground
         val textStyle = MaterialTheme.typography.bodySmall.copy(
             fontFamily = FontFamily.Monospace,
             fontSize = fontSizeSp.sp,
             lineHeight = lineHeightSp.sp
         )
-        if (inlineHighlightRanges.isNotEmpty() && wordHighlightBg != Color.Transparent) {
-            val highlighted = remember(line.content, inlineHighlightRanges, textColor, wordHighlightBg) {
+        if (inlineHighlightRanges.isNotEmpty() && wordHighlightBg != null) {
+            val highlighted = remember(
+                line.content,
+                inlineHighlightRanges,
+                textColor,
+                wordHighlightBg,
+                lineColors.inlineSpanForeground
+            ) {
                 buildHighlightedDiffLineText(
                     content = line.content,
                     highlightRanges = inlineHighlightRanges,
                     defaultColor = textColor,
-                    highlightBackground = wordHighlightBg
+                    highlightBackground = wordHighlightBg,
+                    highlightTextColor = lineColors.inlineSpanForeground
                 )
             }
             Text(

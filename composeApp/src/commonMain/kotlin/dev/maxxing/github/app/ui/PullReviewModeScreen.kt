@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -75,6 +76,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -133,6 +137,8 @@ import dev.maxxing.github.ui.components.collectWidestDiffLineCandidates
 import dev.maxxing.github.ui.components.computeDiffMaxLineDigits
 import dev.maxxing.github.ui.components.computeHunkWordHighlights
 import dev.maxxing.github.ui.i18n.appStrings
+import dev.maxxing.github.ui.theme.GraphiteContrast
+import dev.maxxing.github.ui.theme.LocalGraphitePalette
 import kotlinx.coroutines.launch
 
 private enum class ComposerMode {
@@ -169,6 +175,7 @@ internal fun PullReviewModeScreen(
     initialFilename: String? = null
 ) {
     val strings = appStrings()
+    val graphitePalette = LocalGraphitePalette.current
     val scope = rememberCoroutineScope()
     val entries = remember(files) { organizeFilesForReview(files) }
     val initialIndex = remember(entries, initialFilename, syncState) {
@@ -439,7 +446,14 @@ internal fun PullReviewModeScreen(
                                     Icon(
                                         imageVector = Lucide.ListChecks,
                                         contentDescription = strings.reviewModeFilesListDesc,
-                                        tint = if (allFilesViewed) Color(0xFF16A34A) else MaterialTheme.colorScheme.onSurfaceVariant
+                                        tint = if (allFilesViewed) {
+                                            GraphiteContrast.statusAccentColor(
+                                                MaterialTheme.colorScheme,
+                                                graphitePalette
+                                            )
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        }
                                     )
                                 }
                             }
@@ -659,19 +673,47 @@ internal fun PullReviewModeScreen(
                         val vState = localSyncState.viewedStates[fname] ?: FileViewedState.UNVIEWED
                         val filePendingCount = pendingComments.count { it.path == fname }
                         val isSelected = idx == pagerState.currentPage
+                        val rowColors = GraphiteContrast.reviewFileRowColors(
+                            MaterialTheme.colorScheme,
+                            graphitePalette,
+                            isSelected
+                        )
+                        val rowBorder = rowColors.border
+                        val viewedStateLabel = when (vState) {
+                            FileViewedState.VIEWED -> strings.reviewModeViewedBadge
+                            FileViewedState.DISMISSED -> strings.reviewModeDismissedBadge
+                            FileViewedState.UNVIEWED -> strings.reviewModeUnviewedBadge
+                        }
                         Surface(
                             shape = MaterialTheme.shapes.medium,
-                            color = if (isSelected) {
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerLow
-                            },
+                            color = rowColors.container,
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .then(
+                                    if (rowBorder != null) {
+                                        Modifier.border(
+                                            1.5.dp,
+                                            rowBorder,
+                                            MaterialTheme.shapes.medium
+                                        )
+                                    } else {
+                                        Modifier
+                                    }
+                                )
                                 .clickable {
                                     showFilesSheet = false
                                     scope.launch { pagerState.animateScrollToPage(idx) }
                                 }
+                                .then(
+                                    if (graphitePalette) {
+                                        Modifier.semantics(mergeDescendants = true) {
+                                            this.selected = isSelected
+                                            stateDescription = viewedStateLabel
+                                        }
+                                    } else {
+                                        Modifier
+                                    }
+                                )
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -687,8 +729,15 @@ internal fun PullReviewModeScreen(
                                     contentDescription = null,
                                     modifier = Modifier.size(18.dp),
                                     tint = when (vState) {
-                                        FileViewedState.VIEWED -> Color(0xFF16A34A)
-                                        FileViewedState.DISMISSED -> Color(0xFFD97706)
+                                        FileViewedState.VIEWED -> GraphiteContrast.statusAccentColor(
+                                            MaterialTheme.colorScheme,
+                                            graphitePalette
+                                        )
+                                        FileViewedState.DISMISSED -> GraphiteContrast.statusAccentColor(
+                                            MaterialTheme.colorScheme,
+                                            graphitePalette,
+                                            isWarning = true
+                                        )
                                         FileViewedState.UNVIEWED -> MaterialTheme.colorScheme.onSurfaceVariant
                                     }
                                 )
@@ -696,6 +745,7 @@ internal fun PullReviewModeScreen(
                                     Text(
                                         text = fname.substringAfterLast('/'),
                                         style = MaterialTheme.typography.titleSmall,
+                                        color = if (graphitePalette) MaterialTheme.colorScheme.onSurface else Color.Unspecified,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -1195,10 +1245,15 @@ private fun ReviewCompletionBanner(
     onDismiss: () -> Unit
 ) {
     val strings = appStrings()
+    val graphitePalette = LocalGraphitePalette.current
+    val colorScheme = MaterialTheme.colorScheme
     ElevatedCard(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
+            containerColor = GraphiteContrast.reviewCompletionCardContainer(
+                colorScheme,
+                graphitePalette
+            )
         ),
         modifier = Modifier
             .fillMaxWidth()
@@ -1221,7 +1276,10 @@ private fun ReviewCompletionBanner(
                         Icon(
                             Lucide.CircleCheck,
                             contentDescription = null,
-                            tint = Color(0xFF16A34A),
+                            tint = GraphiteContrast.statusAccentColor(
+                                colorScheme,
+                                graphitePalette
+                            ),
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -1230,6 +1288,7 @@ private fun ReviewCompletionBanner(
                     Text(
                         text = strings.reviewModeAllViewedTitle(viewedCount, totalCount),
                         style = MaterialTheme.typography.titleSmall,
+                        color = if (graphitePalette) colorScheme.onSurface else Color.Unspecified,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
@@ -1319,6 +1378,9 @@ private fun PullReviewFilePage(
 ) {
     val file = entry.file
     val strings = appStrings()
+    val graphitePalette = LocalGraphitePalette.current
+    val colorScheme = MaterialTheme.colorScheme
+    val additionsColor = GraphiteContrast.additionsCounterColor(colorScheme, graphitePalette)
     val lineDigits = remember(file) { computeDiffMaxLineDigits(file) }
     val listState = remember(file.filename) { LazyListState(firstVisibleItemIndex = 0) }
     val hScroll = remember(file.filename) { ScrollState(0) }
@@ -1390,21 +1452,28 @@ private fun PullReviewFilePage(
                                 ExpressiveStatusPill(
                                     label = strings.reviewModeViewedBadge,
                                     containerColor = Color(0xFF16A34A).copy(alpha = 0.2f),
-                                    contentColor = Color(0xFF16A34A),
+                                    contentColor = GraphiteContrast.statusAccentColor(
+                                        colorScheme,
+                                        graphitePalette
+                                    ),
                                     icon = Lucide.Check
                                 )
                             } else if (viewedState == FileViewedState.DISMISSED) {
                                 ExpressiveStatusPill(
                                     label = strings.reviewModeDismissedBadge,
                                     containerColor = Color(0xFFD97706).copy(alpha = 0.2f),
-                                    contentColor = Color(0xFFD97706)
+                                    contentColor = GraphiteContrast.statusAccentColor(
+                                        colorScheme,
+                                        graphitePalette,
+                                        isWarning = true
+                                    )
                                 )
                             }
                             Spacer(Modifier.weight(1f))
                             Text(
                                 text = "+${file.additions}",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = Color(0xFF22C55E),
+                                color = additionsColor,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
@@ -1623,6 +1692,8 @@ private fun ReviewInlineCommentBlock(
     modifier: Modifier = Modifier
 ) {
     val strings = appStrings()
+    val graphitePalette = LocalGraphitePalette.current
+    val colorScheme = MaterialTheme.colorScheme
     Card(
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
@@ -1640,7 +1711,10 @@ private fun ReviewInlineCommentBlock(
                         ExpressiveStatusPill(
                             label = strings.reviewModeResolvedBadge,
                             containerColor = Color(0xFF16A34A).copy(alpha = 0.16f),
-                            contentColor = Color(0xFF16A34A),
+                            contentColor = GraphiteContrast.statusAccentColor(
+                                colorScheme,
+                                graphitePalette
+                            ),
                             icon = Lucide.Check
                         )
                     }

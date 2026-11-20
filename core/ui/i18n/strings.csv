@@ -1044,6 +1044,7 @@ reviewModeFilesListDesc,,File list,ファイル一覧
 reviewModeFilesListTitle,,Changed Files,変更ファイル一覧
 reviewModeViewedBadge,,Viewed,確認済み
 reviewModeDismissedBadge,,Changed,更新あり
+reviewModeUnviewedBadge,,Unviewed,未確認
 reviewModeMarkViewedAndNext,,Viewed,確認済み
 reviewModeUnmarkViewed,,Unmark,未確認に戻す
 reviewModePrevFileDesc,,Previous file,前のファイル

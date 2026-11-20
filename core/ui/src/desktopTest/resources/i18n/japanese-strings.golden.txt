@@ -938,6 +938,7 @@ reviewModeSuggestionNoteLabel	説明コメント（任意）
 reviewModeSyncError	レビュー進捗の同期に失敗しました
 reviewModeTitle	レビューモード
 reviewModeUnmarkViewed	未確認に戻す
+reviewModeUnviewedBadge	未確認
 reviewModeViewedBadge	確認済み
 reviewModeViewedCounter	確認済み 7301/7302
 reviewModeViewedError	確認済み状態の更新に失敗しました

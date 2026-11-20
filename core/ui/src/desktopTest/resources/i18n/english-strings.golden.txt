@@ -938,6 +938,7 @@ reviewModeSuggestionNoteLabel	Explanation (optional)
 reviewModeSyncError	Failed to sync review state
 reviewModeTitle	Review Mode
 reviewModeUnmarkViewed	Unmark
+reviewModeUnviewedBadge	Unviewed
 reviewModeViewedBadge	Viewed
 reviewModeViewedCounter	Viewed 7301/7302
 reviewModeViewedError	Failed to update viewed state
