@@ -219,6 +219,7 @@ fun <T> MaxxingConnectedButtonGroup(
     onSelect: (T) -> Unit,
     labelProvider: (T) -> String,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     iconProvider: ((T) -> ImageVector?)? = null
 ) {
     Row(
@@ -234,6 +235,7 @@ fun <T> MaxxingConnectedButtonGroup(
             }
             ToggleButton(
                 checked = isSelected,
+                enabled = enabled,
                 onCheckedChange = { onSelect(option) },
                 shapes = shapes,
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),

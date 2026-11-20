@@ -66,7 +66,6 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -141,20 +140,6 @@ import dev.maxxing.github.ui.theme.GraphiteContrast
 import dev.maxxing.github.ui.theme.LocalGraphitePalette
 import kotlinx.coroutines.launch
 
-private enum class ComposerMode {
-    COMMENT,
-    SUGGESTION
-}
-
-private data class ReviewComposerTarget(
-    val filePath: String,
-    val hunk: DiffHunk? = null,
-    val endLineIndex: Int? = null,
-    val lineNumber: Int? = null,
-    val side: String = "RIGHT",
-    val editingPendingComment: PullReviewComment? = null
-)
-
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
 internal fun PullReviewModeScreen(
@@ -207,13 +192,7 @@ internal fun PullReviewModeScreen(
     var showDiscardPendingConfirm by remember { mutableStateOf(false) }
     var completionBannerDismissed by remember { mutableStateOf(false) }
 
-    var composerTarget by remember { mutableStateOf<ReviewComposerTarget?>(null) }
-    var composerMode by remember { mutableStateOf(ComposerMode.COMMENT) }
-    var composerCommentBody by remember { mutableStateOf("") }
-    var composerSuggestionNote by remember { mutableStateOf("") }
-    var composerSuggestedCode by remember { mutableStateOf("") }
-    var composerLineCount by remember { mutableIntStateOf(1) }
-    var composerSaveAsPending by remember { mutableStateOf(true) }
+    var composerState by remember { mutableStateOf(ReviewCommentComposerState()) }
 
     var reviewEvent by remember { mutableStateOf(ReviewEvent.APPROVE) }
     var reviewSummaryBody by remember { mutableStateOf("") }
@@ -311,44 +290,38 @@ internal fun PullReviewModeScreen(
         val lineInfo = extractDiffLineNumberAndSide(line) ?: return
         val (lineNumber, side) = lineInfo
         val (_, selectedLines) = collectLineRangeForSuggestion(hunk, lineIdx, 1)
-        composerTarget = ReviewComposerTarget(
-            filePath = filePath,
-            hunk = hunk,
-            endLineIndex = lineIdx,
-            lineNumber = lineNumber,
-            side = side
+        composerState = composerState.open(
+            ReviewCommentDraft(
+                target = ReviewComposerTarget(
+                    filePath = filePath,
+                    hunk = hunk,
+                    endLineIndex = lineIdx,
+                    lineNumber = lineNumber,
+                    side = side
+                ),
+                suggestedCode = selectedLines.joinToString("\n") { it.content }
+            )
         )
-        composerMode = ComposerMode.COMMENT
-        composerCommentBody = ""
-        composerSuggestionNote = ""
-        composerLineCount = 1
-        composerSuggestedCode = selectedLines.joinToString("\n") { it.content }
-        composerSaveAsPending = true
     }
 
     fun openFileComposer(filePath: String) {
-        composerTarget = ReviewComposerTarget(filePath = filePath)
-        composerMode = ComposerMode.COMMENT
-        composerCommentBody = ""
-        composerSuggestionNote = ""
-        composerSuggestedCode = ""
-        composerLineCount = 1
-        composerSaveAsPending = true
+        composerState = composerState.open(
+            ReviewCommentDraft(target = ReviewComposerTarget(filePath = filePath))
+        )
     }
 
     fun openEditPendingComposer(comment: PullReviewComment) {
-        composerTarget = ReviewComposerTarget(
-            filePath = comment.path,
-            lineNumber = comment.line ?: comment.originalLine,
-            side = comment.diffSide ?: "RIGHT",
-            editingPendingComment = comment
+        composerState = composerState.open(
+            ReviewCommentDraft(
+                target = ReviewComposerTarget(
+                    filePath = comment.path,
+                    lineNumber = comment.line ?: comment.originalLine,
+                    side = comment.diffSide ?: "RIGHT",
+                    editingPendingComment = comment
+                ),
+                commentBody = comment.body
+            )
         )
-        composerMode = ComposerMode.COMMENT
-        composerCommentBody = comment.body
-        composerSuggestionNote = ""
-        composerSuggestedCode = ""
-        composerLineCount = 1
-        composerSaveAsPending = true
     }
 
     fun submitReviewNow(event: ReviewEvent, summaryBody: String) {
@@ -374,7 +347,7 @@ internal fun PullReviewModeScreen(
         }
     }
 
-    val hasAnyOverlay = composerTarget != null || showFilesSheet || showSubmitSheet || showDiscardPendingConfirm
+    val hasAnyOverlay = composerState.draft != null || showFilesSheet || showSubmitSheet || showDiscardPendingConfirm
 
     MaxxingPredictiveBackContainer(
         enabled = !hasAnyOverlay,
@@ -994,7 +967,8 @@ internal fun PullReviewModeScreen(
     }
 
     // Mobile Comment & Suggested Change Composer Overlay
-    composerTarget?.let { activeTarget ->
+    composerState.draft?.let { activeDraft ->
+        val activeTarget = activeDraft.target
         ReviewCommentComposerOverlay(
             filePath = activeTarget.filePath,
             hunk = activeTarget.hunk,
@@ -1002,61 +976,95 @@ internal fun PullReviewModeScreen(
             lineNumber = activeTarget.lineNumber,
             side = activeTarget.side,
             isEditingPending = activeTarget.editingPendingComment != null,
-            mode = composerMode,
+            mode = activeDraft.mode,
             onModeChange = { nextMode ->
-                composerMode = nextMode
-                if (nextMode == ComposerMode.SUGGESTION && composerSuggestedCode.isEmpty() && activeTarget.hunk != null && activeTarget.endLineIndex != null) {
-                    val (_, lines) = collectLineRangeForSuggestion(activeTarget.hunk, activeTarget.endLineIndex, composerLineCount)
-                    composerSuggestedCode = lines.joinToString("\n") { it.content }
-                }
-            },
-            commentBody = composerCommentBody,
-            onCommentBodyChange = { composerCommentBody = it },
-            suggestionNote = composerSuggestionNote,
-            onSuggestionNoteChange = { composerSuggestionNote = it },
-            suggestedCode = composerSuggestedCode,
-            onSuggestedCodeChange = { composerSuggestedCode = it },
-            lineCount = composerLineCount,
-            onChangeLineCount = { nextCount ->
-                if (activeTarget.hunk != null && activeTarget.endLineIndex != null) {
-                    val (_, lines) = collectLineRangeForSuggestion(activeTarget.hunk, activeTarget.endLineIndex, nextCount)
-                    composerLineCount = lines.size.coerceAtLeast(1)
-                    composerSuggestedCode = lines.joinToString("\n") { it.content }
-                }
-            },
-            saveAsPending = composerSaveAsPending,
-            onSaveAsPendingChange = { composerSaveAsPending = it },
-            isSubmitting = actionBusy,
-            isAttachingMedia = attachmentController.isUploading,
-            onAttachMedia = {
-                attachmentController.attach { snippet ->
-                    if (composerMode == ComposerMode.SUGGESTION) {
-                        composerSuggestionNote = appendAttachmentMarkdown(composerSuggestionNote, snippet)
+                composerState = composerState.updateDraft { draft ->
+                    if (
+                        nextMode == ComposerMode.SUGGESTION &&
+                        draft.suggestedCode.isEmpty() &&
+                        activeTarget.hunk != null &&
+                        activeTarget.endLineIndex != null
+                    ) {
+                        val (_, lines) = collectLineRangeForSuggestion(activeTarget.hunk, activeTarget.endLineIndex, draft.lineCount)
+                        draft.copy(mode = nextMode, suggestedCode = lines.joinToString("\n") { it.content })
                     } else {
-                        composerCommentBody = appendAttachmentMarkdown(composerCommentBody, snippet)
+                        draft.copy(mode = nextMode)
                     }
                 }
             },
-            onDismiss = { if (!actionBusy) composerTarget = null },
+            commentBody = activeDraft.commentBody,
+            onCommentBodyChange = { body ->
+                composerState = composerState.updateDraft { it.copy(commentBody = body) }
+            },
+            suggestionNote = activeDraft.suggestionNote,
+            onSuggestionNoteChange = { note ->
+                composerState = composerState.updateDraft { it.copy(suggestionNote = note) }
+            },
+            suggestedCode = activeDraft.suggestedCode,
+            onSuggestedCodeChange = { code ->
+                composerState = composerState.updateDraft { it.copy(suggestedCode = code) }
+            },
+            lineCount = activeDraft.lineCount,
+            onChangeLineCount = { nextCount ->
+                if (activeTarget.hunk != null && activeTarget.endLineIndex != null) {
+                    composerState = composerState.updateDraft { draft ->
+                        val (_, lines) = collectLineRangeForSuggestion(activeTarget.hunk, activeTarget.endLineIndex, nextCount)
+                        draft.copy(
+                            lineCount = lines.size.coerceAtLeast(1),
+                            suggestedCode = lines.joinToString("\n") { it.content }
+                        )
+                    }
+                }
+            },
+            saveAsPending = activeDraft.saveAsPending,
+            onSaveAsPendingChange = { saveAsPending ->
+                composerState = composerState.updateDraft { it.copy(saveAsPending = saveAsPending) }
+            },
+            isSubmitting = actionBusy || composerState.isSubmitting,
+            errorMessage = composerState.errorMessage,
+            isAttachingMedia = attachmentController.isUploading,
+            onAttachMedia = {
+                attachmentController.attach { snippet ->
+                    composerState = composerState.updateDraft { draft ->
+                        if (draft.mode == ComposerMode.SUGGESTION) {
+                            draft.copy(suggestionNote = appendAttachmentMarkdown(draft.suggestionNote, snippet))
+                        } else {
+                            draft.copy(commentBody = appendAttachmentMarkdown(draft.commentBody, snippet))
+                        }
+                    }
+                }
+            },
+            onDismiss = { if (!actionBusy) composerState = composerState.cancel() },
             onSave = {
                 val editing = activeTarget.editingPendingComment
-                val finalBody = if (composerMode == ComposerMode.SUGGESTION) {
-                    buildSuggestedChangeComment(composerSuggestionNote, composerSuggestedCode)
+                val finalBody = if (activeDraft.mode == ComposerMode.SUGGESTION) {
+                    buildSuggestedChangeComment(activeDraft.suggestionNote, activeDraft.suggestedCode)
                 } else {
-                    composerCommentBody.trim()
+                    activeDraft.commentBody.trim()
                 }
-                if (finalBody.isBlank()) return@ReviewCommentComposerOverlay
+                if (finalBody.isBlank() || actionBusy || composerState.isSubmitting) return@ReviewCommentComposerOverlay
+
+                val sha = detail.headRefOid
+                if (editing == null && !activeDraft.saveAsPending && sha.isNullOrBlank()) {
+                    val message = strings.failedPostDiffComment
+                    composerState = composerState.failSubmit(message)
+                    onMessage(message)
+                    return@ReviewCommentComposerOverlay
+                }
 
                 val startLineForMulti = if (
-                    composerMode == ComposerMode.SUGGESTION &&
-                    composerLineCount > 1 &&
+                    activeDraft.mode == ComposerMode.SUGGESTION &&
+                    activeDraft.lineCount > 1 &&
                     activeTarget.hunk != null &&
                     activeTarget.endLineIndex != null
                 ) {
-                    collectLineRangeForSuggestion(activeTarget.hunk, activeTarget.endLineIndex, composerLineCount).first
+                    collectLineRangeForSuggestion(activeTarget.hunk, activeTarget.endLineIndex, activeDraft.lineCount).first
                 } else null
 
-                composerTarget = null
+                // Keep the composer (and the typed draft) open until the request succeeds so a
+                // failure can be retried with the same contents. Only an explicit cancel or a
+                // successful submit clears it.
+                composerState = composerState.beginSubmit()
                 scope.launch {
                     actionBusy = true
                     if (editing != null) {
@@ -1064,11 +1072,14 @@ internal fun PullReviewModeScreen(
                             target.owner, target.repo, target.number, editing.id, finalBody
                         ).onSuccess {
                             onMessage(strings.reviewModePendingUpdated)
+                            composerState = composerState.succeedSubmit()
                             refreshSyncState(forceRefresh = true)
                         }.onFailure { err ->
-                            onMessage(strings.errorMessage(err, strings.reviewModePendingSaveError))
+                            val message = strings.errorMessage(err, strings.reviewModePendingSaveError)
+                            composerState = composerState.failSubmit(message)
+                            onMessage(message)
                         }
-                    } else if (composerSaveAsPending) {
+                    } else if (activeDraft.saveAsPending) {
                         container.repository.addPendingReviewComment(
                             owner = target.owner,
                             repo = target.repo,
@@ -1084,28 +1095,31 @@ internal fun PullReviewModeScreen(
                             startSide = if (startLineForMulti != null) activeTarget.side else null
                         ).onSuccess {
                             onMessage(strings.reviewModePendingAdded)
+                            composerState = composerState.succeedSubmit()
                             refreshSyncState(forceRefresh = true)
                         }.onFailure { err ->
-                            onMessage(strings.errorMessage(err, strings.reviewModePendingSaveError))
+                            val message = strings.errorMessage(err, strings.reviewModePendingSaveError)
+                            composerState = composerState.failSubmit(message)
+                            onMessage(message)
                         }
                     } else {
-                        val sha = detail.headRefOid
-                        if (!sha.isNullOrBlank()) {
-                            container.repository.createPullDiffComment(
-                                owner = target.owner,
-                                repo = target.repo,
-                                number = target.number,
-                                commitId = sha,
-                                path = activeTarget.filePath,
-                                body = finalBody,
-                                line = activeTarget.lineNumber,
-                                side = activeTarget.side
-                            ).onSuccess {
-                                onMessage(strings.addedInlineDiffComment)
-                                refreshSyncState(forceRefresh = true)
-                            }.onFailure { err ->
-                                onMessage(strings.errorMessage(err, strings.failedPostDiffComment))
-                            }
+                        container.repository.createPullDiffComment(
+                            owner = target.owner,
+                            repo = target.repo,
+                            number = target.number,
+                            commitId = sha.orEmpty(),
+                            path = activeTarget.filePath,
+                            body = finalBody,
+                            line = activeTarget.lineNumber,
+                            side = activeTarget.side
+                        ).onSuccess {
+                            onMessage(strings.addedInlineDiffComment)
+                            composerState = composerState.succeedSubmit()
+                            refreshSyncState(forceRefresh = true)
+                        }.onFailure { err ->
+                            val message = strings.errorMessage(err, strings.failedPostDiffComment)
+                            composerState = composerState.failSubmit(message)
+                            onMessage(message)
                         }
                     }
                     actionBusy = false
@@ -1801,6 +1815,7 @@ private fun ReviewCommentComposerOverlay(
     saveAsPending: Boolean,
     onSaveAsPendingChange: (Boolean) -> Unit,
     isSubmitting: Boolean,
+    errorMessage: String?,
     isAttachingMedia: Boolean,
     onAttachMedia: () -> Unit,
     onDismiss: () -> Unit,
@@ -1911,11 +1926,27 @@ private fun ReviewCommentComposerOverlay(
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    if (errorMessage != null) {
+                        Surface(
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = errorMessage,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            )
+                        }
+                    }
+
                     if (supportsSuggestion) {
                         MaxxingConnectedButtonGroup(
                             options = ComposerMode.entries,
                             selected = mode,
                             onSelect = onModeChange,
+                            enabled = !isSubmitting,
                             labelProvider = { m ->
                                 when (m) {
                                     ComposerMode.COMMENT -> strings.reviewModeCommentMode
@@ -1939,6 +1970,7 @@ private fun ReviewCommentComposerOverlay(
                         ) {
                             FilterChip(
                                 selected = saveAsPending,
+                                enabled = !isSubmitting,
                                 onClick = { onSaveAsPendingChange(true) },
                                 label = { Text(strings.reviewModeAddPendingAction) },
                                 leadingIcon = if (saveAsPending) {
@@ -1947,6 +1979,7 @@ private fun ReviewCommentComposerOverlay(
                             )
                             FilterChip(
                                 selected = !saveAsPending,
+                                enabled = !isSubmitting,
                                 onClick = { onSaveAsPendingChange(false) },
                                 label = { Text(strings.reviewModePostSingleAction) },
                                 leadingIcon = if (!saveAsPending) {
@@ -2006,14 +2039,14 @@ private fun ReviewCommentComposerOverlay(
                                     modifier = Modifier.weight(1f)
                                 )
                                 IconButton(
-                                    enabled = lineCount > 1,
+                                    enabled = !isSubmitting && lineCount > 1,
                                     onClick = { onChangeLineCount(1) },
                                     modifier = Modifier.size(30.dp)
                                 ) {
                                     Icon(Lucide.Minus, contentDescription = strings.reviewModeShrinkRange, modifier = Modifier.size(16.dp))
                                 }
                                 IconButton(
-                                    enabled = lineCount < maxExpandableLines,
+                                    enabled = !isSubmitting && lineCount < maxExpandableLines,
                                     onClick = { onChangeLineCount(lineCount + 1) },
                                     modifier = Modifier.size(30.dp)
                                 ) {
@@ -2025,6 +2058,7 @@ private fun ReviewCommentComposerOverlay(
                         OutlinedTextField(
                             value = suggestedCode,
                             onValueChange = onSuggestedCodeChange,
+                            enabled = !isSubmitting,
                             label = { Text(strings.reviewModeSuggestedCodeLabel) },
                             textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                             minLines = 3,
@@ -2035,6 +2069,7 @@ private fun ReviewCommentComposerOverlay(
                         OutlinedTextField(
                             value = suggestionNote,
                             onValueChange = onSuggestionNoteChange,
+                            enabled = !isSubmitting,
                             label = { Text(strings.reviewModeSuggestionNoteLabel) },
                             minLines = 2,
                             maxLines = 6,
@@ -2044,6 +2079,7 @@ private fun ReviewCommentComposerOverlay(
                         OutlinedTextField(
                             value = commentBody,
                             onValueChange = onCommentBodyChange,
+                            enabled = !isSubmitting,
                             label = { Text(strings.diffCommentBodyLabel) },
                             minLines = 6,
                             maxLines = 16,
