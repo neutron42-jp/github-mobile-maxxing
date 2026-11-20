@@ -380,7 +380,10 @@ fun GistsScreen(
             val primaryFile = editing?.files?.firstOrNull()
             val isTruncatedOrIncomplete = primaryFile != null &&
                 (primaryFile.truncated || (primaryFile.size > 0L && primaryFile.content.isEmpty()))
-            val existingFilenames = editing?.files?.map { it.filename }?.toSet().orEmpty()
+            val selectedGist = selectedDetail?.takeIf { it.summary.id == editing?.summary?.id }
+            val isFileListTruncated = editing?.summary?.filesTruncated == true ||
+                selectedGist?.summary?.filesTruncated == true
+            val existingFilenames = (selectedGist ?: editing)?.files?.map { it.filename }?.toSet().orEmpty()
             GistFullScreenEditor(
                 isCreating = editing == null,
                 initialDescription = editing?.summary?.description.orEmpty(),
@@ -388,6 +391,7 @@ fun GistsScreen(
                 initialContent = primaryFile?.content.orEmpty(),
                 initialPublic = editing?.summary?.isPublic ?: false,
                 isTruncated = isTruncatedOrIncomplete,
+                isFileListTruncated = isFileListTruncated,
                 existingFilenames = existingFilenames,
                 isSubmitting = mutationBusy,
                 errorMsg = mutationError,
@@ -404,20 +408,35 @@ fun GistsScreen(
                             )
                         } else {
                             val originalName = primaryFile?.filename
-                            val updatesRes = buildGistFileUpdates(
-                                originalName = originalName,
-                                originalContent = primaryFile?.content.orEmpty(),
-                                newFilename = filename,
-                                newContent = content,
-                                existingFilenames = existingFilenames,
-                                isTruncated = isTruncatedOrIncomplete
-                            )
-                            updatesRes.fold(
-                                onSuccess = { updates ->
-                                    container.repository.updateGist(
-                                        gistId = editing.summary.id,
-                                        description = desc,
-                                        updatedFiles = updates
+                            val changesFilename = !isTruncatedOrIncomplete && filename != originalName
+                            val currentDetail = if (changesFilename && !isFileListTruncated) {
+                                container.repository.getGistDetail(editing.summary.id, forceRefresh = true)
+                            } else {
+                                Result.success(editing)
+                            }
+                            currentDetail.fold(
+                                onSuccess = { current ->
+                                    if (changesFilename && selectedDetail?.summary?.id == current.summary.id) {
+                                        selectedDetail = current
+                                    }
+                                    val currentFilenames = current.files.map { it.filename }.toSet()
+                                    buildGistFileUpdates(
+                                        originalName = originalName,
+                                        originalContent = primaryFile?.content.orEmpty(),
+                                        newFilename = filename,
+                                        newContent = content,
+                                        existingFilenames = currentFilenames,
+                                        isTruncated = isTruncatedOrIncomplete,
+                                        isFileListTruncated = isFileListTruncated || current.summary.filesTruncated
+                                    ).fold(
+                                        onSuccess = { updates ->
+                                            container.repository.updateGist(
+                                                gistId = editing.summary.id,
+                                                description = desc,
+                                                updatedFiles = updates
+                                            )
+                                        },
+                                        onFailure = { err -> Result.failure(err) }
                                     )
                                 },
                                 onFailure = { err -> Result.failure(err) }
@@ -431,10 +450,10 @@ fun GistsScreen(
                             loadGists(forceRefresh = true)
                         }.onFailure { err ->
                             mutationBusy = false
-                            mutationError = if (err is DuplicateGistFilenameException) {
-                                strings.gistDuplicateFilenameError(err.filename)
-                            } else {
-                                strings.errorMessage(err, strings.gistSaveFailed, strings.gistScopeErrorHint)
+                            mutationError = when (err) {
+                                is DuplicateGistFilenameException -> strings.gistDuplicateFilenameError(err.filename)
+                                is GistFileListIncompleteException -> strings.gistFileListTruncatedNotice
+                                else -> strings.errorMessage(err, strings.gistSaveFailed, strings.gistScopeErrorHint)
                             }
                         }
                     }
@@ -697,10 +716,15 @@ private fun GistDetailView(
 internal class DuplicateGistFilenameException(val filename: String) :
     IllegalArgumentException("A file named \"$filename\" already exists in this gist")
 
+/** Raised when a rename is attempted although GitHub returned only part of the Gist's file list. */
+internal class GistFileListIncompleteException :
+    IllegalStateException("Cannot rename a Gist file while GitHub's file list is incomplete")
+
 /**
  * Computes the `files` patch map for a Gist update while:
  * 1. Rejecting renames that collide with another existing file in the Gist (#86).
  * 2. Leaving files untouched when the file is truncated/incomplete or when only the description changed (#85).
+ * 3. Rejecting renames when the API truncated the file list, because unreturned names cannot be checked.
  */
 internal fun buildGistFileUpdates(
     originalName: String?,
@@ -708,11 +732,16 @@ internal fun buildGistFileUpdates(
     newFilename: String,
     newContent: String,
     existingFilenames: Set<String>,
-    isTruncated: Boolean
+    isTruncated: Boolean,
+    isFileListTruncated: Boolean = false
 ): Result<Map<String, String?>> {
     val cleanName = newFilename.trim()
     if (isTruncated) {
         return Result.success(emptyMap())
+    }
+    val renamesFile = originalName == null || cleanName != originalName
+    if (isFileListTruncated && renamesFile) {
+        return Result.failure(GistFileListIncompleteException())
     }
     if (originalName != null && cleanName != originalName && cleanName in existingFilenames) {
         return Result.failure(DuplicateGistFilenameException(cleanName))
@@ -729,6 +758,39 @@ internal fun buildGistFileUpdates(
     return Result.success(updates)
 }
 
+/**
+ * Whether the Gist editor offers a save that the update helper can apply.
+ * A body truncated by the API allows a description-only save, and an incomplete file list
+ * allows description/content edits but never a rename.
+ */
+internal fun canSaveGistEdit(
+    isCreating: Boolean,
+    isBodyTruncated: Boolean,
+    isFileListTruncated: Boolean,
+    initialDescription: String,
+    description: String,
+    initialFilename: String,
+    filename: String,
+    initialContent: String,
+    content: String,
+    existingFilenames: Set<String>
+): Boolean {
+    val descriptionChanged = description.trim() != initialDescription.trim()
+    val contentChanged = content != initialContent
+    val cleanName = filename.trim()
+    return when {
+        isBodyTruncated -> descriptionChanged
+        isFileListTruncated -> cleanName == initialFilename &&
+            (!contentChanged || content.isNotBlank()) && (descriptionChanged || contentChanged)
+        else -> {
+            val duplicateConflict = !isCreating &&
+                cleanName != initialFilename &&
+                cleanName in existingFilenames
+            cleanName.isNotEmpty() && content.isNotBlank() && !duplicateConflict
+        }
+    }
+}
+
 @Composable
 private fun GistFullScreenEditor(
     isCreating: Boolean,
@@ -737,6 +799,7 @@ private fun GistFullScreenEditor(
     initialContent: String,
     initialPublic: Boolean,
     isTruncated: Boolean = false,
+    isFileListTruncated: Boolean = false,
     existingFilenames: Set<String> = emptySet(),
     isSubmitting: Boolean,
     errorMsg: String?,
@@ -747,26 +810,36 @@ private fun GistFullScreenEditor(
     var filename by remember(initialFilename) { mutableStateOf(initialFilename) }
     var content by remember(initialContent) { mutableStateOf(initialContent) }
     var isPublic by remember(initialPublic) { mutableStateOf(initialPublic) }
-    val trimmedFilename = filename.trim()
+    val renameBlocked = isTruncated || isFileListTruncated
+    val editableFilename = if (renameBlocked) initialFilename else filename
+    val trimmedFilename = editableFilename.trim()
     val duplicateConflict = !isCreating &&
-        !isTruncated &&
+        !renameBlocked &&
         trimmedFilename != initialFilename &&
         trimmedFilename in existingFilenames
     val effectiveError = when {
         duplicateConflict -> appStrings().gistDuplicateFilenameError(trimmedFilename)
         !errorMsg.isNullOrBlank() -> errorMsg
         isTruncated -> appStrings().gistTruncatedNotice
+        isFileListTruncated -> appStrings().gistFileListTruncatedNotice
         else -> null
     }
-    val canSave = if (isTruncated) {
-        description.trim() != initialDescription.trim()
-    } else {
-        trimmedFilename.isNotEmpty() && content.isNotBlank() && !duplicateConflict
-    }
+    val canSave = canSaveGistEdit(
+        isCreating = isCreating,
+        isBodyTruncated = isTruncated,
+        isFileListTruncated = isFileListTruncated,
+        initialDescription = initialDescription,
+        description = description,
+        initialFilename = initialFilename,
+        filename = editableFilename,
+        initialContent = initialContent,
+        content = content,
+        existingFilenames = existingFilenames
+    )
 
     MaxxingFullScreenEditorScaffold(
         title = if (isCreating) appStrings().gistNewTitle else appStrings().gistEditTitle,
-        subtitle = filename.ifBlank { "snippet.txt" },
+        subtitle = editableFilename.ifBlank { "snippet.txt" },
         saveLabel = if (isSubmitting) appStrings().savingAction else if (isCreating) appStrings().create else appStrings().save,
         canSave = canSave,
         isSubmitting = isSubmitting,
@@ -775,24 +848,24 @@ private fun GistFullScreenEditor(
         onBodyChange = { content = it },
         bodyLabel = appStrings().gistContentsLabel,
         useMonospace = true,
-        supportsMarkdownPreview = filename.trim().endsWith(".md", ignoreCase = true),
+        supportsMarkdownPreview = trimmedFilename.endsWith(".md", ignoreCase = true),
         bodyEditable = !isTruncated,
         metadataSummary = if (isCreating) {
             null
         } else {
             buildString {
-                append(filename.ifBlank { "snippet.txt" })
+                append(editableFilename.ifBlank { "snippet.txt" })
                 if (description.isNotBlank()) append(" · $description")
             }
         },
-        initiallyMetadataExpanded = isCreating || isTruncated,
+        initiallyMetadataExpanded = isCreating || isTruncated || isFileListTruncated,
         onDismiss = onDismiss,
         onSave = { onSave(description, trimmedFilename, content, isPublic) },
         headerContent = {
             OutlinedTextField(
-                value = filename,
+                value = editableFilename,
                 onValueChange = { filename = it },
-                enabled = !isSubmitting && !isTruncated,
+                enabled = !isSubmitting && !renameBlocked,
                 label = { Text(appStrings().gistFilenameLabel) },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),

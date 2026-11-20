@@ -453,6 +453,7 @@ gistEditTitle	Gist を編集
 gistFileCount	7301 ファイル
 gistFileCountOne	7301 ファイル
 gistFileCountOther	7301 ファイル
+gistFileListTruncatedNotice	GitHub から返されたファイル一覧が一部のみのため、名前の変更はできません。説明またはこのファイルの内容は引き続き編集できます。
 gistFilenameLabel	ファイル名（例: notes.md）
 gistNewTitle	新規 Gist
 gistPublicBadge	公開

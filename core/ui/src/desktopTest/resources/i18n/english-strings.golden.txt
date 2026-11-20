@@ -453,6 +453,7 @@ gistEditTitle	Edit Gist
 gistFileCount	7301 files
 gistFileCountOne	7301 file
 gistFileCountOther	7301 files
+gistFileListTruncatedNotice	GitHub returned only part of this Gist's file list, so renaming is disabled. You can still edit the description or this file's content.
 gistFilenameLabel	Filename (e.g. notes.md)
 gistNewTitle	New Gist
 gistPublicBadge	Public

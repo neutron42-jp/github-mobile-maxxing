@@ -1111,3 +1111,4 @@ reviewModeBannerSubtitle,,One-handed file-by-file swipe review,1ファイルず�
 
 gistDuplicateFilenameError,String,"A file named ""{0}"" already exists in this gist.",この Gist には「{0}」という名前のファイルがすでに存在します。
 gistTruncatedNotice,,This file is truncated by GitHub. You can edit the description without changing the file.,このファイルは GitHub API により本文が省略されています。ファイル内容は変更せず説明のみ編集できます。
+gistFileListTruncatedNotice,,"GitHub returned only part of this Gist's file list, so renaming is disabled. You can still edit the description or this file's content.",GitHub から返されたファイル一覧が一部のみのため、名前の変更はできません。説明またはこのファイルの内容は引き続き編集できます。

@@ -124,6 +124,7 @@ class GistsTest {
 
         val d1 = repo.getGistDetail("g1").getOrThrow()
         assertFalse(d1.viewerHasStarred)
+        assertFalse(d1.summary.filesTruncated)
 
         repo.setGistStarred("g1", true).getOrThrow()
         assertTrue(repo.peekGistDetail("g1")?.viewerHasStarred == true)

@@ -745,6 +745,8 @@ private data class RestGistDto(
     @SerialName("html_url") val htmlUrl: String = "",
     val owner: RestGistOwnerDto? = null,
     val files: Map<String, RestGistFileDto> = emptyMap(),
+    /** True when the API returned only the first 300 files of the Gist (top-level `truncated`). */
+    val truncated: Boolean = false,
     val comments: Int = 0,
     @SerialName("created_at") val createdAt: String = "",
     @SerialName("updated_at") val updatedAt: String = ""
@@ -1834,6 +1836,7 @@ class GitHubRestService(
                 truncated = fileDto.truncated
             )
         },
+        filesTruncated = truncated,
         commentsCount = comments,
         createdAt = createdAt,
         updatedAt = updatedAt

@@ -47,6 +47,7 @@ class GistTruncationTest {
                           "created_at": "2026-11-20T00:00:00Z",
                           "updated_at": "2026-11-20T00:00:00Z",
                           "owner": { "login": "octo", "avatar_url": "" },
+                          "truncated": true,
                           "files": {
                             "big.txt": {
                               "filename": "big.txt",
@@ -115,6 +116,7 @@ class GistTruncationTest {
         val detail = repository.getGistDetail("g1").getOrThrow()
         assertEquals(1, detail.files.size)
         assertTrue(detail.files[0].truncated)
+        assertTrue(detail.summary.filesTruncated)
 
         val updated = repository.updateGist("g1", "Updated description", emptyMap()).getOrThrow()
         assertEquals("Updated description", updated.summary.description)
