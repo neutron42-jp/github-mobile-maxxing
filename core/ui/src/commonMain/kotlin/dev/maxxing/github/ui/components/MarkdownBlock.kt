@@ -223,6 +223,35 @@ private fun normalizeMarkdownSegment(
     return result
 }
 
+/**
+ * A CommonMark fenced-code delimiter. The closing fence must repeat the same character at
+ * least as many times as the opening fence, so a three-backtick line inside a four-backtick
+ * fence is literal content instead of the end of the block.
+ */
+private data class MarkdownFence(val marker: Char, val length: Int)
+
+/** Reads a fence delimiter after any leading whitespace, as the previous trimStart-based check did. */
+private fun markdownFenceAt(line: String): MarkdownFence? {
+    val indent = line.indexOfFirst { it != ' ' && it != '\t' }.let { if (it < 0) line.length else it }
+    val marker = line.getOrNull(indent) ?: return null
+    if (marker != '`' && marker != '~') return null
+    var length = 0
+    while (indent + length < line.length && line[indent + length] == marker) length++
+    return if (length >= 3) MarkdownFence(marker, length) else null
+}
+
+/**
+ * A closing fence repeats the opening character at least as many times and carries no info
+ * string. A shorter run or a run followed by text stays inside the fenced block.
+ */
+private fun isMarkdownFenceClosing(line: String, fence: MarkdownFence): Boolean {
+    val indent = line.indexOfFirst { it != ' ' && it != '\t' }.let { if (it < 0) line.length else it }
+    var length = 0
+    while (indent + length < line.length && line[indent + length] == fence.marker) length++
+    if (length < fence.length) return false
+    return line.substring(indent + length).all { it == ' ' || it == '\t' || it == '\r' }
+}
+
 fun normalizeGitHubMarkdown(
     content: String,
     repoOwner: String? = null,
@@ -234,7 +263,7 @@ fun normalizeGitHubMarkdown(
     val lines = content.split('\n')
     val out = StringBuilder(content.length)
     val plainBuffer = StringBuilder()
-    var activeFence: String? = null
+    var activeFence: MarkdownFence? = null
     var hasEmittedLine = false
 
     fun appendOutLine(lineText: String) {
@@ -253,16 +282,11 @@ fun normalizeGitHubMarkdown(
     }
 
     for (line in lines) {
-        val trimmed = line.trimStart()
-        val fenceMarker = when {
-            trimmed.startsWith("```") -> "```"
-            trimmed.startsWith("~~~") -> "~~~"
-            else -> null
-        }
         if (activeFence == null) {
-            if (fenceMarker != null) {
+            val openingFence = markdownFenceAt(line)
+            if (openingFence != null) {
                 flushPlainBuffer()
-                activeFence = fenceMarker
+                activeFence = openingFence
                 appendOutLine(line)
             } else {
                 if (plainBuffer.isNotEmpty()) plainBuffer.append('\n')
@@ -270,7 +294,7 @@ fun normalizeGitHubMarkdown(
             }
         } else {
             appendOutLine(line)
-            if (fenceMarker == activeFence) {
+            if (isMarkdownFenceClosing(line, activeFence)) {
                 activeFence = null
             }
         }
@@ -297,7 +321,7 @@ fun splitMarkdownIntoSections(
     val sections = mutableListOf<String>()
     val current = StringBuilder()
     var currentLineCount = 0
-    var activeFence: String? = null
+    var activeFence: MarkdownFence? = null
 
     fun flushCurrent() {
         val text = current.toString().trim()
@@ -308,11 +332,7 @@ fun splitMarkdownIntoSections(
 
     for (line in lines) {
         val trimmed = line.trimStart()
-        val fenceMarker = when {
-            trimmed.startsWith("```") -> "```"
-            trimmed.startsWith("~~~") -> "~~~"
-            else -> null
-        }
+        val openingFence = markdownFenceAt(line)
 
         if (activeFence == null) {
             val isHeading = trimmed.startsWith("#")
@@ -323,10 +343,10 @@ fun splitMarkdownIntoSections(
             if (shouldSplitBefore) {
                 flushCurrent()
             }
-            if (fenceMarker != null) {
-                activeFence = fenceMarker
+            if (openingFence != null) {
+                activeFence = openingFence
             }
-        } else if (fenceMarker == activeFence) {
+        } else if (isMarkdownFenceClosing(line, activeFence)) {
             activeFence = null
         }
 
