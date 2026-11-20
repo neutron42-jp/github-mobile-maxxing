@@ -222,3 +222,55 @@ data class PullFileChange(
     val patch: String? = null,
     val hunks: List<DiffHunk> = emptyList()
 )
+
+@Serializable
+enum class FileViewedState {
+    VIEWED,
+    UNVIEWED,
+    DISMISSED
+}
+
+@Serializable
+data class PullReviewComment(
+    val id: String,
+    val path: String,
+    val line: Int? = null,
+    val originalLine: Int? = null,
+    val startLine: Int? = null,
+    val diffSide: String? = null,
+    val subjectType: String = "LINE",
+    val body: String,
+    val author: UserSummary,
+    val createdAt: String,
+    val isPending: Boolean = false,
+    val viewerCanUpdate: Boolean = false,
+    val viewerCanDelete: Boolean = false
+)
+
+@Serializable
+data class PullReviewThread(
+    val id: String,
+    val path: String,
+    val line: Int? = null,
+    val originalLine: Int? = null,
+    val startLine: Int? = null,
+    val diffSide: String? = null,
+    val subjectType: String = "LINE",
+    val isResolved: Boolean = false,
+    val isOutdated: Boolean = false,
+    val comments: List<PullReviewComment> = emptyList()
+)
+
+@Serializable
+data class PendingPullReview(
+    val id: String,
+    val body: String = "",
+    val comments: List<PullReviewComment> = emptyList()
+)
+
+@Serializable
+data class PullReviewSyncState(
+    val viewedStates: Map<String, FileViewedState> = emptyMap(),
+    val pendingReview: PendingPullReview? = null,
+    val threads: List<PullReviewThread> = emptyList()
+)

@@ -16,6 +16,7 @@ import dev.maxxing.github.model.DiscussionDetail
 import dev.maxxing.github.model.DiscussionListData
 import dev.maxxing.github.model.DiscussionSummary
 import dev.maxxing.github.model.FileContent
+import dev.maxxing.github.model.FileViewedState
 import dev.maxxing.github.model.GistDetail
 import dev.maxxing.github.model.GistSummary
 import dev.maxxing.github.model.IssueFilterPreset
@@ -29,7 +30,10 @@ import dev.maxxing.github.model.MergeMethod
 import dev.maxxing.github.model.MilestoneSummary
 import dev.maxxing.github.model.NotificationThread
 import dev.maxxing.github.model.OrganizationSummary
+import dev.maxxing.github.model.PendingPullReview
 import dev.maxxing.github.model.PullFileChange
+import dev.maxxing.github.model.PullReviewComment
+import dev.maxxing.github.model.PullReviewSyncState
 import dev.maxxing.github.model.RateLimitInfo
 import dev.maxxing.github.model.ReleaseSummary
 import dev.maxxing.github.model.RepoDetail
@@ -490,6 +494,7 @@ class GitHubRepository(
     private val myIssuesCache = LruMemoryCache<MyIssuesKey, List<IssueOrPullSummary>>(ttl = 60.seconds, maxEntries = 24)
     private val issueDetailCache = LruMemoryCache<IssuePullKey, IssueOrPullDetail>(ttl = 45.seconds, maxEntries = 64)
     private val pullFilesCache = LruMemoryCache<IssuePullKey, List<PullFileChange>>(ttl = 60.seconds, maxEntries = 48)
+    private val pullReviewSyncCache = LruMemoryCache<IssuePullKey, PullReviewSyncState>(ttl = 60.seconds, maxEntries = 48)
     private val viewerReposCache = LruMemoryCache<String, List<RepoSummary>>(ttl = 300.seconds, maxEntries = 4)
     private val searchReposCache = LruMemoryCache<String, List<RepoSummary>>(ttl = 90.seconds, maxEntries = 16)
     private val repoDetailCache = LruMemoryCache<RepoKey, RepoDetail>(ttl = 120.seconds, maxEntries = 32)
@@ -539,6 +544,7 @@ class GitHubRepository(
         myIssuesCache.clear()
         issueDetailCache.clear()
         pullFilesCache.clear()
+        pullReviewSyncCache.clear()
         viewerReposCache.clear()
         searchReposCache.clear()
         repoDetailCache.clear()
@@ -601,6 +607,9 @@ class GitHubRepository(
 
     fun peekPullFiles(owner: String, repo: String, number: Int): List<PullFileChange>? =
         pullFilesCache.peek(issuePullKey(owner, repo, number))
+
+    fun peekPullReviewSyncState(owner: String, repo: String, number: Int): PullReviewSyncState? =
+        pullReviewSyncCache.peek(issuePullKey(owner, repo, number))
 
     fun peekViewerRepositories(): List<RepoSummary>? = viewerReposCache.peek("MY")
 
@@ -881,6 +890,112 @@ class GitHubRepository(
         restService.fetchPullFiles(owner, repo, number)
     }
 
+    suspend fun getPullReviewSyncState(
+        owner: String,
+        repo: String,
+        number: Int,
+        forceRefresh: Boolean = false
+    ): Result<PullReviewSyncState> = cachedFetch(
+        cache = pullReviewSyncCache,
+        cacheKey = issuePullKey(owner, repo, number),
+        flightNamespace = "pullReviewSync",
+        forceRefresh = forceRefresh
+    ) {
+        graphQlService.fetchPullReviewSyncState(owner, repo, number)
+    }
+
+    suspend fun setPullFileViewed(
+        owner: String,
+        repo: String,
+        number: Int,
+        pullRequestId: String,
+        path: String,
+        viewed: Boolean
+    ): Result<Unit> = runMutationCancellable {
+        if (viewed) {
+            graphQlService.markFileAsViewed(pullRequestId, path)
+        } else {
+            graphQlService.unmarkFileAsViewed(pullRequestId, path)
+        }
+        val key = issuePullKey(owner, repo, number)
+        val cached = pullReviewSyncCache.peek(key)
+        if (cached != null) {
+            val updatedStates = cached.viewedStates.toMutableMap().apply {
+                put(path, if (viewed) FileViewedState.VIEWED else FileViewedState.UNVIEWED)
+            }
+            pullReviewSyncCache.put(key, cached.copy(viewedStates = updatedStates))
+        }
+    }
+
+    suspend fun addPendingReviewComment(
+        owner: String,
+        repo: String,
+        number: Int,
+        pullRequestId: String,
+        commitOid: String?,
+        existingPendingReviewId: String?,
+        path: String,
+        body: String,
+        line: Int? = null,
+        side: String = "RIGHT",
+        startLine: Int? = null,
+        startSide: String? = null
+    ): Result<PullReviewComment> = runMutationCancellable {
+        val reviewId = if (!existingPendingReviewId.isNullOrBlank()) {
+            existingPendingReviewId
+        } else {
+            try {
+                graphQlService.createPendingPullReview(pullRequestId, commitOid).id
+            } catch (e: GitHubApiException) {
+                // If a pending review already exists on the server (created on web), pick it up.
+                val fresh = graphQlService.fetchPullReviewSyncState(owner, repo, number)
+                fresh.pendingReview?.id ?: throw e
+            }
+        }
+        val added = graphQlService.addPendingReviewThread(
+            pullRequestReviewId = reviewId,
+            path = path,
+            body = body,
+            line = line,
+            side = side,
+            startLine = startLine,
+            startSide = startSide
+        )
+        pullReviewSyncCache.invalidate(issuePullKey(owner, repo, number))
+        added
+    }
+
+    suspend fun updatePendingReviewComment(
+        owner: String,
+        repo: String,
+        number: Int,
+        commentId: String,
+        body: String
+    ): Result<Unit> = runMutationCancellable {
+        graphQlService.updatePullRequestReviewComment(commentId, body)
+        pullReviewSyncCache.invalidate(issuePullKey(owner, repo, number))
+    }
+
+    suspend fun deletePendingReviewComment(
+        owner: String,
+        repo: String,
+        number: Int,
+        commentId: String
+    ): Result<Unit> = runMutationCancellable {
+        graphQlService.deletePullRequestReviewComment(commentId)
+        pullReviewSyncCache.invalidate(issuePullKey(owner, repo, number))
+    }
+
+    suspend fun discardPendingPullReview(
+        owner: String,
+        repo: String,
+        number: Int,
+        pendingReviewId: String
+    ): Result<Unit> = runMutationCancellable {
+        graphQlService.deletePullRequestReview(pendingReviewId)
+        pullReviewSyncCache.invalidate(issuePullKey(owner, repo, number))
+    }
+
     suspend fun prefetchIssueOrPull(owner: String, repo: String, number: Int) {
         val detail = getIssueOrPullDetail(owner, repo, number, forceRefresh = false).getOrNull() ?: return
         if (
@@ -933,9 +1048,15 @@ class GitHubRepository(
         repo: String,
         number: Int,
         event: ReviewEvent,
-        body: String
+        body: String,
+        pendingReviewId: String? = null
     ): Result<Unit> = runMutationCancellable {
-        restService.submitPullReview(owner, repo, number, event, body)
+        if (!pendingReviewId.isNullOrBlank()) {
+            graphQlService.submitPullRequestReview(pendingReviewId, event, body)
+        } else {
+            restService.submitPullReview(owner, repo, number, event, body)
+        }
+        pullReviewSyncCache.invalidate(issuePullKey(owner, repo, number))
         issueDetailCache.invalidate(issuePullKey(owner, repo, number))
         myIssuesCache.clear()
     }

@@ -10,6 +10,7 @@ import dev.maxxing.github.model.DiscussionDetail
 import dev.maxxing.github.model.DiscussionListData
 import dev.maxxing.github.model.DiscussionReply
 import dev.maxxing.github.model.DiscussionSummary
+import dev.maxxing.github.model.FileViewedState
 import dev.maxxing.github.model.IssueFilterPreset
 import dev.maxxing.github.model.IssueOrPullDetail
 import dev.maxxing.github.model.IssueOrPullKind
@@ -18,10 +19,15 @@ import dev.maxxing.github.model.IssueOrPullSummary
 import dev.maxxing.github.model.IssueStateFilter
 import dev.maxxing.github.model.LabelTag
 import dev.maxxing.github.model.MilestoneSummary
+import dev.maxxing.github.model.PendingPullReview
+import dev.maxxing.github.model.PullReviewComment
+import dev.maxxing.github.model.PullReviewSyncState
+import dev.maxxing.github.model.PullReviewThread
 import dev.maxxing.github.model.ReactionSummary
 import dev.maxxing.github.model.RepoDetail
 import dev.maxxing.github.model.RepoParentSummary
 import dev.maxxing.github.model.RepoSummary
+import dev.maxxing.github.model.ReviewEvent
 import dev.maxxing.github.model.TimelineEvent
 import dev.maxxing.github.model.UserSummary
 import dev.maxxing.github.model.ViewerProfile
@@ -37,14 +43,16 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 @Serializable
 private data class GraphQlRequest(
     val query: String,
-    val variables: Map<String, String> = emptyMap()
+    val variables: JsonObject = buildJsonObject {}
 )
 
 @Serializable
@@ -65,6 +73,27 @@ class GitHubGraphQlService(
     private suspend fun execute(
         query: String,
         variables: Map<String, String> = emptyMap()
+    ): JsonObject = executeJson(
+        query = query,
+        variables = buildJsonObject {
+            variables.forEach { (key, value) -> put(key, value) }
+        }
+    )
+
+    private suspend fun executeJson(
+        query: String,
+        variables: JsonObject = buildJsonObject {}
+    ): JsonObject = executeJsonInternal(query, variables, failOnAnyError = false)
+
+    private suspend fun executeMutationJson(
+        query: String,
+        variables: JsonObject = buildJsonObject {}
+    ): JsonObject = executeJsonInternal(query, variables, failOnAnyError = true)
+
+    private suspend fun executeJsonInternal(
+        query: String,
+        variables: JsonObject,
+        failOnAnyError: Boolean
     ): JsonObject {
         val response = httpClient.post("$baseUrl/graphql") {
             contentType(ContentType.Application.Json)
@@ -74,7 +103,7 @@ class GitHubGraphQlService(
             throw GitHubApiException(response.status.value, "GraphQL HTTP ${response.status.value}")
         }
         val body = response.body<GraphQlResponse>()
-        if (!body.errors.isNullOrEmpty() && body.data == null) {
+        if (!body.errors.isNullOrEmpty() && (failOnAnyError || body.data == null)) {
             throw GitHubApiException(422, body.errors.joinToString("; ") { it.message }, isSyntheticStatus = true)
         }
         return body.data ?: throw GitHubApiException(500, "Empty GraphQL response", isSyntheticStatus = true)
@@ -543,6 +572,521 @@ class GitHubGraphQlService(
             }
         """.trimIndent()
         execute(mutation, mapOf("pullRequestId" to pullRequestId))
+    }
+
+    suspend fun fetchPullReviewSyncState(
+        owner: String,
+        repo: String,
+        number: Int
+    ): PullReviewSyncState {
+        val firstQuery = """
+            query(${"$"}owner: String!, ${"$"}name: String!, ${"$"}number: Int!) {
+              repository(owner: ${"$"}owner, name: ${"$"}name) {
+                pullRequest(number: ${"$"}number) {
+                  files(first: 100) {
+                    pageInfo { hasNextPage endCursor }
+                    nodes {
+                      path
+                      viewerViewedState
+                    }
+                  }
+                  reviews(first: 10, states: [PENDING]) {
+                    nodes {
+                      id
+                      body
+                      comments(first: 100) {
+                        nodes {
+                          id
+                          path
+                          line
+                          originalLine
+                          startLine
+                          subjectType
+                          body
+                          createdAt
+                          viewerCanUpdate
+                          viewerCanDelete
+                          author { login avatarUrl url }
+                        }
+                      }
+                    }
+                  }
+                  reviewThreads(first: 100) {
+                    nodes {
+                      id
+                      path
+                      line
+                      originalLine
+                      startLine
+                      diffSide
+                      subjectType
+                      isResolved
+                      isOutdated
+                      comments(first: 20) {
+                        nodes {
+                          id
+                          body
+                          createdAt
+                          state
+                          viewerCanUpdate
+                          viewerCanDelete
+                          author { login avatarUrl url }
+                          pullRequestReview { id state }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+        """.trimIndent()
+
+        val firstData = executeJson(
+            query = firstQuery,
+            variables = buildJsonObject {
+                put("owner", owner)
+                put("name", repo)
+                put("number", number)
+            }
+        )
+        val prNode = firstData.obj("repository")?.obj("pullRequest")
+            ?: throw GitHubApiException(404, "Pull Request #$number not found in $owner/$repo", isSyntheticStatus = true)
+
+        val viewedStates = linkedMapOf<String, FileViewedState>()
+        fun collectViewedFiles(filesObj: JsonObject?): String? {
+            filesObj?.arr("nodes").orEmpty().forEach { el ->
+                val obj = el as? JsonObject ?: return@forEach
+                val path = obj.str("path") ?: return@forEach
+                val state = when (obj.str("viewerViewedState")?.uppercase()) {
+                    "VIEWED" -> FileViewedState.VIEWED
+                    "DISMISSED" -> FileViewedState.DISMISSED
+                    else -> FileViewedState.UNVIEWED
+                }
+                viewedStates[path] = state
+            }
+            val pageInfo = filesObj?.obj("pageInfo")
+            val hasNext = pageInfo?.bool("hasNextPage") == true
+            val endCursor = pageInfo?.str("endCursor")
+            return if (hasNext && !endCursor.isNullOrBlank()) endCursor else null
+        }
+
+        var nextCursor = collectViewedFiles(prNode.obj("files"))
+        var pagesFetched = 1
+        val nextFilesQuery = """
+            query(${"$"}owner: String!, ${"$"}name: String!, ${"$"}number: Int!, ${"$"}after: String!) {
+              repository(owner: ${"$"}owner, name: ${"$"}name) {
+                pullRequest(number: ${"$"}number) {
+                  files(first: 100, after: ${"$"}after) {
+                    pageInfo { hasNextPage endCursor }
+                    nodes {
+                      path
+                      viewerViewedState
+                    }
+                  }
+                }
+              }
+            }
+        """.trimIndent()
+        while (nextCursor != null && pagesFetched < MAX_REVIEW_FILES_PAGES) {
+            val pageData = executeJson(
+                query = nextFilesQuery,
+                variables = buildJsonObject {
+                    put("owner", owner)
+                    put("name", repo)
+                    put("number", number)
+                    put("after", nextCursor)
+                }
+            )
+            val pageFiles = pageData.obj("repository")?.obj("pullRequest")?.obj("files")
+            nextCursor = collectViewedFiles(pageFiles)
+            pagesFetched++
+        }
+
+        val sideByCommentId = mutableMapOf<String, String>()
+        val threads = prNode.obj("reviewThreads")?.arr("nodes").orEmpty().mapNotNull { el ->
+            val obj = el as? JsonObject ?: return@mapNotNull null
+            val threadId = obj.str("id") ?: return@mapNotNull null
+            val path = obj.str("path") ?: return@mapNotNull null
+            val line = obj.int("line")
+            val originalLine = obj.int("originalLine")
+            val startLine = obj.int("startLine")
+            val diffSide = obj.str("diffSide")
+            val subjectType = obj.str("subjectType") ?: "LINE"
+            val comments = obj.obj("comments")?.arr("nodes").orEmpty().mapNotNull { cEl ->
+                val cObj = cEl as? JsonObject ?: return@mapNotNull null
+                val cId = cObj.str("id") ?: return@mapNotNull null
+                if (!diffSide.isNullOrBlank()) {
+                    sideByCommentId[cId] = diffSide
+                }
+                val reviewState = cObj.obj("pullRequestReview")?.str("state")?.uppercase()
+                val commentState = cObj.str("state")?.uppercase()
+                PullReviewComment(
+                    id = cId,
+                    path = path,
+                    line = line,
+                    originalLine = originalLine,
+                    startLine = startLine,
+                    diffSide = diffSide,
+                    subjectType = subjectType,
+                    body = cObj.str("body") ?: "",
+                    author = parseUser(cObj.obj("author")),
+                    createdAt = cObj.str("createdAt") ?: "",
+                    isPending = commentState == "PENDING" || reviewState == "PENDING",
+                    viewerCanUpdate = cObj.bool("viewerCanUpdate") ?: false,
+                    viewerCanDelete = cObj.bool("viewerCanDelete") ?: false
+                )
+            }
+            PullReviewThread(
+                id = threadId,
+                path = path,
+                line = line,
+                originalLine = originalLine,
+                startLine = startLine,
+                diffSide = diffSide,
+                subjectType = subjectType,
+                isResolved = obj.bool("isResolved") ?: false,
+                isOutdated = obj.bool("isOutdated") ?: false,
+                comments = comments
+            )
+        }
+
+        val pendingReviewNode = prNode.obj("reviews")?.arr("nodes")?.firstOrNull() as? JsonObject
+        val pendingReview = pendingReviewNode?.let { revObj ->
+            val revId = revObj.str("id") ?: return@let null
+            val revComments = revObj.obj("comments")?.arr("nodes").orEmpty().mapNotNull { cEl ->
+                val cObj = cEl as? JsonObject ?: return@mapNotNull null
+                val cId = cObj.str("id") ?: return@mapNotNull null
+                PullReviewComment(
+                    id = cId,
+                    path = cObj.str("path") ?: "",
+                    line = cObj.int("line"),
+                    originalLine = cObj.int("originalLine"),
+                    startLine = cObj.int("startLine"),
+                    diffSide = sideByCommentId[cId],
+                    subjectType = cObj.str("subjectType") ?: "LINE",
+                    body = cObj.str("body") ?: "",
+                    author = parseUser(cObj.obj("author")),
+                    createdAt = cObj.str("createdAt") ?: "",
+                    isPending = true,
+                    viewerCanUpdate = cObj.bool("viewerCanUpdate") ?: true,
+                    viewerCanDelete = cObj.bool("viewerCanDelete") ?: true
+                )
+            }
+            PendingPullReview(
+                id = revId,
+                body = revObj.str("body") ?: "",
+                comments = revComments
+            )
+        }
+
+        return PullReviewSyncState(
+            viewedStates = viewedStates,
+            pendingReview = pendingReview,
+            threads = threads
+        )
+    }
+
+    suspend fun markFileAsViewed(pullRequestId: String, path: String) {
+        val mutation = """
+            mutation(${"$"}pullRequestId: ID!, ${"$"}path: String!) {
+              markFileAsViewed(input: { pullRequestId: ${"$"}pullRequestId, path: ${"$"}path }) {
+                pullRequest { id }
+              }
+            }
+        """.trimIndent()
+        executeMutationJson(
+            query = mutation,
+            variables = buildJsonObject {
+                put("pullRequestId", pullRequestId)
+                put("path", path)
+            }
+        )
+    }
+
+    suspend fun unmarkFileAsViewed(pullRequestId: String, path: String) {
+        val mutation = """
+            mutation(${"$"}pullRequestId: ID!, ${"$"}path: String!) {
+              unmarkFileAsViewed(input: { pullRequestId: ${"$"}pullRequestId, path: ${"$"}path }) {
+                pullRequest { id }
+              }
+            }
+        """.trimIndent()
+        executeMutationJson(
+            query = mutation,
+            variables = buildJsonObject {
+                put("pullRequestId", pullRequestId)
+                put("path", path)
+            }
+        )
+    }
+
+    suspend fun createPendingPullReview(
+        pullRequestId: String,
+        commitOid: String?,
+        body: String = ""
+    ): PendingPullReview {
+        val mutation = """
+            mutation(${"$"}pullRequestId: ID!, ${"$"}commitOID: GitObjectID, ${"$"}body: String) {
+              addPullRequestReview(input: { pullRequestId: ${"$"}pullRequestId, commitOID: ${"$"}commitOID, body: ${"$"}body }) {
+                pullRequestReview {
+                  id
+                  body
+                  state
+                }
+              }
+            }
+        """.trimIndent()
+        val data = executeMutationJson(
+            query = mutation,
+            variables = buildJsonObject {
+                put("pullRequestId", pullRequestId)
+                if (!commitOid.isNullOrBlank()) put("commitOID", commitOid)
+                if (body.isNotBlank()) put("body", body)
+            }
+        )
+        val reviewObj = data.obj("addPullRequestReview")?.obj("pullRequestReview")
+            ?: throw GitHubApiException(422, "Failed to create pending review", isSyntheticStatus = true)
+        return PendingPullReview(
+            id = reviewObj.str("id") ?: throw GitHubApiException(422, "Missing pending review id", isSyntheticStatus = true),
+            body = reviewObj.str("body") ?: ""
+        )
+    }
+
+    suspend fun addPendingReviewThread(
+        pullRequestReviewId: String,
+        path: String,
+        body: String,
+        line: Int? = null,
+        side: String = "RIGHT",
+        startLine: Int? = null,
+        startSide: String? = null
+    ): PullReviewComment {
+        val hasLine = line != null && line > 0
+        val hasMultiLine = hasLine && startLine != null && startLine > 0 && startLine < line
+        val mutation = if (hasMultiLine) {
+            """
+                mutation(
+                  ${"$"}reviewId: ID!,
+                  ${"$"}path: String!,
+                  ${"$"}body: String!,
+                  ${"$"}line: Int!,
+                  ${"$"}side: DiffSide!,
+                  ${"$"}startLine: Int!,
+                  ${"$"}startSide: DiffSide!,
+                  ${"$"}subjectType: PullRequestReviewThreadSubjectType!
+                ) {
+                  addPullRequestReviewThread(input: {
+                    pullRequestReviewId: ${"$"}reviewId,
+                    path: ${"$"}path,
+                    body: ${"$"}body,
+                    line: ${"$"}line,
+                    side: ${"$"}side,
+                    startLine: ${"$"}startLine,
+                    startSide: ${"$"}startSide,
+                    subjectType: ${"$"}subjectType
+                  }) {
+                    thread {
+                      id
+                      comments(first: 1) {
+                        nodes {
+                          id
+                          path
+                          line
+                          originalLine
+                          startLine
+                          subjectType
+                          body
+                          createdAt
+                          author { login avatarUrl url }
+                        }
+                      }
+                    }
+                  }
+                }
+            """.trimIndent()
+        } else if (hasLine) {
+            """
+                mutation(
+                  ${"$"}reviewId: ID!,
+                  ${"$"}path: String!,
+                  ${"$"}body: String!,
+                  ${"$"}line: Int!,
+                  ${"$"}side: DiffSide!,
+                  ${"$"}subjectType: PullRequestReviewThreadSubjectType!
+                ) {
+                  addPullRequestReviewThread(input: {
+                    pullRequestReviewId: ${"$"}reviewId,
+                    path: ${"$"}path,
+                    body: ${"$"}body,
+                    line: ${"$"}line,
+                    side: ${"$"}side,
+                    subjectType: ${"$"}subjectType
+                  }) {
+                    thread {
+                      id
+                      comments(first: 1) {
+                        nodes {
+                          id
+                          path
+                          line
+                          originalLine
+                          startLine
+                          subjectType
+                          body
+                          createdAt
+                          author { login avatarUrl url }
+                        }
+                      }
+                    }
+                  }
+                }
+            """.trimIndent()
+        } else {
+            """
+                mutation(
+                  ${"$"}reviewId: ID!,
+                  ${"$"}path: String!,
+                  ${"$"}body: String!,
+                  ${"$"}subjectType: PullRequestReviewThreadSubjectType!
+                ) {
+                  addPullRequestReviewThread(input: {
+                    pullRequestReviewId: ${"$"}reviewId,
+                    path: ${"$"}path,
+                    body: ${"$"}body,
+                    subjectType: ${"$"}subjectType
+                  }) {
+                    thread {
+                      id
+                      comments(first: 1) {
+                        nodes {
+                          id
+                          path
+                          line
+                          originalLine
+                          startLine
+                          subjectType
+                          body
+                          createdAt
+                          author { login avatarUrl url }
+                        }
+                      }
+                    }
+                  }
+                }
+            """.trimIndent()
+        }
+
+        val normalizedSide = if (side.equals("LEFT", ignoreCase = true)) "LEFT" else "RIGHT"
+        val normalizedStartSide = if ((startSide ?: normalizedSide).equals("LEFT", ignoreCase = true)) "LEFT" else "RIGHT"
+        val data = executeMutationJson(
+            query = mutation,
+            variables = buildJsonObject {
+                put("reviewId", pullRequestReviewId)
+                put("path", path)
+                put("body", body)
+                put("subjectType", if (hasLine) "LINE" else "FILE")
+                if (hasLine) {
+                    put("line", line!!)
+                    put("side", normalizedSide)
+                }
+                if (hasMultiLine) {
+                    put("startLine", startLine!!)
+                    put("startSide", normalizedStartSide)
+                }
+            }
+        )
+        val commentObj = data.obj("addPullRequestReviewThread")
+            ?.obj("thread")
+            ?.obj("comments")
+            ?.arr("nodes")
+            ?.firstOrNull() as? JsonObject
+            ?: throw GitHubApiException(422, "Failed to add pending review comment", isSyntheticStatus = true)
+        return PullReviewComment(
+            id = commentObj.str("id") ?: "",
+            path = commentObj.str("path") ?: path,
+            line = commentObj.int("line") ?: line,
+            originalLine = commentObj.int("originalLine"),
+            startLine = commentObj.int("startLine") ?: startLine,
+            diffSide = if (hasLine) normalizedSide else null,
+            subjectType = commentObj.str("subjectType") ?: if (hasLine) "LINE" else "FILE",
+            body = commentObj.str("body") ?: body,
+            author = parseUser(commentObj.obj("author")),
+            createdAt = commentObj.str("createdAt") ?: "",
+            isPending = true,
+            viewerCanUpdate = true,
+            viewerCanDelete = true
+        )
+    }
+
+    suspend fun updatePullRequestReviewComment(commentId: String, body: String) {
+        val mutation = """
+            mutation(${"$"}commentId: ID!, ${"$"}body: String!) {
+              updatePullRequestReviewComment(input: { pullRequestReviewCommentId: ${"$"}commentId, body: ${"$"}body }) {
+                pullRequestReviewComment { id body }
+              }
+            }
+        """.trimIndent()
+        executeMutationJson(
+            query = mutation,
+            variables = buildJsonObject {
+                put("commentId", commentId)
+                put("body", body)
+            }
+        )
+    }
+
+    suspend fun deletePullRequestReviewComment(commentId: String) {
+        val mutation = """
+            mutation(${"$"}id: ID!) {
+              deletePullRequestReviewComment(input: { id: ${"$"}id }) {
+                pullRequestReviewComment { id }
+              }
+            }
+        """.trimIndent()
+        executeMutationJson(
+            query = mutation,
+            variables = buildJsonObject {
+                put("id", commentId)
+            }
+        )
+    }
+
+    suspend fun submitPullRequestReview(
+        pullRequestReviewId: String,
+        event: ReviewEvent,
+        body: String
+    ) {
+        val mutation = """
+            mutation(${"$"}reviewId: ID!, ${"$"}event: PullRequestReviewEvent!, ${"$"}body: String) {
+              submitPullRequestReview(input: { pullRequestReviewId: ${"$"}reviewId, event: ${"$"}event, body: ${"$"}body }) {
+                pullRequestReview { id state }
+              }
+            }
+        """.trimIndent()
+        executeMutationJson(
+            query = mutation,
+            variables = buildJsonObject {
+                put("reviewId", pullRequestReviewId)
+                put("event", event.apiValue)
+                if (body.isNotBlank()) put("body", body)
+            }
+        )
+    }
+
+    suspend fun deletePullRequestReview(pullRequestReviewId: String) {
+        val mutation = """
+            mutation(${"$"}reviewId: ID!) {
+              deletePullRequestReview(input: { pullRequestReviewId: ${"$"}reviewId }) {
+                pullRequestReview { id }
+              }
+            }
+        """.trimIndent()
+        executeMutationJson(
+            query = mutation,
+            variables = buildJsonObject {
+                put("reviewId", pullRequestReviewId)
+            }
+        )
     }
 
     private fun parseReactionGroups(array: JsonArray?): List<ReactionSummary> {
@@ -1164,6 +1708,7 @@ class GitHubGraphQlService(
         this[key]?.let { if (it is kotlinx.serialization.json.JsonNull) null else it.jsonPrimitive.booleanOrNull }
 
     companion object {
+        private const val MAX_REVIEW_FILES_PAGES = 30
         private val TRIAGE_OR_HIGHER_PERMS = setOf("ADMIN", "MAINTAIN", "WRITE", "TRIAGE")
         private val WRITE_OR_HIGHER_PERMS = setOf("ADMIN", "MAINTAIN", "WRITE")
         private val VALID_REACTION_CONTENTS = setOf(

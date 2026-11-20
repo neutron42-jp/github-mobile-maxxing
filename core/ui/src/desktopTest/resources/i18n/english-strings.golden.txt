@@ -875,6 +875,66 @@ retry	Retry
 reviewApproveLabel	Approve
 reviewCommentLabel	Comment
 reviewCommentLineTitle	Review Comment: zqa1:7301
+reviewModeAddPendingAction	Add to pending review
+reviewModeAllViewedReady	Choose a review decision or merge this pull request.
+reviewModeAllViewedTitle	All files reviewed (7301/7302)
+reviewModeAllViewedWithPending	Ready to submit your review with 7301 pending draft comments.
+reviewModeAutoCollapsedBinary	Binary or large file cannot be rendered inline.
+reviewModeAutoCollapsedDeleted	Deleted file collapsed for mobile review.
+reviewModeAutoCollapsedGenerated	Generated or lock file collapsed for mobile review.
+reviewModeCloseDesc	Exit review mode
+reviewModeCommentMode	Comment
+reviewModeContinueAction	Resume Review
+reviewModeDeleteCommentDesc	Delete pending comment
+reviewModeDiffCommentCount	7301 comments
+reviewModeDiscardAction	Discard
+reviewModeDiscardPendingConfirm	Discard 7301 pending draft comments? This cannot be undone.
+reviewModeDiscardPendingTitle	Discard pending review?
+reviewModeDismissedBadge	Changed
+reviewModeDraftsButton	Pending drafts
+reviewModeEditCommentDesc	Edit pending comment
+reviewModeEditCommentTitle	Edit Pending Comment
+reviewModeExpandRangeUp	Expand start line up
+reviewModeFilesListDesc	File list
+reviewModeFilesListTitle	Changed Files
+reviewModeHideDiffAction	Collapse diff
+reviewModeLineRangeLabel	Lines 7301–7302
+reviewModeLineSingleLabel	Line 7301
+reviewModeLineTapHint	Tap any line to comment or suggest changes.
+reviewModeMarkViewedAndNext	Viewed
+reviewModeNextFileDesc	Next file
+reviewModeNoPendingComments	No pending draft comments yet.
+reviewModeOutdatedBadge	Outdated
+reviewModePendingAdded	Added to pending review
+reviewModePendingBadge	Pending
+reviewModePendingCommentsHeader	Pending draft comments (7301)
+reviewModePendingCount	Pending (7301)
+reviewModePendingDeleteError	Failed to delete pending comment
+reviewModePendingDeleted	Deleted pending comment
+reviewModePendingDiscardError	Failed to discard pending review
+reviewModePendingDiscarded	Discarded pending review
+reviewModePendingSaveError	Failed to save pending comment
+reviewModePendingUpdated	Updated pending comment
+reviewModePostSingleAction	Post single comment
+reviewModePrevFileDesc	Previous file
+reviewModeRenamedFrom	Renamed from zqa1
+reviewModeResolvedBadge	Resolved
+reviewModeSaveEditAction	Update comment
+reviewModeShowDiffAction	Show diff
+reviewModeShrinkRange	Reset to single line
+reviewModeSmartOrderNote	Generated & deleted files placed at the end
+reviewModeStartAction	Review
+reviewModeSubmitPendingLabel	Submit review (7301)
+reviewModeSubmitReviewButton	Review
+reviewModeSuggestedCodeLabel	Suggested code
+reviewModeSuggestionMode	Suggestion
+reviewModeSuggestionNoteLabel	Explanation (optional)
+reviewModeSyncError	Failed to sync review state
+reviewModeTitle	Review Mode
+reviewModeUnmarkViewed	Unmark
+reviewModeViewedBadge	Viewed
+reviewModeViewedCounter	Viewed 7301/7302
+reviewModeViewedError	Failed to update viewed state
 reviewRequestChangesLabel	Request changes
 reviewStateApproved	APPROVED
 reviewStateChangesRequested	CHANGES REQUESTED

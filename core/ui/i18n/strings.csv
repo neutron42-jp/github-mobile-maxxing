@@ -1033,3 +1033,65 @@ editorAttachUnsupportedPrivateRepo,,Push permission is required to attach files 
 editorAttachChooserTitle,,"Select photo, video, or file",写真・動画・ファイルを選択
 editorAttachPickPhotoVideo,,Photo or Video,写真または動画
 editorAttachPickFile,,Browse Files,ファイルを選択
+
+# One-handed PR Review Mode
+reviewModeStartAction,,Review,レビュー開始
+reviewModeContinueAction,,Resume Review,レビューを再開
+reviewModeTitle,,Review Mode,レビューモード
+reviewModeCloseDesc,,Exit review mode,レビューモードを終了
+reviewModeViewedCounter,Int;Int,Viewed {0}/{1},確認済み {0}/{1}
+reviewModeFilesListDesc,,File list,ファイル一覧
+reviewModeFilesListTitle,,Changed Files,変更ファイル一覧
+reviewModeViewedBadge,,Viewed,確認済み
+reviewModeDismissedBadge,,Changed,更新あり
+reviewModeMarkViewedAndNext,,Viewed,確認済み
+reviewModeUnmarkViewed,,Unmark,未確認に戻す
+reviewModePrevFileDesc,,Previous file,前のファイル
+reviewModeNextFileDesc,,Next file,次のファイル
+reviewModePendingBadge,,Pending,保留中
+reviewModePendingCount,Int,Pending ({0}),保留中 ({0})
+reviewModeDraftsButton,,Pending drafts,保留中の下書き
+reviewModeSubmitReviewButton,,Review,レビュー
+reviewModeAutoCollapsedGenerated,,Generated or lock file collapsed for mobile review.,自動生成・lock ファイルのため折りたたんでいます。
+reviewModeAutoCollapsedDeleted,,Deleted file collapsed for mobile review.,削除のみのファイルのため折りたたんでいます。
+reviewModeAutoCollapsedBinary,,Binary or large file cannot be rendered inline.,バイナリまたは大容量ファイルのため差分を表示できません。
+reviewModeShowDiffAction,,Show diff,差分を表示
+reviewModeHideDiffAction,,Collapse diff,差分を折りたたむ
+reviewModeLineTapHint,,Tap any line to comment or suggest changes.,行をタップしてコメントや変更提案を作成できます。
+reviewModeCommentMode,,Comment,コメント
+reviewModeSuggestionMode,,Suggestion,変更提案
+reviewModeSuggestedCodeLabel,,Suggested code,提案するコード
+reviewModeSuggestionNoteLabel,,Explanation (optional),説明コメント（任意）
+reviewModeAddPendingAction,,Add to pending review,保留中レビューに追加
+reviewModePostSingleAction,,Post single comment,単発コメントを投稿
+reviewModeSaveEditAction,,Update comment,コメントを更新
+reviewModePendingAdded,,Added to pending review,保留中のレビューに追加しました
+reviewModePendingUpdated,,Updated pending comment,保留中のコメントを更新しました
+reviewModePendingDeleted,,Deleted pending comment,保留中のコメントを削除しました
+reviewModePendingDiscarded,,Discarded pending review,保留中のレビューを破棄しました
+reviewModeDiscardPendingTitle,,Discard pending review?,保留中のレビューを破棄しますか？
+reviewModeDiscardPendingConfirm,Int,Discard {0} pending draft comments? This cannot be undone.,保留中の下書きコメント {0} 件を破棄しますか？この操作は取り消せません。
+reviewModeDiscardAction,,Discard,破棄する
+reviewModeEditCommentTitle,,Edit Pending Comment,保留中コメントを編集
+reviewModeDeleteCommentDesc,,Delete pending comment,保留中コメントを削除
+reviewModeEditCommentDesc,,Edit pending comment,保留中コメントを編集
+reviewModeResolvedBadge,,Resolved,解決済み
+reviewModeOutdatedBadge,,Outdated,古い差分
+reviewModeAllViewedTitle,Int;Int,All files reviewed ({0}/{1}),すべてのファイルを確認しました（{0}/{1}）
+reviewModeAllViewedWithPending,Int,Ready to submit your review with {0} pending draft comments.,保留中の下書きコメント {0} 件を含めてレビューを送信できます。
+reviewModeAllViewedReady,,Choose a review decision or merge this pull request.,承認・変更要求・コメント、またはマージを実行できます。
+reviewModePendingCommentsHeader,Int,Pending draft comments ({0}),保留中の下書きコメント（{0} 件）
+reviewModeNoPendingComments,,No pending draft comments yet.,保留中の下書きコメントはありません。
+reviewModeLineRangeLabel,Int;Int,Lines {0}–{1},{0}〜{1} 行目
+reviewModeLineSingleLabel,Int,Line {0},{0} 行目
+reviewModeExpandRangeUp,,Expand start line up,選択範囲を上に広げる
+reviewModeShrinkRange,,Reset to single line,1行選択に戻す
+reviewModeSubmitPendingLabel,Int,Submit review ({0}),レビューを送信 ({0})
+reviewModeViewedError,,Failed to update viewed state,確認済み状態の更新に失敗しました
+reviewModeSyncError,,Failed to sync review state,レビュー進捗の同期に失敗しました
+reviewModePendingSaveError,,Failed to save pending comment,保留中コメントの保存に失敗しました
+reviewModePendingDeleteError,,Failed to delete pending comment,保留中コメントの削除に失敗しました
+reviewModePendingDiscardError,,Failed to discard pending review,保留中レビューの破棄に失敗しました
+reviewModeRenamedFrom,String,Renamed from {0},変更前: {0}
+reviewModeSmartOrderNote,,Generated & deleted files placed at the end,自動生成・削除ファイルは末尾に配置されています
+reviewModeDiffCommentCount,Int,{0} comments,{0} 件のコメント
