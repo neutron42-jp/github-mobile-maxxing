@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,6 +23,7 @@ import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -59,11 +61,15 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.Copy
@@ -166,11 +172,7 @@ fun SignInScreen(
 
                     Spacer(Modifier.height(16.dp))
 
-                    Text(
-                        text = AppBranding.APP_NAME,
-                        style = MaterialTheme.typography.displaySmall,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    SignInWordmark()
                     Spacer(Modifier.height(6.dp))
                     Text(
                         text = if (platformCapabilities.usesIosCopy) strings.signInSubtitleIos else strings.signInSubtitle,
@@ -464,6 +466,86 @@ fun SignInScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * The wordmark with a zero-width break opportunity (U+200B) after each hyphen.
+ *
+ * `github-mobile-maxxing` is a single unbreakable token for the text layout, so it used to
+ * break in the middle of "maxxing" and strand the final "g" on its own line when the card
+ * is narrower than the wordmark. The zero-width spaces keep the rendered wordmark
+ * identical while giving the line breaker the hyphen boundaries as preferred wrap points.
+ */
+internal val SignInWordmarkText: String = AppBranding.APP_NAME.replace("-", "-\u200B")
+
+/** Smallest size the wordmark shrinks to before it wraps at a hyphen instead. */
+internal val SignInWordmarkMinFontSize = 24.sp
+
+private fun TextStyle.wordmarkAt(fontSize: TextUnit): TextStyle {
+    val ratio = if (this.fontSize.value > 0f) fontSize.value / this.fontSize.value else 1f
+    return if (lineHeight.isSp) {
+        copy(fontSize = fontSize, lineHeight = (lineHeight.value * ratio).sp)
+    } else {
+        copy(fontSize = fontSize)
+    }
+}
+
+/**
+ * Product wordmark shown at the top of the sign-in card.
+ *
+ * On narrow layouts the wordmark shrinks just enough to stay on one line, down to
+ * [SignInWordmarkMinFontSize]. If even that size cannot fit (very narrow screens or enlarged
+ * system text), it wraps at the hyphens instead of breaking mid-word, and wrapped lines are
+ * centred so the mark still reads as one balanced unit. Wider screens keep the unchanged
+ * `displaySmall` layout.
+ *
+ * [onTextLayout] is only used by layout regression tests to observe the resolved line box.
+ */
+@Composable
+internal fun SignInWordmark(
+    modifier: Modifier = Modifier,
+    onTextLayout: ((TextLayoutResult) -> Unit)? = null
+) {
+    val baseStyle = MaterialTheme.typography.displaySmall
+    val minStyle = baseStyle.wordmarkAt(SignInWordmarkMinFontSize)
+    BoxWithConstraints(modifier = modifier) {
+        val density = LocalDensity.current
+        val measurer = rememberTextMeasurer()
+        val availableWidthPx = if (maxWidth.value.isFinite()) {
+            with(density) { maxWidth.roundToPx() }
+        } else {
+            Int.MAX_VALUE
+        }
+        val widthAtMinSize = measurer.measure(
+            text = AnnotatedString(AppBranding.APP_NAME),
+            style = minStyle,
+            maxLines = 1,
+            softWrap = false
+        ).size.width
+        if (widthAtMinSize <= availableWidthPx) {
+            Text(
+                text = AppBranding.APP_NAME,
+                style = baseStyle,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                autoSize = TextAutoSize.StepBased(
+                    minFontSize = SignInWordmarkMinFontSize,
+                    maxFontSize = baseStyle.fontSize,
+                    stepSize = 0.5.sp
+                ),
+                onTextLayout = onTextLayout
+            )
+        } else {
+            Text(
+                text = SignInWordmarkText,
+                style = minStyle,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                onTextLayout = onTextLayout
+            )
         }
     }
 }
