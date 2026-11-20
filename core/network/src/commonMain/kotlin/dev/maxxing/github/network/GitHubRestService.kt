@@ -715,8 +715,58 @@ private data class FileMutationCommitDto(
 )
 
 @Serializable
+private data class FileMutationContentDto(
+    val path: String = "",
+    @SerialName("download_url") val downloadUrl: String = "",
+    @SerialName("html_url") val htmlUrl: String = ""
+)
+
+@Serializable
 private data class FileMutationResultDto(
+    val content: FileMutationContentDto? = null,
     val commit: FileMutationCommitDto? = null
+)
+
+@Serializable
+private data class CreateGitBlobRequest(
+    val content: String,
+    val encoding: String = "base64"
+)
+
+@Serializable
+private data class GitShaDto(
+    val sha: String = ""
+)
+
+@Serializable
+private data class GitTreeEntryRequest(
+    val path: String,
+    val mode: String = "100644",
+    val type: String = "blob",
+    val sha: String
+)
+
+@Serializable
+private data class CreateGitTreeRequest(
+    val tree: List<GitTreeEntryRequest>
+)
+
+@Serializable
+private data class CreateGitCommitRequest(
+    val message: String,
+    val tree: String,
+    val parents: List<String> = emptyList()
+)
+
+@Serializable
+private data class CreateGitRefRequest(
+    val ref: String,
+    val sha: String
+)
+
+@Serializable
+private data class RestViewerLoginDto(
+    val login: String = ""
 )
 
 @Serializable
@@ -2727,5 +2777,191 @@ class GitHubRestService(
         "copied" -> FileChangeStatus.COPIED
         "changed" -> FileChangeStatus.CHANGED
         else -> FileChangeStatus.MODIFIED
+    }
+
+    @OptIn(ExperimentalEncodingApi::class)
+    suspend fun uploadMediaAttachment(
+        targetOwner: String,
+        targetRepo: String,
+        fileName: String,
+        mimeType: String,
+        bytes: ByteArray,
+        viewerLoginHint: String? = null
+    ): UploadedAttachment {
+        if (bytes.isEmpty()) throw AttachmentException.Empty()
+        if (bytes.size > MAX_ATTACHMENT_BYTES) throw AttachmentException.TooLarge(bytes.size.toLong())
+
+        val cleanOwner = targetOwner.trim()
+        val cleanRepo = targetRepo.trim()
+        require(cleanOwner.isNotEmpty() && cleanRepo.isNotEmpty()) { "Target repository is required" }
+
+        val targetRepoRes = httpClient.get(repoPath(cleanOwner, cleanRepo))
+        if (!targetRepoRes.status.isSuccess()) {
+            throw GitHubApiException(
+                targetRepoRes.status.value,
+                "Failed to load target repository (${targetRepoRes.status.value})"
+            )
+        }
+        val targetDto = targetRepoRes.body<RestRepoDto>()
+        val encodedBytes = Base64.Default.encode(bytes)
+        val attachmentPath = buildAttachmentRepoPath(cleanOwner, cleanRepo, fileName, mimeType)
+        val commitMessage = "Upload attachment ${sanitizeAttachmentFileName(fileName, mimeType)}"
+
+        val resolvedUrl = if (targetDto.private) {
+            val perms = targetDto.permissions
+            if (perms != null && !perms.admin && !perms.maintain && !perms.push) {
+                throw AttachmentException.PrivateRepoPermissionDenied()
+            }
+            uploadToOrphanBranch(
+                owner = cleanOwner,
+                repo = cleanRepo,
+                path = attachmentPath,
+                encodedBase64 = encodedBytes,
+                message = commitMessage
+            )
+            "https://github.com/$cleanOwner/$cleanRepo/blob/$ATTACHMENT_ORPHAN_BRANCH/${encodeRepoSubPath(attachmentPath)}?raw=true"
+        } else {
+            val viewerLogin = viewerLoginHint?.trim()?.takeIf { it.isNotEmpty() } ?: fetchViewerLoginRest()
+            val hostRepo = ensurePublicAttachmentsHostRepo(viewerLogin)
+            val result = upsertBinaryFile(
+                owner = hostRepo.owner,
+                repo = hostRepo.name,
+                path = attachmentPath,
+                encodedBase64 = encodedBytes,
+                message = commitMessage,
+                branch = hostRepo.defaultBranch
+            )
+            result.content?.downloadUrl?.takeIf { it.isNotBlank() }
+                ?: "https://raw.githubusercontent.com/${hostRepo.owner}/${hostRepo.name}/${encodeRepoSubPath(hostRepo.defaultBranch)}/${encodeRepoSubPath(attachmentPath)}"
+        }
+
+        val displayName = fileName.trim().ifEmpty { sanitizeAttachmentFileName(fileName, mimeType) }
+        return UploadedAttachment(
+            fileName = displayName,
+            mimeType = mimeType,
+            downloadUrl = resolvedUrl,
+            markdownSnippet = formatAttachmentMarkdown(displayName, mimeType, resolvedUrl)
+        )
+    }
+
+    private suspend fun fetchViewerLoginRest(): String {
+        val res = httpClient.get("$baseUrl/user")
+        if (!res.status.isSuccess()) {
+            throw GitHubApiException(res.status.value, "Failed to resolve signed-in user (${res.status.value})")
+        }
+        return res.body<RestViewerLoginDto>().login.trim().also {
+            if (it.isEmpty()) throw IllegalStateException("Signed-in user login is empty")
+        }
+    }
+
+    private suspend fun ensurePublicAttachmentsHostRepo(viewerLogin: String): RepoSummary {
+        val getRes = httpClient.get(repoPath(viewerLogin, ATTACHMENT_HOST_REPO_NAME))
+        if (getRes.status.isSuccess()) {
+            return getRes.body<RestRepoDto>().toRepoSummary()
+        }
+        if (getRes.status != HttpStatusCode.NotFound) {
+            throw GitHubApiException(
+                getRes.status.value,
+                "Failed to access attachment host repository (${getRes.status.value})"
+            )
+        }
+        return createRepositoryRest(
+            name = ATTACHMENT_HOST_REPO_NAME,
+            description = "Media and file attachments uploaded from GitHub Maxxing",
+            isPrivate = false,
+            autoInit = true
+        )
+    }
+
+    private suspend fun uploadToOrphanBranch(
+        owner: String,
+        repo: String,
+        path: String,
+        encodedBase64: String,
+        message: String
+    ) {
+        val refRes = httpClient.get("${repoPath(owner, repo)}/git/ref/heads/$ATTACHMENT_ORPHAN_BRANCH")
+        if (refRes.status.isSuccess()) {
+            upsertBinaryFile(owner, repo, path, encodedBase64, message, ATTACHMENT_ORPHAN_BRANCH)
+            return
+        }
+        if (refRes.status == HttpStatusCode.Forbidden) {
+            throw AttachmentException.PrivateRepoPermissionDenied()
+        }
+        if (refRes.status != HttpStatusCode.NotFound) {
+            throw GitHubApiException(refRes.status.value, "Failed to inspect attachment branch (${refRes.status.value})")
+        }
+
+        val blobRes = httpClient.post("${repoPath(owner, repo)}/git/blobs") {
+            contentType(ContentType.Application.Json)
+            setBody(CreateGitBlobRequest(content = encodedBase64))
+        }
+        if (blobRes.status == HttpStatusCode.Forbidden) throw AttachmentException.PrivateRepoPermissionDenied()
+        if (!blobRes.status.isSuccess()) {
+            throw GitHubApiException(blobRes.status.value, "Failed to upload attachment blob (${blobRes.status.value})")
+        }
+        val blobSha = blobRes.body<GitShaDto>().sha
+
+        val treeRes = httpClient.post("${repoPath(owner, repo)}/git/trees") {
+            contentType(ContentType.Application.Json)
+            setBody(CreateGitTreeRequest(tree = listOf(GitTreeEntryRequest(path = path, sha = blobSha))))
+        }
+        if (!treeRes.status.isSuccess()) {
+            throw GitHubApiException(treeRes.status.value, "Failed to create attachment tree (${treeRes.status.value})")
+        }
+        val treeSha = treeRes.body<GitShaDto>().sha
+
+        val commitRes = httpClient.post("${repoPath(owner, repo)}/git/commits") {
+            contentType(ContentType.Application.Json)
+            setBody(CreateGitCommitRequest(message = message, tree = treeSha, parents = emptyList()))
+        }
+        if (!commitRes.status.isSuccess()) {
+            throw GitHubApiException(commitRes.status.value, "Failed to commit attachment (${commitRes.status.value})")
+        }
+        val commitSha = commitRes.body<GitShaDto>().sha
+
+        val createRefRes = httpClient.post("${repoPath(owner, repo)}/git/refs") {
+            contentType(ContentType.Application.Json)
+            setBody(CreateGitRefRequest(ref = "refs/heads/$ATTACHMENT_ORPHAN_BRANCH", sha = commitSha))
+        }
+        if (createRefRes.status == HttpStatusCode.UnprocessableEntity) {
+            // Concurrent creation: the branch already exists now, so upload normally onto it.
+            upsertBinaryFile(owner, repo, path, encodedBase64, message, ATTACHMENT_ORPHAN_BRANCH)
+            return
+        }
+        if (createRefRes.status == HttpStatusCode.Forbidden) throw AttachmentException.PrivateRepoPermissionDenied()
+        if (!createRefRes.status.isSuccess()) {
+            throw GitHubApiException(
+                createRefRes.status.value,
+                "Failed to create attachment branch (${createRefRes.status.value})"
+            )
+        }
+    }
+
+    private suspend fun upsertBinaryFile(
+        owner: String,
+        repo: String,
+        path: String,
+        encodedBase64: String,
+        message: String,
+        branch: String
+    ): FileMutationResultDto {
+        val res = httpClient.put("${repoPath(owner, repo)}/contents/${encodeRepoSubPath(path)}") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                UpsertFileContentRequest(
+                    message = message,
+                    content = encodedBase64,
+                    branch = branch
+                )
+            )
+        }
+        if (res.status == HttpStatusCode.Forbidden) {
+            throw AttachmentException.PrivateRepoPermissionDenied()
+        }
+        if (!res.status.isSuccess()) {
+            throw GitHubApiException(res.status.value, "Failed to upload attachment (${res.status.value})")
+        }
+        return res.body<FileMutationResultDto>()
     }
 }

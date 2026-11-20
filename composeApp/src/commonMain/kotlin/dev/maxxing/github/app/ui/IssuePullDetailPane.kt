@@ -89,12 +89,14 @@ import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.RefreshCw
 import com.composables.icons.lucide.Search
 import com.composables.icons.lucide.Send
+import com.composables.icons.lucide.ShieldAlert
 import com.composables.icons.lucide.Tag
 import com.composables.icons.lucide.Trash2
 import com.composables.icons.lucide.Users
 import com.composables.icons.lucide.X
 import dev.maxxing.github.app.AppContainer
 import dev.maxxing.github.app.IssuePullTarget
+import dev.maxxing.github.app.attachments.rememberEditorAttachmentController
 import dev.maxxing.github.auth.openUrlInBrowser
 import dev.maxxing.github.model.CheckRunSummary
 import dev.maxxing.github.model.IssueOrPullDetail
@@ -128,6 +130,7 @@ import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.RepoLabelsPickerDialog
 import dev.maxxing.github.ui.components.SplitActionOption
 import dev.maxxing.github.ui.components.UserAvatar
+import dev.maxxing.github.ui.components.appendAttachmentMarkdown
 import dev.maxxing.github.ui.components.diffFileLazyItems
 import dev.maxxing.github.ui.i18n.AppStrings
 import dev.maxxing.github.ui.i18n.appStrings
@@ -193,13 +196,17 @@ internal fun parseActionsRunUrl(detailsUrl: String): ActionsRunTarget? {
     return ActionsRunTarget(owner = owner, repo = repo, runId = runId, jobId = jobId)
 }
 
+internal fun isPullConflicting(mergeable: String?, mergeStateStatus: String?): Boolean =
+    mergeable.equals("CONFLICTING", ignoreCase = true) ||
+        mergeStateStatus?.uppercase() == "DIRTY"
+
 internal fun resolvePullMergeBlockReason(
     detail: IssueOrPullDetail,
     checkRuns: List<CheckRunSummary>?,
     strings: AppStrings
 ): String? {
     val mergeState = detail.mergeStateStatus?.uppercase()
-    if (detail.mergeable.equals("CONFLICTING", ignoreCase = true) || mergeState == "DIRTY") {
+    if (isPullConflicting(detail.mergeable, detail.mergeStateStatus)) {
         return strings.issueMergeBlockedConflicts
     }
     val hasPendingChecks = hasPendingCheckRuns(checkRuns) ||
@@ -351,6 +358,7 @@ private fun IssuePullDetailPaneContent(
 
     val scope = rememberCoroutineScope()
     val strings = appStrings()
+    val attachmentController = rememberEditorAttachmentController(container, target.owner, target.repo, onMessage)
 
     var pendingDiffCommentTarget by remember(targetKey) { mutableStateOf<Triple<String, Int?, String>?>(null) }
     var diffCommentBody by remember(targetKey) { mutableStateOf("") }
@@ -376,12 +384,6 @@ private fun IssuePullDetailPaneContent(
         openedActionsTarget = actionsTarget
         workflowRunError = null
         workflowRunLoading = true
-        val requestedJobId = actionsTarget.jobId
-        val shouldPrefetchLogs = requestedJobId != null && openedLogJob == null && !forceRefresh
-        if (shouldPrefetchLogs) {
-            jobLogsLoading = true
-            jobLogsText = null
-        }
         scope.launch {
             coroutineScope {
                 val runJob = async {
@@ -400,11 +402,6 @@ private fun IssuePullDetailPaneContent(
                         forceRefresh = forceRefresh
                     )
                 }
-                val logsJob = if (shouldPrefetchLogs) {
-                    async {
-                        container.repository.getJobLogs(actionsTarget.owner, actionsTarget.repo, requestedJobId)
-                    }
-                } else null
 
                 runJob.await().onSuccess { run ->
                     openedWorkflowRun = run
@@ -414,28 +411,10 @@ private fun IssuePullDetailPaneContent(
 
                 jobsJob.await().onSuccess { jobs ->
                     openedWorkflowJobs = jobs
-                    if (shouldPrefetchLogs) {
-                        val matched = jobs.firstOrNull { it.id == requestedJobId }
-                        if (matched != null) {
-                            openedLogJob = matched
-                        } else {
-                            jobLogsLoading = false
-                        }
-                    }
                 }.onFailure { err ->
                     if (workflowRunError == null) {
                         workflowRunError = strings.errorMessage(err, strings.failedLoadJobs)
                     }
-                    if (shouldPrefetchLogs) {
-                        jobLogsLoading = false
-                    }
-                }
-
-                if (logsJob != null) {
-                    logsJob.await()
-                        .onSuccess { jobLogsText = it }
-                        .onFailure { jobLogsText = strings.errorMessage(it, strings.failedLoadLogs) }
-                    jobLogsLoading = false
                 }
             }
             workflowRunLoading = false
@@ -1130,7 +1109,8 @@ private fun IssuePullDetailPaneContent(
                     state = item.state,
                     isDraft = item.isDraft,
                     canMerge = item.viewerCanMerge,
-                    canUpdate = item.viewerCanUpdate
+                    canUpdate = item.viewerCanUpdate,
+                    hasConflicts = isPullConflicting(item.mergeable, item.mergeStateStatus)
                 )
 
                 // MD3E Floating Action Toolbar at bottom
@@ -1145,6 +1125,7 @@ private fun IssuePullDetailPaneContent(
                     onReviewClick = { showReviewDialog = true },
                     onSelectMergeMethod = { selectedMergeMethod = it },
                     onMergeClick = { pendingMergeConfirmMethod = it },
+                    onConflictingClick = { onMessage(strings.issueMergeBlockedConflicts) },
                     onReadyForReviewClick = toggleDraft,
                     onStateToggleClick = { pendingStateConfirmOpen = it },
                     modifier = Modifier
@@ -1315,6 +1296,12 @@ private fun IssuePullDetailPaneContent(
             onBodyChange = { commentDraft = it },
             bodyLabel = strings.issueCommentLabel,
             supportsMarkdownPreview = true,
+            onAttachMedia = {
+                attachmentController.attach { snippet ->
+                    commentDraft = appendAttachmentMarkdown(commentDraft, snippet)
+                }
+            },
+            isAttachingMedia = attachmentController.isUploading,
             onDismiss = { showCommentDialog = false },
             onSave = {
                 val text = commentDraft
@@ -1345,6 +1332,12 @@ private fun IssuePullDetailPaneContent(
             onBodyChange = { reviewBody = it },
             bodyLabel = strings.issueReviewSummaryLabel,
             supportsMarkdownPreview = true,
+            onAttachMedia = {
+                attachmentController.attach { snippet ->
+                    reviewBody = appendAttachmentMarkdown(reviewBody, snippet)
+                }
+            },
+            isAttachingMedia = attachmentController.isUploading,
             onDismiss = { showReviewDialog = false },
             onSave = {
                 val event = reviewEvent
@@ -1611,6 +1604,12 @@ private fun IssuePullDetailPaneContent(
             onBodyChange = { diffCommentBody = it },
             bodyLabel = strings.diffCommentBodyLabel,
             supportsMarkdownPreview = true,
+            onAttachMedia = {
+                attachmentController.attach { snippet ->
+                    diffCommentBody = appendAttachmentMarkdown(diffCommentBody, snippet)
+                }
+            },
+            isAttachingMedia = attachmentController.isUploading,
             onDismiss = { pendingDiffCommentTarget = null },
             onSave = {
                 val bodyToPost = diffCommentBody.trim()
@@ -1650,6 +1649,12 @@ private fun IssuePullDetailPaneContent(
             onBodyChange = { editingCommentBody = it },
             bodyLabel = strings.editCommentBodyLabel,
             supportsMarkdownPreview = true,
+            onAttachMedia = {
+                attachmentController.attach { snippet ->
+                    editingCommentBody = appendAttachmentMarkdown(editingCommentBody, snippet)
+                }
+            },
+            isAttachingMedia = attachmentController.isUploading,
             onDismiss = { editingComment = null },
             onSave = {
                 val newBody = editingCommentBody.trim()
@@ -1841,6 +1846,7 @@ private fun IssuePullDetailPaneContent(
                         isLoading = workflowRunLoading,
                         actionBusy = workflowActionBusy,
                         canManageRuns = detail?.viewerCanMerge == true,
+                        highlightedJobId = actionsTarget.jobId,
                         onBack = {
                             openedActionsTarget = null
                             openedWorkflowRun = null
@@ -1938,7 +1944,8 @@ internal fun IssuePullFloatingToolbar(
     onReadyForReviewClick: () -> Unit,
     onStateToggleClick: (willOpen: Boolean) -> Unit,
     modifier: Modifier = Modifier,
-    scrollState: ScrollState = rememberScrollState()
+    scrollState: ScrollState = rememberScrollState(),
+    onConflictingClick: () -> Unit = {}
 ) {
     val strings = appStrings()
     val toolbarButtonColors = MaxxingFloatingToolbarDefaults.vibrantButtonColors()
@@ -2007,6 +2014,22 @@ internal fun IssuePullFloatingToolbar(
                         onPrimaryClick = onMergeClick
                     )
                 }
+                PrPrimaryAction.CONFLICTING -> {
+                    Spacer(Modifier.width(4.dp))
+                    FilledTonalButton(
+                        onClick = onConflictingClick,
+                        enabled = !actionBusy,
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer
+                        ),
+                        contentPadding = pillButtonPadding
+                    ) {
+                        Icon(Lucide.ShieldAlert, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(strings.issueConflictingAction, maxLines = 1, softWrap = false)
+                    }
+                }
                 PrPrimaryAction.MARK_READY -> {
                     Spacer(Modifier.width(4.dp))
                     Button(
@@ -2060,23 +2083,26 @@ internal fun IssuePullFloatingToolbar(
     }
 }
 
-internal enum class PrPrimaryAction { NONE, MERGE, MARK_READY }
+internal enum class PrPrimaryAction { NONE, MERGE, CONFLICTING, MARK_READY }
 
 /**
  * Decides the primary action shown in the detail toolbar. Like GitHub web, a draft PR
- * offers "Ready for review" instead of a disabled merge button.
+ * offers "Ready for review" instead of a disabled merge button, and a conflicting PR
+ * surfaces its conflicting state in place of the merge button.
  */
 internal fun prPrimaryAction(
     isPr: Boolean,
     state: IssueOrPullState,
     isDraft: Boolean,
     canMerge: Boolean,
-    canUpdate: Boolean
+    canUpdate: Boolean,
+    hasConflicts: Boolean = false
 ): PrPrimaryAction = when {
     !isPr || state != IssueOrPullState.OPEN -> PrPrimaryAction.NONE
     isDraft -> if (canUpdate) PrPrimaryAction.MARK_READY else PrPrimaryAction.NONE
-    canMerge -> PrPrimaryAction.MERGE
-    else -> PrPrimaryAction.NONE
+    !canMerge -> PrPrimaryAction.NONE
+    hasConflicts -> PrPrimaryAction.CONFLICTING
+    else -> PrPrimaryAction.MERGE
 }
 
 @Composable
@@ -2170,6 +2196,17 @@ private fun DetailHeaderCard(
                         label = strings.formatReviewStateLabel(decision),
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,
                         contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+                if (item.kind == IssueOrPullKind.PULL_REQUEST &&
+                    item.state == IssueOrPullState.OPEN &&
+                    isPullConflicting(item.mergeable, item.mergeStateStatus)
+                ) {
+                    ExpressiveStatusPill(
+                        label = strings.issueConflictingBadge,
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        icon = Lucide.ShieldAlert
                     )
                 }
             }

@@ -90,6 +90,21 @@ class PrFloatingToolbarLayoutTest {
     }
 
     @Test
+    fun conflictingPrToolbarDoesNotScrollHorizontallyOnPhoneWidths() {
+        for (language in listOf(AppLanguage.DEFAULT, AppLanguage.JAPANESE)) {
+            assertEquals(
+                0,
+                measureToolbarMaxScroll(
+                    widthDp = 360,
+                    language = language,
+                    primaryAction = PrPrimaryAction.CONFLICTING
+                ),
+                "Expected no horizontal scroll at 360dp for conflicting PR in $language"
+            )
+        }
+    }
+
+    @Test
     fun draftPrToolbarDoesNotScrollHorizontallyOnPhoneWidths() {
         assertEquals(
             0,

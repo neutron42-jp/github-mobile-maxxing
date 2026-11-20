@@ -21,4 +21,14 @@ class MaxxingFullScreenEditorTest {
         assertEquals("3 lines · 9 chars", formatEditorMetrics("a\nb\ncdefg", EnglishStrings))
         assertEquals("3 行 · 9 文字", formatEditorMetrics("a\nb\ncdefg", JapaneseStrings))
     }
+
+    @Test
+    fun appendAttachmentMarkdownHandlesBlankSingleAndBlankLineSuffixes() {
+        val snippet = "![shot.png](https://example.com/shot.png)"
+        assertEquals(snippet, appendAttachmentMarkdown("", snippet))
+        assertEquals(snippet, appendAttachmentMarkdown("   \n", snippet))
+        assertEquals("Repro steps\n\n$snippet", appendAttachmentMarkdown("Repro steps", snippet))
+        assertEquals("Repro steps\n\n$snippet", appendAttachmentMarkdown("Repro steps\n", snippet))
+        assertEquals("Repro steps\n\n$snippet", appendAttachmentMarkdown("Repro steps\n\n", snippet))
+    }
 }

@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,6 +32,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -190,6 +192,8 @@ import dev.maxxing.github.ui.components.MaxxingTopHeaderDefaults
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.StarActionButton
 import dev.maxxing.github.ui.components.UserAvatar
+import dev.maxxing.github.app.attachments.rememberEditorAttachmentController
+import dev.maxxing.github.ui.components.appendAttachmentMarkdown
 import dev.maxxing.github.ui.components.diffFileLazyItems
 import dev.maxxing.github.ui.components.expressiveAnimateContentSize
 import dev.maxxing.github.ui.components.formatCompactCount
@@ -1285,6 +1289,7 @@ fun RepoDetailScreen(
     var newIssueBody by remember(repo.fullName) { mutableStateOf("") }
     var creatingIssue by remember(repo.fullName) { mutableStateOf(false) }
     var createIssueError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    val issuePrAttachmentController = rememberEditorAttachmentController(container, repo.owner, repo.name, onMessage)
     var showIssueLabelPicker by remember(repo.fullName) { mutableStateOf(false) }
     var availableIssueLabels by remember(repo.fullName) { mutableStateOf<List<LabelTag>>(emptyList()) }
     var issueLabelsLoading by remember(repo.fullName) { mutableStateOf(false) }
@@ -3360,6 +3365,12 @@ fun RepoDetailScreen(
             onBodyChange = { newIssueBody = it },
             bodyLabel = strings.repoDescriptionMarkdown,
             supportsMarkdownPreview = true,
+            onAttachMedia = {
+                issuePrAttachmentController.attach { snippet ->
+                    newIssueBody = appendAttachmentMarkdown(newIssueBody, snippet)
+                }
+            },
+            isAttachingMedia = issuePrAttachmentController.isUploading,
             onDismiss = {
                 if (!creatingIssue) {
                     showCreateIssueDialog = false
@@ -3849,6 +3860,8 @@ fun RepoDetailScreen(
             initialBase = defaultBase,
             isSubmitting = creatingPr,
             errorMsg = createPrError,
+            onAttachMedia = { onSnippet -> issuePrAttachmentController.attach(onSnippet) },
+            isAttachingMedia = issuePrAttachmentController.isUploading,
             onDismiss = { showCreatePrDialog = false },
             onCreate = { title, body, head, base, isDraft ->
                 scope.launch {
@@ -4002,6 +4015,8 @@ private fun CreatePullRequestDialog(
     initialBase: String,
     isSubmitting: Boolean,
     errorMsg: String?,
+    onAttachMedia: ((String) -> Unit) -> Unit,
+    isAttachingMedia: Boolean,
     onDismiss: () -> Unit,
     onCreate: (title: String, body: String, head: String, base: String, draft: Boolean) -> Unit
 ) {
@@ -4023,6 +4038,8 @@ private fun CreatePullRequestDialog(
         onBodyChange = { body = it },
         bodyLabel = strings.repoDescriptionMarkdown,
         supportsMarkdownPreview = true,
+        onAttachMedia = { onAttachMedia { snippet -> body = appendAttachmentMarkdown(body, snippet) } },
+        isAttachingMedia = isAttachingMedia,
         onDismiss = onDismiss,
         onSave = { onCreate(title.trim(), body.trim(), head.trim(), base.trim(), isDraft) },
         headerContent = {
@@ -5013,10 +5030,20 @@ internal fun WorkflowRunDetailView(
     onRefresh: () -> Unit,
     onRerun: (failedOnly: Boolean) -> Unit,
     onCancel: () -> Unit,
-    onOpenLogs: (WorkflowJobSummary) -> Unit
+    onOpenLogs: (WorkflowJobSummary) -> Unit,
+    highlightedJobId: Long? = null
 ) {
     val strings = appStrings()
     val (statusIcon, statusTint) = actionStatusVisual(run.status, run.conclusion)
+    val listState = rememberLazyListState()
+    LaunchedEffect(highlightedJobId, jobs) {
+        if (highlightedJobId != null && jobs != null) {
+            val idx = jobs.indexOfFirst { it.id == highlightedJobId }
+            if (idx >= 0) {
+                listState.animateScrollToItem(idx + 1)
+            }
+        }
+    }
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -5045,6 +5072,7 @@ internal fun WorkflowRunDetailView(
             }
         } else {
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -5095,10 +5123,23 @@ internal fun WorkflowRunDetailView(
                 items(items = jobs.orEmpty(), key = { it.id }, contentType = { "workflow_job" }) { job ->
                     val (jIcon, jTint) = actionStatusVisual(job.status, job.conclusion)
                     val logAction = jobLogAction(job.status, job.htmlUrl)
+                    val isHighlighted = job.id == highlightedJobId
                     ElevatedCard(
                         shape = MaterialTheme.shapes.large,
                         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (isHighlighted) {
+                                    Modifier.border(
+                                        width = 1.5.dp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        shape = MaterialTheme.shapes.large
+                                    )
+                                } else {
+                                    Modifier
+                                }
+                            )
                     ) {
                         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(

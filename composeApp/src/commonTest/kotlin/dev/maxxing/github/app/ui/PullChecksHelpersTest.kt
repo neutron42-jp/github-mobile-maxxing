@@ -73,4 +73,21 @@ class PullChecksHelpersTest {
         assertEquals(JobLogAction.OPEN_IN_BROWSER, jobLogAction(status = "queued", htmlUrl = url))
         assertEquals(JobLogAction.UNAVAILABLE, jobLogAction(status = "in_progress", htmlUrl = " "))
     }
+
+    @Test
+    fun parseActionsRunUrlExtractsRunAndOptionalJobId() {
+        assertEquals(
+            ActionsRunTarget(owner = "octocat", repo = "app", runId = 12345L, jobId = 67890L),
+            parseActionsRunUrl("https://github.com/octocat/app/actions/runs/12345/job/67890?check_suite_focus=true")
+        )
+        assertEquals(
+            ActionsRunTarget(owner = "octocat", repo = "app", runId = 12345L, jobId = 67890L),
+            parseActionsRunUrl("https://github.com/octocat/app/actions/runs/12345/jobs/67890")
+        )
+        assertEquals(
+            ActionsRunTarget(owner = "octocat", repo = "app", runId = 12345L, jobId = null),
+            parseActionsRunUrl("https://github.com/octocat/app/actions/runs/12345")
+        )
+        assertNull(parseActionsRunUrl("https://example.com/status"))
+    }
 }
