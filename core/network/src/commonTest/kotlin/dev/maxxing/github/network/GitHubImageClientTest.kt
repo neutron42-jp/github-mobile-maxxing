@@ -31,7 +31,13 @@ class GitHubImageClientTest {
         try {
             for ((url, authorization) in cases) {
                 client.get(url)
-                assertEquals(authorization, engine.requestHistory.last().headers[HttpHeaders.Authorization], url)
+                val lastHeaders = engine.requestHistory.last().headers
+                assertEquals(authorization, lastHeaders[HttpHeaders.Authorization], url)
+                assertEquals(
+                    "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                    lastHeaders[HttpHeaders.Accept],
+                    url
+                )
             }
         } finally {
             client.close()

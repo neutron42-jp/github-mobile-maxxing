@@ -19,13 +19,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private val HTML_IMG_REGEX = Regex("""<img\b([^>]*)/?>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+private val HTML_ANCHOR_IMG_REGEX = Regex(
+    """<a\b([^>]*)>\s*(?:</?(?:picture|source|p|div|center|span)\b[^>]*>\s*)*(<img\b[^>]*>)(?:\s*</?(?:picture|source|p|div|center|span)\b[^>]*>)*\s*</a>""",
+    setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+)
 private val HTML_ATTR_REGEX = Regex("""([a-zA-Z0-9_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))""")
 private val HTML_PICTURE_SOURCE_REGEX = Regex("""</?(?:picture|source)\b[^>]*>""", RegexOption.IGNORE_CASE)
 private val HTML_BR_REGEX = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
 private val HTML_ALIGN_WRAPPER_REGEX = Regex("""</?(?:p|div|center)\b[^>]*>""", RegexOption.IGNORE_CASE)
-private val MARKDOWN_IMAGE_REGEX = Regex("""!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)""")
 private val INLINE_CODE_SPAN_REGEX = Regex("""(`+)([^`]|[^`].*?[^`])\1""", RegexOption.DOT_MATCHES_ALL)
 private val EXPLICIT_SCHEME_REGEX = Regex("""^([a-zA-Z][a-zA-Z0-9+.-]*):(.*)$""")
+private val REFERENCE_DEF_LINE_REGEX = Regex("""^[ ]{0,3}\[([^\]]+)\]:[ \t]*(.+)$""")
+private val REFERENCE_USAGE_REGEX = Regex("""\[([^\[\]]*)\]\[([^\[\]]+)\]""")
+private val COLLAPSED_OR_SHORTCUT_REF_REGEX = Regex("""\[([^\[\]]+)\](?:\[\])?""")
 private val GITHUB_BLOB_OR_RAW_REGEX = Regex(
     """^https?://github\.com/([^/]+)/([^/]+)/(?:blob|raw)/(.+)$""",
     RegexOption.IGNORE_CASE
@@ -83,6 +89,51 @@ private fun escapeMarkdownAltText(alt: String): String =
         .replace("\\", "\\\\")
         .replace("[", "\\[")
         .replace("]", "\\]")
+
+private fun decodeHtmlEntities(text: String): String {
+    if ('&' !in text) return text
+    return text
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&#x27;", "'")
+        .replace("&#x2F;", "/", ignoreCase = true)
+}
+
+private fun parseHtmlAttributes(attrsRaw: String): Map<String, String> {
+    val attrs = mutableMapOf<String, String>()
+    for (attr in HTML_ATTR_REGEX.findAll(attrsRaw)) {
+        val key = attr.groupValues[1].lowercase()
+        val rawValue = attr.groupValues[2].ifEmpty {
+            attr.groupValues[3].ifEmpty { attr.groupValues[4] }
+        }
+        attrs[key] = decodeHtmlEntities(rawValue)
+    }
+    return attrs
+}
+
+private fun convertHtmlImgToMarkdown(
+    attrsRaw: String,
+    repoOwner: String?,
+    repoName: String?,
+    branchRef: String?,
+    documentPath: String
+): String {
+    val attrs = parseHtmlAttributes(attrsRaw)
+    val src = attrs["src"].orEmpty().ifBlank { attrs["data-canonical-src"].orEmpty() }.trim()
+    if (src.isEmpty()) return ""
+    val alt = escapeMarkdownAltText(attrs["alt"].orEmpty())
+    val resolved = resolveGitHubImageUrl(
+        rawUrl = src,
+        repoOwner = repoOwner,
+        repoName = repoName,
+        branchRef = branchRef,
+        documentPath = documentPath
+    )
+    return if (resolved.isEmpty()) alt else "![$alt]($resolved)"
+}
 
 internal fun resolveGitHubImageUrl(
     rawUrl: String,
@@ -165,6 +216,20 @@ private fun normalizeMarkdownSegment(
 ): String {
     var result = segment
     if ('<' in result) {
+        if (result.contains("<a", ignoreCase = true) && result.contains("<img", ignoreCase = true)) {
+            result = HTML_ANCHOR_IMG_REGEX.replace(result) { match ->
+                val anchorAttrs = parseHtmlAttributes(match.groupValues[1])
+                val imgTag = match.groupValues[2]
+                val imgAttrsRaw = HTML_IMG_REGEX.find(imgTag)?.groupValues?.get(1).orEmpty()
+                val imgMarkdown = convertHtmlImgToMarkdown(imgAttrsRaw, repoOwner, repoName, branchRef, documentPath)
+                val href = sanitizeMarkdownLinkUri(anchorAttrs["href"].orEmpty())
+                when {
+                    imgMarkdown.isEmpty() -> ""
+                    href != null && imgMarkdown.startsWith("![") -> "[$imgMarkdown]($href)"
+                    else -> imgMarkdown
+                }
+            }
+        }
         if (result.contains("<picture", ignoreCase = true) || result.contains("<source", ignoreCase = true)) {
             result = result.replace(HTML_PICTURE_SOURCE_REGEX, "")
         }
@@ -179,37 +244,13 @@ private fun normalizeMarkdownSegment(
         }
         if (result.contains("<img", ignoreCase = true)) {
             result = HTML_IMG_REGEX.replace(result) { match ->
-                val attrsRaw = match.groupValues[1]
-                val attrs = mutableMapOf<String, String>()
-                for (attr in HTML_ATTR_REGEX.findAll(attrsRaw)) {
-                    val key = attr.groupValues[1].lowercase()
-                    val value = attr.groupValues[2].ifEmpty {
-                        attr.groupValues[3].ifEmpty { attr.groupValues[4] }
-                    }
-                    attrs[key] = value
-                }
-                val src = attrs["src"].orEmpty().trim()
-                if (src.isEmpty()) {
-                    ""
-                } else {
-                    val alt = escapeMarkdownAltText(attrs["alt"].orEmpty())
-                    val resolved = resolveGitHubImageUrl(
-                        rawUrl = src,
-                        repoOwner = repoOwner,
-                        repoName = repoName,
-                        branchRef = branchRef,
-                        documentPath = documentPath
-                    )
-                    if (resolved.isEmpty()) alt else "![$alt]($resolved)"
-                }
+                convertHtmlImgToMarkdown(match.groupValues[1], repoOwner, repoName, branchRef, documentPath)
             }
         }
     }
 
     if (result.contains("![")) {
-        result = MARKDOWN_IMAGE_REGEX.replace(result) { match ->
-            val alt = match.groupValues[1]
-            val url = match.groupValues[2]
+        result = rewriteMarkdownImages(result) { alt, url ->
             val resolved = resolveGitHubImageUrl(
                 rawUrl = url,
                 repoOwner = repoOwner,
@@ -221,6 +262,115 @@ private fun normalizeMarkdownSegment(
         }
     }
     return result
+}
+
+private fun rewriteMarkdownImages(
+    text: String,
+    transform: (alt: String, url: String) -> String
+): String {
+    val sb = StringBuilder(text.length)
+    var i = 0
+    while (i < text.length) {
+        val start = text.indexOf("![", i)
+        if (start < 0) {
+            sb.append(text, i, text.length)
+            break
+        }
+        sb.append(text, i, start)
+        val parsed = parseInlineMarkdownImageAt(text, start)
+        if (parsed != null) {
+            sb.append(transform(parsed.alt, parsed.url))
+            i = parsed.endExclusive
+        } else {
+            sb.append("![")
+            i = start + 2
+        }
+    }
+    return sb.toString()
+}
+
+private data class ParsedInlineMarkdownImage(
+    val alt: String,
+    val url: String,
+    val endExclusive: Int
+)
+
+private fun parseInlineMarkdownImageAt(text: String, start: Int): ParsedInlineMarkdownImage? {
+    var cursor = start + 2
+    var altEnd = -1
+    var bracketDepth = 1
+    while (cursor < text.length) {
+        val ch = text[cursor]
+        if (ch == '\\' && cursor + 1 < text.length) {
+            cursor += 2
+            continue
+        }
+        if (ch == '[') {
+            bracketDepth++
+        } else if (ch == ']') {
+            bracketDepth--
+            if (bracketDepth == 0) {
+                altEnd = cursor
+                break
+            }
+        } else if (ch == '\n' && cursor + 1 < text.length && text[cursor + 1] == '\n') {
+            return null
+        }
+        cursor++
+    }
+    if (altEnd < 0 || altEnd + 1 >= text.length || text[altEnd + 1] != '(') return null
+
+    var p = altEnd + 2
+    while (p < text.length && text[p].isWhitespace()) p++
+    if (p >= text.length) return null
+
+    val url: String
+    if (text[p] == '<') {
+        val closeAngle = text.indexOf('>', p + 1)
+        if (closeAngle < 0) return null
+        url = text.substring(p + 1, closeAngle)
+        p = closeAngle + 1
+    } else {
+        val urlStart = p
+        var parenDepth = 0
+        while (p < text.length) {
+            val c = text[p]
+            if (c == '\\' && p + 1 < text.length) {
+                p += 2
+                continue
+            }
+            if (c == '(') {
+                parenDepth++
+            } else if (c == ')') {
+                if (parenDepth == 0) break
+                parenDepth--
+            } else if (c.isWhitespace()) {
+                break
+            }
+            p++
+        }
+        url = text.substring(urlStart, p)
+    }
+    if (url.isBlank()) return null
+
+    while (p < text.length && text[p].isWhitespace()) p++
+    if (p < text.length && (text[p] == '"' || text[p] == '\'')) {
+        val quote = text[p]
+        p++
+        while (p < text.length && text[p] != quote) {
+            if (text[p] == '\\' && p + 1 < text.length) p += 2 else p++
+        }
+        if (p >= text.length) return null
+        p++
+        while (p < text.length && text[p].isWhitespace()) p++
+    }
+    if (p >= text.length || text[p] != ')') return null
+
+    return ParsedInlineMarkdownImage(
+        alt = text.substring(start + 2, altEnd),
+        url = url,
+        endExclusive = p + 1
+    )
 }
 
 /**
@@ -355,7 +505,50 @@ fun splitMarkdownIntoSections(
         currentLineCount++
     }
     flushCurrent()
-    return if (sections.isEmpty()) listOf(markdown) else sections
+    if (sections.isEmpty()) return listOf(markdown)
+    if (sections.size == 1) return sections
+
+    // Preserve markdown reference link/image definitions across split sections.
+    val refDefs = linkedMapOf<String, String>()
+    var defFence: MarkdownFence? = null
+    for (line in lines) {
+        if (defFence == null) {
+            val opening = markdownFenceAt(line)
+            if (opening != null) {
+                defFence = opening
+            } else {
+                REFERENCE_DEF_LINE_REGEX.matchEntire(line)?.let { match ->
+                    val key = match.groupValues[1].lowercase()
+                    if (key !in refDefs) refDefs[key] = line
+                }
+            }
+        } else if (isMarkdownFenceClosing(line, defFence)) {
+            defFence = null
+        }
+    }
+    if (refDefs.isEmpty()) return sections
+
+    return sections.map { section ->
+        val localDefs = section.lines()
+            .mapNotNull { REFERENCE_DEF_LINE_REGEX.matchEntire(it)?.groupValues?.get(1)?.lowercase() }
+            .toSet()
+        val needed = buildSet {
+            REFERENCE_USAGE_REGEX.findAll(section).forEach { add(it.groupValues[2].lowercase()) }
+            COLLAPSED_OR_SHORTCUT_REF_REGEX.findAll(section).forEach { add(it.groupValues[1].lowercase()) }
+        }.filter { it in refDefs && it !in localDefs }
+        if (needed.isEmpty()) {
+            section
+        } else {
+            buildString {
+                append(section)
+                append("\n\n")
+                needed.forEachIndexed { idx, key ->
+                    if (idx > 0) append('\n')
+                    append(refDefs.getValue(key))
+                }
+            }
+        }
+    }
 }
 
 @Composable

@@ -31,7 +31,7 @@ object GitHubImageTransformer : ImageTransformer {
     @Composable
     override fun transform(link: String): ImageData? {
         val safeLink = sanitizeMarkdownImageUri(link) ?: return null
-        return Coil3ImageTransformerImpl.transform(safeLink)?.copy(modifier = Modifier.fillMaxSize())
+        return Coil3ImageTransformerImpl.transform(safeLink).copy(modifier = Modifier.fillMaxSize())
     }
 
     @Composable

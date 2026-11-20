@@ -20,7 +20,7 @@ kotlinx-datetime = "0.7.1"
 ktor = "3.6.1"
 coil = "3.6.3"
 material-kolor = "5.0.1"
-markdown-renderer = "0.39.2"
+markdown-renderer = "0.46.0"
 icons-lucide = "1.1.0"
 kxml2 = "2.3.0"
 

@@ -13,7 +13,14 @@ fun createGitHubImageHttpClient(
     accessToken: () -> String?
 ): HttpClient = httpClient.apply {
     plugin(HttpSend).intercept { request ->
-        request.headers.append(HttpHeaders.UserAgent, AppBranding.USER_AGENT)
+        if (!request.headers.contains(HttpHeaders.UserAgent)) {
+            request.headers.append(HttpHeaders.UserAgent, AppBranding.USER_AGENT)
+        }
+        val currentAccept = request.headers[HttpHeaders.Accept]
+        if (currentAccept == null || currentAccept == "*/*") {
+            request.headers[HttpHeaders.Accept] =
+                "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+        }
         val host = request.url.host.lowercase()
         val isGitHubOwned = host == "raw.githubusercontent.com" ||
             host == "github.com" ||

@@ -68,4 +68,39 @@ class MarkdownBlockTest {
         val blockWithFence = sections.first { "val x0 = 0" in it }
         assertTrue("val x54 = 54" in blockWithFence, "Fenced code block must remain intact inside one section")
     }
+
+    @Test
+    fun normalizesAnchorWrappedImgEntitiesParenthesizedUrlsAndReferenceImages() {
+        val raw = """
+            <a href="https://github.com/octo/app"><img src="https://example.com/img.png?a=1&amp;b=2" alt="Badge" /></a>
+            ![Screen](https://example.com/screen_(1).png)
+            ![Space](<https://example.com/my shot.png> 'title')
+            ![Banner][banner-ref]
+            ${"\n".repeat(45)}
+            [banner-ref]: https://example.com/banner.png
+        """.trimIndent()
+
+        val normalized = normalizeGitHubMarkdown(
+            content = raw,
+            repoOwner = "octo",
+            repoName = "app",
+            branchRef = "main"
+        )
+        assertTrue("[![Badge](https://example.com/img.png?a=1&b=2)](https://github.com/octo/app)" in normalized)
+        assertTrue("![Screen](https://example.com/screen_%281%29.png)" in normalized)
+        assertTrue("![Space](https://example.com/my%20shot.png)" in normalized)
+
+        val padded = buildString {
+            appendLine("![Banner][banner-ref]")
+            repeat(20) { appendLine("Paragraph line $it explaining usage in detail with lots of text padding.") }
+            appendLine()
+            appendLine("## Section Two")
+            repeat(15) { appendLine("Second section line $it explaining more usage details.") }
+            appendLine("[banner-ref]: https://example.com/banner.png")
+        }
+        val sections = splitMarkdownIntoSections(padded, maxLinesPerSection = 15, minCharsToSplit = 200)
+        assertTrue(sections.size >= 2)
+        val firstSection = sections.first { "![Banner][banner-ref]" in it }
+        assertTrue("[banner-ref]: https://example.com/banner.png" in firstSection)
+    }
 }
