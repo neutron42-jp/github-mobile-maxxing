@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,7 +42,6 @@ import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.ChevronUp
 import com.composables.icons.lucide.Eye
 import com.composables.icons.lucide.Lucide
-import com.composables.icons.lucide.Paperclip
 import com.composables.icons.lucide.Pencil
 import com.composables.icons.lucide.X
 import dev.maxxing.github.ui.i18n.AppStrings
@@ -65,22 +63,6 @@ fun measureEditorText(text: String): EditorTextMetrics {
 fun formatEditorMetrics(text: String, strings: AppStrings): String {
     val metrics = measureEditorText(text)
     return strings.formatEditorMetricsLabel(metrics.lines, metrics.characters)
-}
-
-/**
- * Appends a markdown attachment snippet cleanly onto [currentBody], separating from
- * preceding text with a blank line when appropriate.
- */
-fun appendAttachmentMarkdown(currentBody: String, snippet: String): String {
-    val cleanSnippet = snippet.trim()
-    if (cleanSnippet.isEmpty()) return currentBody
-    if (currentBody.isBlank()) return cleanSnippet
-    val separator = when {
-        currentBody.endsWith("\n\n") -> ""
-        currentBody.endsWith("\n") -> "\n"
-        else -> "\n\n"
-    }
-    return "$currentBody$separator$cleanSnippet"
 }
 
 /**
@@ -107,8 +89,6 @@ fun MaxxingFullScreenEditorScaffold(
     bodyEditable: Boolean = true,
     metadataSummary: String? = null,
     initiallyMetadataExpanded: Boolean = true,
-    onAttachMedia: (() -> Unit)? = null,
-    isAttachingMedia: Boolean = false,
     headerContent: (@Composable ColumnScope.() -> Unit)? = null
 ) {
     var metadataExpanded by remember(title, initiallyMetadataExpanded) {
@@ -281,34 +261,8 @@ fun MaxxingFullScreenEditorScaffold(
                         .fillMaxWidth()
                         .navigationBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (onAttachMedia != null) {
-                        TextButton(
-                            enabled = !isSubmitting && !isAttachingMedia,
-                            onClick = onAttachMedia
-                        ) {
-                            if (isAttachingMedia) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(14.dp),
-                                    strokeWidth = 2.dp
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Lucide.Paperclip,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                text = if (isAttachingMedia) strings.editorAttachingMedia else strings.editorAttachMedia,
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        }
-                    }
                     Text(
                         text = formatEditorMetrics(bodyValue, strings),
                         style = MaterialTheme.typography.labelSmall,

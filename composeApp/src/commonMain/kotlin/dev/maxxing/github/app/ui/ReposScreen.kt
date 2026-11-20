@@ -193,8 +193,6 @@ import dev.maxxing.github.ui.components.MaxxingTopHeaderDefaults
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.StarActionButton
 import dev.maxxing.github.ui.components.UserAvatar
-import dev.maxxing.github.app.attachments.rememberEditorAttachmentController
-import dev.maxxing.github.ui.components.appendAttachmentMarkdown
 import dev.maxxing.github.ui.components.diffFileLazyItems
 import dev.maxxing.github.ui.components.expressiveAnimateContentSize
 import dev.maxxing.github.ui.components.formatCompactCount
@@ -1361,7 +1359,6 @@ fun RepoDetailScreen(
     var newIssueBody by remember(repo.fullName) { mutableStateOf("") }
     var creatingIssue by remember(repo.fullName) { mutableStateOf(false) }
     var createIssueError by remember(repo.fullName) { mutableStateOf<String?>(null) }
-    val issuePrAttachmentController = rememberEditorAttachmentController(container, repo.owner, repo.name, onMessage)
     var showIssueLabelPicker by remember(repo.fullName) { mutableStateOf(false) }
     var availableIssueLabels by remember(repo.fullName) { mutableStateOf<List<LabelTag>>(emptyList()) }
     var issueLabelsLoading by remember(repo.fullName) { mutableStateOf(false) }
@@ -3478,12 +3475,6 @@ fun RepoDetailScreen(
             onBodyChange = { newIssueBody = it },
             bodyLabel = strings.repoDescriptionMarkdown,
             supportsMarkdownPreview = true,
-            onAttachMedia = {
-                issuePrAttachmentController.attach { snippet ->
-                    newIssueBody = appendAttachmentMarkdown(newIssueBody, snippet)
-                }
-            },
-            isAttachingMedia = issuePrAttachmentController.isUploading,
             onDismiss = {
                 if (!creatingIssue) {
                     showCreateIssueDialog = false
@@ -3973,8 +3964,6 @@ fun RepoDetailScreen(
             initialBase = defaultBase,
             isSubmitting = creatingPr,
             errorMsg = createPrError,
-            onAttachMedia = { onSnippet -> issuePrAttachmentController.attach(onSnippet) },
-            isAttachingMedia = issuePrAttachmentController.isUploading,
             onDismiss = { showCreatePrDialog = false },
             onCreate = { title, body, head, base, isDraft ->
                 scope.launch {
@@ -4128,8 +4117,6 @@ private fun CreatePullRequestDialog(
     initialBase: String,
     isSubmitting: Boolean,
     errorMsg: String?,
-    onAttachMedia: ((String) -> Unit) -> Unit,
-    isAttachingMedia: Boolean,
     onDismiss: () -> Unit,
     onCreate: (title: String, body: String, head: String, base: String, draft: Boolean) -> Unit
 ) {
@@ -4151,8 +4138,6 @@ private fun CreatePullRequestDialog(
         onBodyChange = { body = it },
         bodyLabel = strings.repoDescriptionMarkdown,
         supportsMarkdownPreview = true,
-        onAttachMedia = { onAttachMedia { snippet -> body = appendAttachmentMarkdown(body, snippet) } },
-        isAttachingMedia = isAttachingMedia,
         onDismiss = onDismiss,
         onSave = { onCreate(title.trim(), body.trim(), head.trim(), base.trim(), isDraft) },
         headerContent = {

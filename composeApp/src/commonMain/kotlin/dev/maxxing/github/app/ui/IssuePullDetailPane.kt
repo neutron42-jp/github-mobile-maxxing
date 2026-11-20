@@ -99,7 +99,6 @@ import com.composables.icons.lucide.Users
 import com.composables.icons.lucide.X
 import dev.maxxing.github.app.AppContainer
 import dev.maxxing.github.app.IssuePullTarget
-import dev.maxxing.github.app.attachments.rememberEditorAttachmentController
 import dev.maxxing.github.auth.openUrlInBrowser
 import dev.maxxing.github.model.CheckRunSummary
 import dev.maxxing.github.model.IssueOrPullDetail
@@ -135,7 +134,6 @@ import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.RepoLabelsPickerDialog
 import dev.maxxing.github.ui.components.SplitActionOption
 import dev.maxxing.github.ui.components.UserAvatar
-import dev.maxxing.github.ui.components.appendAttachmentMarkdown
 import dev.maxxing.github.ui.components.diffFileLazyItems
 import dev.maxxing.github.ui.i18n.AppStrings
 import dev.maxxing.github.ui.i18n.appStrings
@@ -372,7 +370,6 @@ private fun IssuePullDetailPaneContent(
     val scope = rememberCoroutineScope()
     val strings = appStrings()
     val graphitePalette = LocalGraphitePalette.current
-    val attachmentController = rememberEditorAttachmentController(container, target.owner, target.repo, onMessage)
 
     var pendingDiffCommentTarget by remember(targetKey) { mutableStateOf<Triple<String, Int?, String>?>(null) }
     var diffCommentBody by remember(targetKey) { mutableStateOf("") }
@@ -1342,7 +1339,6 @@ private fun IssuePullDetailPaneContent(
             syncState = reviewSyncState,
             checkRuns = checkRuns,
             container = container,
-            attachmentController = attachmentController,
             selectedMergeMethod = selectedMergeMethod,
             onSelectMergeMethod = { selectedMergeMethod = it },
             onSyncStateUpdated = { reviewSyncState = it },
@@ -1412,12 +1408,6 @@ private fun IssuePullDetailPaneContent(
             onBodyChange = { commentDraft = it },
             bodyLabel = strings.issueCommentLabel,
             supportsMarkdownPreview = true,
-            onAttachMedia = {
-                attachmentController.attach { snippet ->
-                    commentDraft = appendAttachmentMarkdown(commentDraft, snippet)
-                }
-            },
-            isAttachingMedia = attachmentController.isUploading,
             onDismiss = { showCommentDialog = false },
             onSave = {
                 val text = commentDraft
@@ -1460,12 +1450,6 @@ private fun IssuePullDetailPaneContent(
             onBodyChange = { reviewBody = it },
             bodyLabel = strings.issueReviewSummaryLabel,
             supportsMarkdownPreview = true,
-            onAttachMedia = {
-                attachmentController.attach { snippet ->
-                    reviewBody = appendAttachmentMarkdown(reviewBody, snippet)
-                }
-            },
-            isAttachingMedia = attachmentController.isUploading,
             onDismiss = { showReviewDialog = false },
             onSave = {
                 val event = reviewEvent
@@ -1743,12 +1727,6 @@ private fun IssuePullDetailPaneContent(
             },
             bodyLabel = strings.diffCommentBodyLabel,
             supportsMarkdownPreview = true,
-            onAttachMedia = {
-                attachmentController.attach { snippet ->
-                    diffCommentBody = appendAttachmentMarkdown(diffCommentBody, snippet)
-                }
-            },
-            isAttachingMedia = attachmentController.isUploading,
             onDismiss = {
                 if (!actionBusy) {
                     pendingDiffCommentTarget = null
@@ -1802,12 +1780,6 @@ private fun IssuePullDetailPaneContent(
             },
             bodyLabel = strings.editCommentBodyLabel,
             supportsMarkdownPreview = true,
-            onAttachMedia = {
-                attachmentController.attach { snippet ->
-                    editingCommentBody = appendAttachmentMarkdown(editingCommentBody, snippet)
-                }
-            },
-            isAttachingMedia = attachmentController.isUploading,
             onDismiss = {
                 if (!actionBusy) {
                     editingComment = null
