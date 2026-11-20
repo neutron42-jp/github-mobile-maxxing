@@ -179,4 +179,42 @@ class AppUpdateCheckerTest {
         assertEquals("v1.0.91-nightly.bbbb222", fromPrToNightly.versionLabel)
         assertEquals("github-mobile-maxxing-x86_64.AppImage", fromPrToNightly.asset.name)
     }
+
+    @Test
+    fun minorReleaseDetectsNextMinorNightlyWhenIncluded() {
+        val nextNightly = sampleRelease(
+            tagName = "nightly",
+            name = "github-mobile-maxxing v1.1.110-nightly.dddd444",
+            isPrerelease = true,
+            apkName = "github-mobile-maxxing-nightly.apk"
+        )
+        val currentStable = sampleRelease(
+            tagName = "v1.1.0",
+            name = "github-mobile-maxxing v1.1.0",
+            isPrerelease = false
+        )
+
+        val update = assertNotNull(
+            selectAvailableUpdate(
+                releases = listOf(nextNightly, currentStable),
+                currentVersionName = "1.1.0",
+                currentCommitSha = "73fcc3d",
+                includePrereleases = true,
+                platform = UpdatePlatformKind.ANDROID
+            )
+        )
+        assertEquals("v1.1.110-nightly.dddd444", update.versionLabel)
+        assertEquals("github-mobile-maxxing-nightly.apk", update.asset.name)
+
+        // With prereleases OFF, stable 1.1.0 ignores the 1.1.x nightly.
+        assertNull(
+            selectAvailableUpdate(
+                releases = listOf(nextNightly, currentStable),
+                currentVersionName = "1.1.0",
+                currentCommitSha = "73fcc3d",
+                includePrereleases = false,
+                platform = UpdatePlatformKind.ANDROID
+            )
+        )
+    }
 }

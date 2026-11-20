@@ -96,4 +96,7 @@ On macOS, run the KMP iOS simulator tests, `iosArm64` compilation checks, and UI
 
 xcodebuild test -project iosApp/iosApp.xcodeproj -scheme iosApp -sdk iphonesimulator -destination 'platform=iOS Simulator,name=<SIMULATOR_NAME>' -only-testing:iosAppUITests/LaunchSmokeTests
 ```
- 
+
+## License
+Licensed under the [MIT License](LICENSE).
+

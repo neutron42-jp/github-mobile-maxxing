@@ -32,12 +32,22 @@ fun runGitCommand(vararg args: String): String? = runCatching {
 fun escapeKotlinStringLiteral(value: String): String =
     value.replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "\\$")
 
+fun resolveDefaultMajorMinor(): String {
+    val versionRegex = Regex("""^v(\d+\.\d+)\.\d+$""")
+    val tags = runGitCommand("tag", "-l", "v[0-9]*.[0-9]*.[0-9]*", "--sort=-v:refname")
+        ?.lineSequence()
+        .orEmpty()
+    return tags.mapNotNull { versionRegex.find(it.trim())?.groupValues?.get(1) }
+        .firstOrNull()
+        ?: "1.0"
+}
+
 val resolvedGitCommitCount: Int = runGitCommand("rev-list", "--count", "HEAD")?.toIntOrNull() ?: 1
 val resolvedCommitSha: String = runGitCommand("rev-parse", "--short", "HEAD") ?: "unknown"
 val resolvedAppVersionName: String = System.getenv("ANDROID_VERSION_NAME")
     ?.trim()
     ?.takeIf { it.isNotEmpty() }
-    ?: "1.0.$resolvedGitCommitCount"
+    ?: "${resolveDefaultMajorMinor()}.$resolvedGitCommitCount"
 
 val generateMaxxingConfig by tasks.registering {
     val outDir = layout.buildDirectory.dir("generated/maxxingConfig/kotlin")

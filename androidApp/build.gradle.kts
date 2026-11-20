@@ -17,15 +17,28 @@ fun resolveSetting(envName: String, propName: String): String? =
     System.getenv(envName)?.takeIf { it.isNotBlank() }
         ?: localProps.getProperty(propName)?.takeIf { it.isNotBlank() }
 
-fun resolveGitCommitCount(): Int = runCatching {
-    val proc = ProcessBuilder("git", "rev-list", "--count", "HEAD")
+fun runGitCommand(vararg args: String): String? = runCatching {
+    val proc = ProcessBuilder("git", *args)
         .directory(rootProject.projectDir)
         .redirectErrorStream(true)
         .start()
-    val count = proc.inputStream.bufferedReader().readText().trim().toIntOrNull()
-    proc.waitFor()
-    count
-}.getOrNull() ?: 1
+    val output = proc.inputStream.bufferedReader().readText().trim()
+    val exit = proc.waitFor()
+    if (exit == 0 && output.isNotEmpty()) output else null
+}.getOrNull()
+
+fun resolveGitCommitCount(): Int =
+    runGitCommand("rev-list", "--count", "HEAD")?.toIntOrNull() ?: 1
+
+fun resolveDefaultMajorMinor(): String {
+    val versionRegex = Regex("""^v(\d+\.\d+)\.\d+$""")
+    val tags = runGitCommand("tag", "-l", "v[0-9]*.[0-9]*.[0-9]*", "--sort=-v:refname")
+        ?.lineSequence()
+        .orEmpty()
+    return tags.mapNotNull { versionRegex.find(it.trim())?.groupValues?.get(1) }
+        .firstOrNull()
+        ?: "1.0"
+}
 
 val resolvedVersionCode: Int =
     System.getenv("ANDROID_VERSION_CODE")?.toIntOrNull()
@@ -33,7 +46,7 @@ val resolvedVersionCode: Int =
 
 val resolvedVersionName: String =
     System.getenv("ANDROID_VERSION_NAME")?.takeIf { it.isNotBlank() }
-        ?: "1.0.${resolveGitCommitCount()}"
+        ?: "${resolveDefaultMajorMinor()}.${resolveGitCommitCount()}"
 
 val resolvedKeystorePath = resolveSetting("ANDROID_KEYSTORE_PATH", "android.keystore.path")
 val resolvedKeystorePassword = resolveSetting("ANDROID_KEYSTORE_PASSWORD", "android.keystore.password")

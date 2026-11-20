@@ -71,6 +71,10 @@ jobs:
             printf '%s' "$KEYSTORE_B64" | base64 --decode > "${RUNNER_TEMP}/maxxing-release.jks"
             echo "ANDROID_KEYSTORE_PATH=${RUNNER_TEMP}/maxxing-release.jks" >> "$GITHUB_ENV"
           fi
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ -n "${{ github.event.pull_request.base.sha }}" ]; then
+            BASE_COUNT="$(git rev-list --count "${{ github.event.pull_request.base.sha }}")"
+            echo "ANDROID_VERSION_CODE=$((BASE_COUNT + 100))" >> "$GITHUB_ENV"
+          fi
 
       - name: Build Android Release APK
         env:
