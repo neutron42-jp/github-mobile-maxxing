@@ -51,6 +51,7 @@ import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
+import io.ktor.client.request.prepareGet
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -1160,15 +1161,15 @@ class GitHubRestService(
         }
     }
 
-    suspend fun fetchJobLogs(owner: String, repo: String, jobId: Long): String {
-        val res = httpClient.get("$baseUrl/repos/$owner/$repo/actions/jobs/$jobId/logs")
-        if (!res.status.isSuccess()) {
-            throw GitHubApiException(res.status.value, "Failed to load job logs (${res.status.value})")
+    suspend fun fetchJobLogs(owner: String, repo: String, jobId: Long): String =
+        // `execute` owns the response and cleans it up on success, failure, and cancellation.
+        httpClient.prepareGet("$baseUrl/repos/$owner/$repo/actions/jobs/$jobId/logs").execute { res ->
+            if (!res.status.isSuccess()) {
+                throw GitHubApiException(res.status.value, "Failed to load job logs (${res.status.value})")
+            }
+            // Keep only the trailing 40,000 characters so a huge log never lands in memory in full.
+            res.readJobLogTail()
         }
-        val full = res.bodyAsText()
-        // Keep last 40KB if an action log is huge so mobile rendering stays fluid
-        return if (full.length > 40_000) "... (truncated to latest 40 KB) ...\n" + full.takeLast(40_000) else full
-    }
 
     suspend fun rerunWorkflow(owner: String, repo: String, runId: Long, failedOnly: Boolean = false) {
         val action = if (failedOnly) "rerun-failed-jobs" else "rerun"
