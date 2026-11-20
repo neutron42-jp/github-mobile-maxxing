@@ -296,14 +296,6 @@ dynamicColorTitle	Android Wallpaper Dynamic Color
 editCommentBodyLabel	Comment body (Markdown)
 editCommentDesc	Edit comment
 editLabelDesc	Edit label
-editorAttachChooserTitle	Select photo, video, or file
-editorAttachFailed	Failed to attach file
-editorAttachMedia	Attach
-editorAttachPickFile	Browse Files
-editorAttachPickPhotoVideo	Photo or Video
-editorAttachTooLarge	Attachment exceeds the 25 MB limit.
-editorAttachUnsupportedPrivateRepo	Push permission is required to attach files to a private repository.
-editorAttachingMedia	Uploading...
 editorCharCountOne	7301 char
 editorCharCountOther	7301 chars
 editorLineCountOne	7301 line

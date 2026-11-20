@@ -1247,24 +1247,6 @@ class GitHubRepository(
         }
     }
 
-    suspend fun uploadMediaAttachment(
-        targetOwner: String,
-        targetRepo: String,
-        fileName: String,
-        mimeType: String,
-        bytes: ByteArray,
-        viewerLoginHint: String? = null
-    ): Result<UploadedAttachment> = runMutationCancellable {
-        restService.uploadMediaAttachment(
-            targetOwner = targetOwner,
-            targetRepo = targetRepo,
-            fileName = fileName,
-            mimeType = mimeType,
-            bytes = bytes,
-            viewerLoginHint = viewerLoginHint
-        )
-    }
-
     suspend fun deleteRepoFile(
         owner: String,
         repo: String,

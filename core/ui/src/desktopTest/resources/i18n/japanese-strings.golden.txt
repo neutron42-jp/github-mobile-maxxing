@@ -296,14 +296,6 @@ dynamicColorTitle	Android 壁紙ダイナミックカラー
 editCommentBodyLabel	コメント本文 (Markdown)
 editCommentDesc	コメントを編集
 editLabelDesc	ラベルを編集
-editorAttachChooserTitle	写真・動画・ファイルを選択
-editorAttachFailed	ファイルの添付に失敗しました
-editorAttachMedia	添付
-editorAttachPickFile	ファイルを選択
-editorAttachPickPhotoVideo	写真または動画
-editorAttachTooLarge	添付ファイルが 25 MB の上限を超えています。
-editorAttachUnsupportedPrivateRepo	プライベートリポジトリにファイルを添付するには書き込み権限が必要です。
-editorAttachingMedia	アップロード中...
 editorCharCountOne	7301 文字
 editorCharCountOther	7301 文字
 editorLineCountOne	7301 行

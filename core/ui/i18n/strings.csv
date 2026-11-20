@@ -1024,16 +1024,6 @@ failedCreateMilestone,,Failed to create milestone,マイルストーンの作成
 milestoneUpdatedMessage,String,Updated milestone {0},マイルストーン {0} を更新しました
 milestoneDeletedMessage,String,Deleted milestone {0},マイルストーン {0} を削除しました
 failedDeleteMilestone,,Failed to delete milestone,マイルストーンの削除に失敗しました
-# Issue & PR Media Attachments
-editorAttachMedia,,Attach,添付
-editorAttachingMedia,,Uploading...,アップロード中...
-editorAttachFailed,,Failed to attach file,ファイルの添付に失敗しました
-editorAttachTooLarge,,Attachment exceeds the 25 MB limit.,添付ファイルが 25 MB の上限を超えています。
-editorAttachUnsupportedPrivateRepo,,Push permission is required to attach files to a private repository.,プライベートリポジトリにファイルを添付するには書き込み権限が必要です。
-editorAttachChooserTitle,,"Select photo, video, or file",写真・動画・ファイルを選択
-editorAttachPickPhotoVideo,,Photo or Video,写真または動画
-editorAttachPickFile,,Browse Files,ファイルを選択
-
 # One-handed PR Review Mode
 reviewModeStartAction,,Review,レビュー開始
 reviewModeContinueAction,,Resume Review,レビューを再開
