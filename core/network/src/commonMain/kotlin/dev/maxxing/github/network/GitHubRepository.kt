@@ -1066,6 +1066,7 @@ class GitHubRepository(
             myIssuesCache.clear()
             repoIssuesCache.invalidateWhere { it.owner == key.owner && it.repo == key.repo && !it.pullRequests }
             repoDetailCache.invalidate(key)
+            _issueStateRevision.value += 1L
         }
     }
 
@@ -2093,6 +2094,7 @@ class GitHubRepository(
             repoIssuesCache.invalidateWhere { it.owner == key.owner && it.repo == key.repo }
             myIssuesCache.clear()
             repoDetailCache.invalidate(key)
+            _issueStateRevision.value += 1L
         }
     }
 

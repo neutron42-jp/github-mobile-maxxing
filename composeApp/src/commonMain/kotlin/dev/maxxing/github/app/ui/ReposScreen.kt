@@ -277,6 +277,25 @@ internal fun formatLocalizedRepoDetailTabLabel(
     }
 }
 
+private const val REPO_ISSUES_PULLS_PAGE_LIMIT = 30
+
+internal fun patchDetailOpenCountFromList(
+    currentDetail: RepoDetail?,
+    pullRequests: Boolean,
+    stateFilter: IssueStateFilter,
+    loaded: List<IssueOrPullSummary>
+): RepoDetail? {
+    if (currentDetail == null || stateFilter != IssueStateFilter.OPEN || loaded.size >= REPO_ISSUES_PULLS_PAGE_LIMIT) {
+        return currentDetail
+    }
+    val updatedSummary = if (pullRequests) {
+        currentDetail.summary.copy(openPullRequestsCount = loaded.size)
+    } else {
+        currentDetail.summary.copy(openIssuesCount = loaded.size)
+    }
+    return currentDetail.copy(summary = updatedSummary)
+}
+
 private val TRENDING_LANGUAGES = listOf("All", "Kotlin", "TypeScript", "Python", "Rust", "Go", "Swift")
 
 @Composable
@@ -1865,8 +1884,22 @@ fun RepoDetailScreen(
         resolveRepoCapabilities(repo, detail, effectiveViewerLogin)
     }
 
+    fun refreshRepoCountsInBackground() {
+        val targetRepoFullName = repo.fullName
+        scope.launch {
+            container.repository.getRepoDetail(repo.owner, repo.name, forceRefresh = true)
+                .onSuccess { refreshed ->
+                    if (repo.fullName == targetRepoFullName) {
+                        detail = refreshed
+                        isStarred = refreshed.summary.viewerHasStarred
+                    }
+                }
+        }
+    }
+
     fun loadRepoIssues(filter: IssueStateFilter, forceRefresh: Boolean = false) {
         val reqSeq = issuesRequestGuard.next()
+        if (forceRefresh) refreshRepoCountsInBackground()
         scope.launch {
             val cached = container.repository.peekRepoIssuesOrPulls(repo.owner, repo.name, pullRequests = false, stateFilter = filter)
             if (cached != null) {
@@ -1886,6 +1919,7 @@ fun RepoDetailScreen(
                     if (issuesRequestGuard.isLatest(reqSeq)) {
                         repoIssues = loaded
                         issuesLoading = false
+                        detail = patchDetailOpenCountFromList(detail, pullRequests = false, stateFilter = filter, loaded = loaded)
                         container.prefetchIssuePullTargets(
                             loaded.take(3).map {
                                 IssuePullTarget(repo.owner, repo.name, it.number, it.title, kindHint = it.kind)
@@ -1950,6 +1984,7 @@ fun RepoDetailScreen(
 
     fun loadRepoPulls(filter: IssueStateFilter, forceRefresh: Boolean = false) {
         val reqSeq = pullsRequestGuard.next()
+        if (forceRefresh) refreshRepoCountsInBackground()
         scope.launch {
             val cached = container.repository.peekRepoIssuesOrPulls(repo.owner, repo.name, pullRequests = true, stateFilter = filter)
             if (cached != null) {
@@ -1969,6 +2004,7 @@ fun RepoDetailScreen(
                     if (pullsRequestGuard.isLatest(reqSeq)) {
                         repoPulls = loaded
                         pullsLoading = false
+                        detail = patchDetailOpenCountFromList(detail, pullRequests = true, stateFilter = filter, loaded = loaded)
                         container.prefetchIssuePullTargets(
                             loaded.take(3).map {
                                 IssuePullTarget(repo.owner, repo.name, it.number, it.title, kindHint = it.kind)
@@ -3496,6 +3532,7 @@ fun RepoDetailScreen(
                             newIssueBody = ""
                             selectedNewIssueLabels = emptySet()
                             onMessage(strings.repoCreatedIssueMessage(createdNumber))
+                            loadRepoIssues(issueStateFilter, forceRefresh = true)
                             onOpenIssueOrPull(IssuePullTarget(repo.owner, repo.name, createdNumber, title))
                         }
                         .onFailure { err ->
