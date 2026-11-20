@@ -4,7 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/** Guards the "zero behaviour change on Desktop (and Android)" requirement: everything stays at its default. */
+/** Guards the "zero behaviour change on Desktop" requirement: everything stays at its default. */
 class PlatformCapabilitiesDesktopTest {
     @Test
     fun desktopKeepsTheExistingBehaviour() {

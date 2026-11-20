@@ -1,4 +1,4 @@
 package dev.maxxing.github.app
 
-// Android / Desktop keep the defaults of PlatformCapabilities (their existing behaviour).
+// Desktop keeps the defaults of PlatformCapabilities (its existing behaviour).
 actual val platformCapabilities: PlatformCapabilities = PlatformCapabilities()

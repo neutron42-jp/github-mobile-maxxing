@@ -134,8 +134,9 @@ fun SignInScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                // Only where the platform asks for it (iOS), shrink the form to the space above
-                // the keyboard so the custom Client ID field stays reachable. Android / Desktop unchanged.
+                // Only where the platform asks for it (iOS and Android), shrink the form to the
+                // space above the keyboard so the custom Client ID field stays reachable.
+                // Desktop keeps its existing layout.
                 .then(if (platformCapabilities.avoidsKeyboardOnSignIn) Modifier.imePadding() else Modifier)
                 .verticalScroll(rememberScrollState())
                 .padding(20.dp),

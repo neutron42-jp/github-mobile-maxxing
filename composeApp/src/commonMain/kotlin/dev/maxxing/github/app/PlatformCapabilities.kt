@@ -4,8 +4,8 @@ package dev.maxxing.github.app
  * Platform-specific UI behaviour flags.
  *
  * The texts live in the shared i18n table (`core/ui/i18n/strings.csv`); this class only says which
- * variant to use. Every default is the Android / Desktop behaviour, so their `actual`s do not set
- * anything and their screens are unchanged. iOS overrides what it needs.
+ * variant to use. Every default is the Desktop behaviour. Android keeps the defaults except for
+ * [avoidsKeyboardOnSignIn]; iOS overrides what it needs.
  */
 data class PlatformCapabilities(
     /**
@@ -19,7 +19,7 @@ data class PlatformCapabilities(
     val supportsCustomFonts: Boolean = true,
     /**
      * Whether the sign-in form must make room for the on-screen keyboard itself (shrink to the
-     * space above it). iOS needs this; Android and Desktop keep their existing layout.
+     * space above it). iOS and Android need this; Desktop keeps its existing layout.
      */
     val avoidsKeyboardOnSignIn: Boolean = false,
     /**
