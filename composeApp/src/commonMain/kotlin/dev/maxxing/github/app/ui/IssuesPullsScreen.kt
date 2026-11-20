@@ -74,6 +74,7 @@ import dev.maxxing.github.ui.components.MaxxingDropdownSelector
 import dev.maxxing.github.ui.components.MaxxingIconLabelTab
 import dev.maxxing.github.ui.components.MaxxingLoadingState
 import dev.maxxing.github.ui.components.MaxxingPredictiveBackContainer
+import dev.maxxing.github.ui.components.MaxxingSwipeableTabPager
 import dev.maxxing.github.ui.components.MaxxingTopHeaderDefaults
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.UserAvatar
@@ -260,87 +261,102 @@ fun IssuesPullsScreen(
                         onRefresh = { loadItems(forceRefresh = true) },
                         modifier = Modifier.fillMaxSize().nestedScroll(headerNestedScroll)
                     ) {
-                        when {
-                            isLoading && items.isEmpty() -> {
-                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    MaxxingLoadingState(message = strings.fetchingIssuesAndPrs)
-                                }
-                            }
+                        MaxxingSwipeableTabPager(
+                            tabs = IssueStateFilter.entries,
+                            selectedTab = stateFilter,
+                            onSelectTab = { stateFilter = it },
+                            modifier = Modifier.fillMaxSize()
+                        ) { pageStateFilter ->
+                            val isPageActive = pageStateFilter == stateFilter
+                            val cachedPageItems = if (!isPageActive && login.isNotBlank()) {
+                                container.repository.peekMyIssuesAndPulls(preset, login, pageStateFilter)
+                            } else null
+                            val pageItems = if (isPageActive) items else cachedPageItems.orEmpty()
+                            val pageLoading = if (isPageActive) isLoading else (login.isNotBlank() && cachedPageItems == null)
+                            val pageError = if (isPageActive) errorMsg else null
 
-                            errorMsg != null && items.isEmpty() -> {
-                                Column(
-                                    modifier = Modifier.fillMaxSize().padding(24.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Text(errorMsg!!, color = MaterialTheme.colorScheme.error)
-                                    Spacer(Modifier.height(10.dp))
-                                    FilledTonalButton(onClick = { loadItems(forceRefresh = true) }) {
-                                        Text(strings.retry)
+                            when {
+                                pageLoading && pageItems.isEmpty() -> {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        MaxxingLoadingState(message = strings.fetchingIssuesAndPrs)
+                                    }
+                                }
+
+                                pageError != null && pageItems.isEmpty() -> {
+                                    Column(
+                                        modifier = Modifier.fillMaxSize().padding(24.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Text(pageError, color = MaterialTheme.colorScheme.error)
+                                        Spacer(Modifier.height(10.dp))
+                                        FilledTonalButton(onClick = { loadItems(forceRefresh = true) }) {
+                                            Text(strings.retry)
+                                        }
+                                    }
+                                }
+
+                                pageItems.isEmpty() -> {
+                                    Column(
+                                        modifier = Modifier.fillMaxSize().padding(32.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            Lucide.GitPullRequest,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(52.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(Modifier.height(12.dp))
+                                        Text(
+                                            text = strings.noIssuesOrPrsTitle(pageStateFilter),
+                                            style = MaterialTheme.typography.titleLarge
+                                        )
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(
+                                            text = strings.noIssuesOrPrsBody(pageStateFilter, preset),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                else -> {
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = PaddingValues(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        items(
+                                            items = pageItems,
+                                            key = { it.id },
+                                            contentType = { "issue_pull_summary" }
+                                        ) { summary ->
+                                            val summaryTarget = IssuePullTarget(
+                                                owner = summary.repoOwner,
+                                                repo = summary.repoName,
+                                                number = summary.number,
+                                                hintTitle = summary.title,
+                                                kindHint = summary.kind
+                                            )
+                                            val summaryKey = summaryTarget.toPaneKey()
+                                            val isSelected = navigator.currentDestination?.contentKey == summaryKey
+                                            IssuePullSummaryCard(
+                                                item = summary,
+                                                selected = isSelected,
+                                                onClick = {
+                                                    openedTargets[summaryKey] = summaryTarget
+                                                    scope.launch {
+                                                        navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, summaryKey)
+                                                    }
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             }
-
-                            items.isEmpty() -> {
-                                Column(
-                                    modifier = Modifier.fillMaxSize().padding(32.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        Lucide.GitPullRequest,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(52.dp),
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                    Spacer(Modifier.height(12.dp))
-                                    Text(
-                                        text = strings.noIssuesOrPrsTitle(stateFilter),
-                                        style = MaterialTheme.typography.titleLarge
-                                    )
-                                    Spacer(Modifier.height(6.dp))
-                                    Text(
-                                        text = strings.noIssuesOrPrsBody(stateFilter, preset),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-
-                            else -> {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                items(
-                                    items = items,
-                                    key = { it.id },
-                                    contentType = { "issue_pull_summary" }
-                                ) { summary ->
-                                    val summaryTarget = IssuePullTarget(
-                                        owner = summary.repoOwner,
-                                        repo = summary.repoName,
-                                        number = summary.number,
-                                        hintTitle = summary.title,
-                                        kindHint = summary.kind
-                                    )
-                                    val summaryKey = summaryTarget.toPaneKey()
-                                    val isSelected = navigator.currentDestination?.contentKey == summaryKey
-                                    IssuePullSummaryCard(
-                                        item = summary,
-                                        selected = isSelected,
-                                        onClick = {
-                                            openedTargets[summaryKey] = summaryTarget
-                                            scope.launch {
-                                                navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, summaryKey)
-                                            }
-                                        }
-                                    )
-                                }
-                            }
                         }
-                    }
                     }
                 }
             }

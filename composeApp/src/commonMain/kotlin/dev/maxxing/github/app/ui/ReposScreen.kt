@@ -184,6 +184,7 @@ import dev.maxxing.github.ui.components.MaxxingFullScreenEditorScaffold
 import dev.maxxing.github.ui.components.MaxxingLoadingState
 import dev.maxxing.github.ui.components.MaxxingPredictiveBackContainer
 import dev.maxxing.github.ui.components.MaxxingPredictiveOverlayHost
+import dev.maxxing.github.ui.components.MaxxingSwipeableTabPager
 import dev.maxxing.github.ui.components.MaxxingStarAmber
 import dev.maxxing.github.ui.components.RepoLabelsPickerDialog
 import dev.maxxing.github.ui.i18n.AppStrings
@@ -706,140 +707,211 @@ private fun RepoListPane(
             onRefresh = { loadRepos(forceRefresh = true) },
             modifier = Modifier.fillMaxSize().nestedScroll(headerNestedScroll)
         ) {
-            when {
-                isLoading && !hasCurrentItems -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        MaxxingLoadingState(
-                            message = if (activeTab == RepoListTab.SEARCH && submittedSearchQuery.isBlank()) {
-                                strings.loadingTrending
-                            } else {
-                                strings.loadingResults
+            MaxxingSwipeableTabPager(
+                tabs = RepoListTab.entries,
+                selectedTab = activeTab,
+                onSelectTab = { activeTab = it },
+                modifier = Modifier.fillMaxSize()
+            ) { pageTab ->
+                val isPageActive = pageTab == activeTab
+                val apiLang = trendingLang.takeUnless { it == "All" }
+                val trimmedQuery = searchQuery.trim()
+                val pageTrendingRepos = when {
+                    isPageActive -> trendingRepos
+                    pageTab == RepoListTab.SEARCH && submittedSearchQuery.isBlank() ->
+                        container.repository.peekTrendingRepositories(apiLang).orEmpty()
+                    else -> emptyList()
+                }
+                val pageRepos = when {
+                    isPageActive -> repos
+                    pageTab == RepoListTab.MINE -> container.repository.peekViewerRepositories().orEmpty()
+                    pageTab == RepoListTab.STARRED -> container.repository.peekStarredRepositories().orEmpty()
+                    pageTab == RepoListTab.SEARCH && submittedSearchQuery.isNotBlank() && searchKind == GlobalSearchKind.REPOSITORIES ->
+                        container.repository.peekSearchRepositories(trimmedQuery).orEmpty()
+                    else -> emptyList()
+                }
+                val pageIssueHits = when {
+                    isPageActive -> issueHits
+                    pageTab == RepoListTab.SEARCH && submittedSearchQuery.isNotBlank() && searchKind == GlobalSearchKind.ISSUES_PRS ->
+                        container.repository.peekSearchIssuesAndPullsGlobal(trimmedQuery).orEmpty()
+                    else -> emptyList()
+                }
+                val pageCodeHits = when {
+                    isPageActive -> codeHits
+                    pageTab == RepoListTab.SEARCH && submittedSearchQuery.isNotBlank() && searchKind == GlobalSearchKind.CODE ->
+                        container.repository.peekSearchCode(trimmedQuery).orEmpty()
+                    else -> emptyList()
+                }
+                val pageUserHits = when {
+                    isPageActive -> userHits
+                    pageTab == RepoListTab.SEARCH && submittedSearchQuery.isNotBlank() && searchKind == GlobalSearchKind.USERS ->
+                        container.repository.peekSearchUsers(trimmedQuery).orEmpty()
+                    else -> emptyList()
+                }
+                val pageHasItems = when {
+                    pageTab != RepoListTab.SEARCH -> pageRepos.isNotEmpty()
+                    submittedSearchQuery.isBlank() -> pageTrendingRepos.isNotEmpty()
+                    searchKind == GlobalSearchKind.REPOSITORIES -> pageRepos.isNotEmpty()
+                    searchKind == GlobalSearchKind.ISSUES_PRS -> pageIssueHits.isNotEmpty()
+                    searchKind == GlobalSearchKind.CODE -> pageCodeHits.isNotEmpty()
+                    searchKind == GlobalSearchKind.USERS -> pageUserHits.isNotEmpty()
+                    else -> false
+                }
+                val pageIsLoading = if (isPageActive) {
+                    isLoading
+                } else {
+                    when (pageTab) {
+                        RepoListTab.MINE -> container.repository.peekViewerRepositories() == null
+                        RepoListTab.STARRED -> container.repository.peekStarredRepositories() == null
+                        RepoListTab.SEARCH -> if (submittedSearchQuery.isBlank()) {
+                            container.repository.peekTrendingRepositories(apiLang) == null
+                        } else {
+                            when (searchKind) {
+                                GlobalSearchKind.REPOSITORIES -> container.repository.peekSearchRepositories(trimmedQuery) == null
+                                GlobalSearchKind.ISSUES_PRS -> container.repository.peekSearchIssuesAndPullsGlobal(trimmedQuery) == null
+                                GlobalSearchKind.CODE -> container.repository.peekSearchCode(trimmedQuery) == null
+                                GlobalSearchKind.USERS -> container.repository.peekSearchUsers(trimmedQuery) == null
                             }
-                        )
-                    }
-                }
-
-                errorMsg != null && !hasCurrentItems -> {
-                    Column(
-                        modifier = Modifier.fillMaxSize().padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(errorMsg!!, color = MaterialTheme.colorScheme.error)
-                        Spacer(Modifier.height(10.dp))
-                        Button(onClick = { loadRepos(forceRefresh = true) }) {
-                            Text(strings.retry)
                         }
                     }
                 }
+                val pageError = if (isPageActive) errorMsg else null
 
-                !hasCurrentItems -> {
-                    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = when (activeTab) {
-                                RepoListTab.SEARCH -> if (submittedSearchQuery.isBlank()) {
-                                    strings.noTrendingFound
+                when {
+                    pageIsLoading && !pageHasItems -> {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            MaxxingLoadingState(
+                                message = if (pageTab == RepoListTab.SEARCH && submittedSearchQuery.isBlank()) {
+                                    strings.loadingTrending
                                 } else {
-                                    strings.noSearchMatches(strings.searchKindLabel(searchKind), submittedSearchQuery)
-                                }
-                                RepoListTab.STARRED -> strings.noStarredRepos
-                                RepoListTab.MINE -> strings.noReposFound
-                            },
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                activeTab == RepoListTab.SEARCH && submittedSearchQuery.isBlank() -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        items(
-                            items = trendingRepos,
-                            key = { "trending_${it.id}" },
-                            contentType = { "repo_summary" }
-                        ) { repo ->
-                            RepoSummaryCard(repo = repo, onClick = { onSelectRepo(repo) })
-                        }
-                    }
-                }
-
-                activeTab == RepoListTab.SEARCH && searchKind == GlobalSearchKind.ISSUES_PRS -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        items(
-                            items = issueHits,
-                            key = { "issue_${it.id}" },
-                            contentType = { "issue_search_hit" }
-                        ) { item ->
-                            SearchIssuePullCard(
-                                item = item,
-                                onOpenUser = onSelectUser,
-                                onClick = {
-                                    onSelectIssuePull(
-                                        IssuePullTarget(
-                                            owner = item.repoOwner,
-                                            repo = item.repoName,
-                                            number = item.number,
-                                            hintTitle = item.title,
-                                            kindHint = item.kind
-                                        )
-                                    )
+                                    strings.loadingResults
                                 }
                             )
                         }
                     }
-                }
 
-                activeTab == RepoListTab.SEARCH && searchKind == GlobalSearchKind.CODE -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        items(
-                            items = codeHits,
-                            key = { "${it.repoFullName}:${it.path}:${it.sha}" },
-                            contentType = { "code_search_hit" }
-                        ) { hit ->
-                            CodeSearchHitCard(hit = hit, onClick = { onSelectCodeHit(hit) })
+                    pageError != null && !pageHasItems -> {
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(pageError, color = MaterialTheme.colorScheme.error)
+                            Spacer(Modifier.height(10.dp))
+                            Button(onClick = { loadRepos(forceRefresh = true) }) {
+                                Text(strings.retry)
+                            }
                         }
                     }
-                }
 
-                activeTab == RepoListTab.SEARCH && searchKind == GlobalSearchKind.USERS -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        items(
-                            items = userHits,
-                            key = { "user_${it.login}" },
-                            contentType = { "user_search_hit" }
-                        ) { user ->
-                            SearchUserCard(user = user, onClick = { onSelectUser(user.login) })
+                    !pageHasItems -> {
+                        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = when (pageTab) {
+                                    RepoListTab.SEARCH -> if (submittedSearchQuery.isBlank()) {
+                                        strings.noTrendingFound
+                                    } else {
+                                        strings.noSearchMatches(strings.searchKindLabel(searchKind), submittedSearchQuery)
+                                    }
+                                    RepoListTab.STARRED -> strings.noStarredRepos
+                                    RepoListTab.MINE -> strings.noReposFound
+                                },
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
-                }
 
-                else -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        items(
-                            items = repos,
-                            key = { it.id },
-                            contentType = { "repo_summary" }
-                        ) { repo ->
-                            RepoSummaryCard(repo = repo, onClick = { onSelectRepo(repo) })
+                    pageTab == RepoListTab.SEARCH && submittedSearchQuery.isBlank() -> {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(
+                                items = pageTrendingRepos,
+                                key = { "trending_${it.id}" },
+                                contentType = { "repo_summary" }
+                            ) { repo ->
+                                RepoSummaryCard(repo = repo, onClick = { onSelectRepo(repo) })
+                            }
+                        }
+                    }
+
+                    pageTab == RepoListTab.SEARCH && searchKind == GlobalSearchKind.ISSUES_PRS -> {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(
+                                items = pageIssueHits,
+                                key = { "issue_${it.id}" },
+                                contentType = { "issue_search_hit" }
+                            ) { item ->
+                                SearchIssuePullCard(
+                                    item = item,
+                                    onOpenUser = onSelectUser,
+                                    onClick = {
+                                        onSelectIssuePull(
+                                            IssuePullTarget(
+                                                owner = item.repoOwner,
+                                                repo = item.repoName,
+                                                number = item.number,
+                                                hintTitle = item.title,
+                                                kindHint = item.kind
+                                            )
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    pageTab == RepoListTab.SEARCH && searchKind == GlobalSearchKind.CODE -> {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(
+                                items = pageCodeHits,
+                                key = { "${it.repoFullName}:${it.path}:${it.sha}" },
+                                contentType = { "code_search_hit" }
+                            ) { hit ->
+                                CodeSearchHitCard(hit = hit, onClick = { onSelectCodeHit(hit) })
+                            }
+                        }
+                    }
+
+                    pageTab == RepoListTab.SEARCH && searchKind == GlobalSearchKind.USERS -> {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(
+                                items = pageUserHits,
+                                key = { "user_${it.login}" },
+                                contentType = { "user_search_hit" }
+                            ) { user ->
+                                SearchUserCard(user = user, onClick = { onSelectUser(user.login) })
+                            }
+                        }
+                    }
+
+                    else -> {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(
+                                items = pageRepos,
+                                key = { it.id },
+                                contentType = { "repo_summary" }
+                            ) { repo ->
+                                RepoSummaryCard(repo = repo, onClick = { onSelectRepo(repo) })
+                            }
                         }
                     }
                 }
@@ -1902,10 +1974,15 @@ fun RepoDetailScreen(
         }
     }
 
-    val hasInnerRepoBack = (activeTab == RepoDetailTab.ACTIONS && (openedLogJob != null || openedRun != null)) ||
-        (activeTab == RepoDetailTab.DISCUSSIONS && openedDiscussionNumber != null) ||
-        (activeTab == RepoDetailTab.CODE && (openedCommitSha != null || showCompareView || showCommitsView || currentPath.isNotBlank())) ||
-        openedFile != null
+    val isInInnerRepoDetailView = openedFile != null ||
+        openedCommitSha != null ||
+        showCompareView ||
+        showCommitsView ||
+        openedLogJob != null ||
+        openedRun != null ||
+        openedDiscussionNumber != null
+    val hasInnerRepoBack = isInInnerRepoDetailView ||
+        (activeTab == RepoDetailTab.CODE && currentPath.isNotBlank())
     val hasOpenEditor = showFileEditorDialog ||
         showCreateReleaseDialog ||
         showCreateDiscussionDialog ||
@@ -1916,6 +1993,22 @@ fun RepoDetailScreen(
         deletingLabelTarget != null ||
         deletingMilestoneTarget != null ||
         fullScreenDiffContext != null
+
+    val headerCollapseTracker = remember(repo.fullName) { RepoHeaderCollapseTracker() }
+    fun selectRepoDetailTab(tab: RepoDetailTab) {
+        activeTab = tab
+        headerCollapseTracker.expand()
+        showCommitsView = false
+        showCompareView = false
+        openedCommitSha = null
+        if (tab != RepoDetailTab.ACTIONS) {
+            openedRun = null
+            openedLogJob = null
+        }
+        if (tab != RepoDetailTab.DISCUSSIONS) {
+            openedDiscussionNumber = null
+        }
+    }
 
     val effectiveParent = detail?.summary?.parent ?: repo.parent
     val isForkRepo = detail?.summary?.isFork ?: repo.isFork || effectiveParent != null
@@ -2061,7 +2154,6 @@ fun RepoDetailScreen(
         }
     }
 
-    val headerCollapseTracker = remember(repo.fullName) { RepoHeaderCollapseTracker() }
     val headerNestedScroll = remember(headerCollapseTracker) { headerCollapseTracker.toNestedScrollConnection() }
     val repoHeaderVerticalPadding by animateDpAsState(if (headerCollapseTracker.isCollapsed) 4.dp else 12.dp)
 
@@ -2531,20 +2623,7 @@ fun RepoDetailScreen(
                         val selected = activeTab == tab
                         Tab(
                             selected = selected,
-                            onClick = {
-                                activeTab = tab
-                                headerCollapseTracker.expand()
-                                showCommitsView = false
-                                showCompareView = false
-                                openedCommitSha = null
-                                if (tab != RepoDetailTab.ACTIONS) {
-                                    openedRun = null
-                                    openedLogJob = null
-                                }
-                                if (tab != RepoDetailTab.DISCUSSIONS) {
-                                    openedDiscussionNumber = null
-                                }
-                            },
+                            onClick = { selectRepoDetailTab(tab) },
                             selectedContentColor = MaterialTheme.colorScheme.primary,
                             unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                             text = {
@@ -2577,7 +2656,15 @@ fun RepoDetailScreen(
                 .fillMaxWidth()
                 .nestedScroll(headerNestedScroll)
         ) {
-            when (activeTab) {
+            MaxxingSwipeableTabPager(
+                tabs = RepoDetailTab.entries,
+                selectedTab = activeTab,
+                onSelectTab = { selectRepoDetailTab(it) },
+                swipeEnabled = !isInInnerRepoDetailView && !hasOpenEditor,
+                modifier = Modifier.fillMaxSize()
+            ) { pageTab ->
+            val isPageActive = pageTab == activeTab
+            when (pageTab) {
             RepoDetailTab.CODE -> {
                 if (showCommitsView || showCompareView || openedCommitSha != null) {
                     val allRefs = remember(detail?.branches, repoTags, currentRef, repo.defaultBranch, effectiveParent) {
@@ -2983,7 +3070,7 @@ fun RepoDetailScreen(
                             workflows = workflows,
                             selectedWorkflowId = selectedWorkflowId,
                             runs = workflowRuns,
-                            isLoading = actionsLoading,
+                            isLoading = actionsLoading || (!isPageActive && workflowRuns == null && actionsError == null),
                             errorMsg = actionsError,
                             canDispatch = capabilities.canPush,
                             onSelectWorkflow = { wfId ->
@@ -3002,7 +3089,7 @@ fun RepoDetailScreen(
                 RepoReleasesTabContent(
                     releases = releases,
                     tags = repoTags,
-                    isLoading = releasesLoading,
+                    isLoading = releasesLoading || (!isPageActive && releases == null && releasesError == null),
                     errorMsg = releasesError,
                     canCreateRelease = capabilities.canPush,
                     onRefresh = { loadReleases(forceRefresh = true) },
@@ -3088,7 +3175,7 @@ fun RepoDetailScreen(
                             selectedDiscussionCategoryId = catId
                             loadDiscussions(catId, forceRefresh = false)
                         },
-                        isLoading = discussionsLoading,
+                        isLoading = discussionsLoading || (!isPageActive && discussionsData == null && discussionsError == null),
                         errorMsg = discussionsError,
                         canParticipate = capabilities.canCommentOrCreateDiscussion,
                         onRefresh = { loadDiscussions(selectedDiscussionCategoryId, forceRefresh = true) },
@@ -3123,7 +3210,7 @@ fun RepoDetailScreen(
             RepoDetailTab.SECURITY -> {
                 RepoSecurityTabContent(
                     overview = securityOverview,
-                    isLoading = securityLoading,
+                    isLoading = securityLoading || (!isPageActive && securityOverview == null && securityError == null),
                     errorMsg = securityError,
                     onRefresh = { loadSecurityOverview(forceRefresh = true) }
                 )
@@ -3132,7 +3219,7 @@ fun RepoDetailScreen(
             RepoDetailTab.INSIGHTS -> {
                 RepoInsightsTabContent(
                     insights = insightsData,
-                    isLoading = insightsLoading,
+                    isLoading = insightsLoading || (!isPageActive && insightsData == null && insightsError == null),
                     errorMsg = insightsError,
                     onRefresh = { loadInsights(forceRefresh = true) },
                     onOpenUser = onOpenUser
@@ -3145,7 +3232,7 @@ fun RepoDetailScreen(
                     stateFilter = issueStateFilter,
                     onSelectFilter = { issueStateFilter = it },
                     items = repoIssues,
-                    isLoading = issuesLoading,
+                    isLoading = issuesLoading || (!isPageActive && issuesSection == RepoIssuesSection.ISSUES && repoIssues == null && issuesError == null),
                     errorMsg = issuesError,
                     onRefresh = {
                         when (issuesSection) {
@@ -3260,7 +3347,7 @@ fun RepoDetailScreen(
                     stateFilter = pullStateFilter,
                     onSelectFilter = { pullStateFilter = it },
                     items = repoPulls,
-                    isLoading = pullsLoading,
+                    isLoading = pullsLoading || (!isPageActive && repoPulls == null && pullsError == null),
                     errorMsg = pullsError,
                     onRefresh = { loadRepoPulls(pullStateFilter, forceRefresh = true) },
                     onCreateNew = if (capabilities.canPush) {
@@ -3276,6 +3363,7 @@ fun RepoDetailScreen(
                     }
                 )
             }
+        }
         }
         }
         }

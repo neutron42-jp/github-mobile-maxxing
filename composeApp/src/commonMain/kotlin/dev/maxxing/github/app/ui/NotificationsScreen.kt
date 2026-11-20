@@ -89,6 +89,7 @@ import dev.maxxing.github.ui.components.MaxxingDropdownSelector
 import dev.maxxing.github.ui.components.MaxxingFloatingToolbar
 import dev.maxxing.github.ui.components.MaxxingLoadingState
 import dev.maxxing.github.ui.components.MaxxingPredictiveBackContainer
+import dev.maxxing.github.ui.components.MaxxingSwipeableTabPager
 import dev.maxxing.github.ui.components.MaxxingTopHeaderDefaults
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.UserAvatar
@@ -130,6 +131,25 @@ internal enum class ReasonFilter {
         ASSIGNED -> strings.reasonAssigned
         CI -> strings.reasonCi
     }
+}
+
+internal fun filterNotificationThreads(
+    threads: List<NotificationThread>,
+    reasonFilter: ReasonFilter,
+    searchQuery: String
+): List<NotificationThread> = threads.filter { t ->
+    val reasonOk = when (reasonFilter) {
+        ReasonFilter.ALL -> true
+        ReasonFilter.REVIEWS -> t.reason == NotificationReason.REVIEW_REQUESTED
+        ReasonFilter.MENTIONS -> t.reason == NotificationReason.MENTION || t.reason == NotificationReason.TEAM_MENTION
+        ReasonFilter.ASSIGNED -> t.reason == NotificationReason.ASSIGN
+        ReasonFilter.CI -> t.reason == NotificationReason.CI_ACTIVITY
+    }
+    val q = searchQuery.trim()
+    val queryOk = q.isEmpty() ||
+        t.subjectTitle.contains(q, ignoreCase = true) ||
+        t.repoFullName.contains(q, ignoreCase = true)
+    reasonOk && queryOk
 }
 
 @OptIn(
@@ -323,20 +343,7 @@ fun NotificationsScreen(
     }
 
     val visibleThreads = remember(threads, reasonFilter, searchQuery) {
-        threads.filter { t ->
-            val reasonOk = when (reasonFilter) {
-                ReasonFilter.ALL -> true
-                ReasonFilter.REVIEWS -> t.reason == NotificationReason.REVIEW_REQUESTED
-                ReasonFilter.MENTIONS -> t.reason == NotificationReason.MENTION || t.reason == NotificationReason.TEAM_MENTION
-                ReasonFilter.ASSIGNED -> t.reason == NotificationReason.ASSIGN
-                ReasonFilter.CI -> t.reason == NotificationReason.CI_ACTIVITY
-            }
-            val q = searchQuery.trim()
-            val queryOk = q.isEmpty() ||
-                t.subjectTitle.contains(q, ignoreCase = true) ||
-                t.repoFullName.contains(q, ignoreCase = true)
-            reasonOk && queryOk
-        }
+        filterNotificationThreads(threads, reasonFilter, searchQuery)
     }
 
     val headerTracker = remember { RepoHeaderCollapseTracker() }
@@ -522,161 +529,172 @@ fun NotificationsScreen(
                             onRefresh = { loadNotifications(forceRefresh = true, showRefreshFeedback = true) },
                             modifier = Modifier.fillMaxSize().nestedScroll(headerNestedScroll)
                         ) {
-                            when {
-                                isLoading && threads.isEmpty() -> {
-                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        MaxxingLoadingState(message = strings.syncingNotifications)
-                                    }
+                            MaxxingSwipeableTabPager(
+                                tabs = ReasonFilter.entries,
+                                selectedTab = reasonFilter,
+                                onSelectTab = { reasonFilter = it },
+                                interceptStartToEndBeforeChildren = isMarkDoneAvailable(filter),
+                                modifier = Modifier.fillMaxSize()
+                            ) { pageReason ->
+                                val pageThreads = remember(threads, pageReason, searchQuery) {
+                                    filterNotificationThreads(threads, pageReason, searchQuery)
                                 }
-
-                                errorMsg != null && threads.isEmpty() -> {
-                                    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-                                        Text(
-                                            text = errorMsg!!,
-                                            color = MaterialTheme.colorScheme.error,
-                                            style = MaterialTheme.typography.bodyLarge
-                                        )
+                                when {
+                                    isLoading && threads.isEmpty() -> {
+                                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                            MaxxingLoadingState(message = strings.syncingNotifications)
+                                        }
                                     }
-                                }
 
-                                visibleThreads.isEmpty() -> {
-                                    Column(
-                                        modifier = Modifier.fillMaxSize().padding(32.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center
-                                    ) {
-                                        Icon(
-                                            Lucide.Inbox,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(56.dp),
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                        Spacer(Modifier.height(12.dp))
-                                        Text(strings.inboxZeroTitle, style = MaterialTheme.typography.headlineSmall)
-                                        Spacer(Modifier.height(4.dp))
-                                        Text(
-                                            text = if (filter == InboxFilter.UNREAD) {
-                                                strings.inboxZeroUnreadHint
-                                            } else {
-                                                strings.inboxZeroFilteredHint(filter.localizedLabel(strings))
-                                            },
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                    errorMsg != null && threads.isEmpty() -> {
+                                        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = errorMsg!!,
+                                                color = MaterialTheme.colorScheme.error,
+                                                style = MaterialTheme.typography.bodyLarge
+                                            )
+                                        }
                                     }
-                                }
 
-                                else -> {
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 92.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    items(
-                                        items = visibleThreads,
-                                        key = { it.id },
-                                        contentType = { "notification_thread" }
-                                    ) { thread ->
-                                        val dismissState = rememberSwipeToDismissBoxState(
-                                            confirmValueChange = { value ->
-                                                if (value == SwipeToDismissBoxValue.EndToStart) {
-                                                    threads = threads.filterNot { it.id == thread.id }
-                                                    container.markNotificationDone(
-                                                        threadId = thread.id,
-                                                        onSuccess = {
-                                                            scope.launch { onMessage(strings.markedDone) }
-                                                        },
-                                                        onFailure = {
-                                                            scope.launch { loadNotifications() }
-                                                        }
-                                                    )
-                                                    true
-                                                } else false
-                                            }
-                                        )
-
-                                        SwipeToDismissBox(
-                                            state = dismissState,
-                                            enableDismissFromStartToEnd = false,
-                                            gesturesEnabled = isMarkDoneAvailable(filter),
-                                            backgroundContent = {
-                                                // Only draw the done hint while the card is actually being swiped.
-                                                if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .fillMaxSize()
-                                                            .padding(horizontal = 20.dp),
-                                                        contentAlignment = Alignment.CenterEnd
-                                                    ) {
-                                                        Icon(
-                                                            Lucide.Check,
-                                                            contentDescription = strings.doneAction,
-                                                            tint = MaterialTheme.colorScheme.primary
-                                                        )
-                                                    }
-                                                }
-                                            }
+                                    pageThreads.isEmpty() -> {
+                                        Column(
+                                            modifier = Modifier.fillMaxSize().padding(32.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
                                         ) {
-                                            val currentKey = navigator.currentDestination?.contentKey
-                                            val isSelected = when {
-                                                currentKey == "thread:${thread.id}" -> true
-                                                currentKey != null && currentKey.startsWith("issue:") -> {
-                                                    selectedIssueTargets[currentKey]?.let {
-                                                        it.owner == thread.repoOwner &&
-                                                            it.repo == thread.repoName &&
-                                                            it.number == thread.subjectNumber
-                                                    } == true
-                                                }
-                                                else -> false
-                                            }
-                                            NotificationThreadCard(
-                                                thread = thread,
-                                                selected = isSelected,
-                                                onClick = {
-                                                    if (thread.unread) {
-                                                        threads = threads.map {
-                                                            if (it.id == thread.id) it.copy(unread = false) else it
-                                                        }
-                                                        container.markNotificationRead(thread.id)
-                                                    }
-                                                    val num = thread.subjectNumber
-                                                    if (num != null && (thread.subjectType == NotificationSubjectType.ISSUE || thread.subjectType == NotificationSubjectType.PULL_REQUEST)) {
-                                                        openIssueDetail(
-                                                            IssuePullTarget(
-                                                                owner = thread.repoOwner,
-                                                                repo = thread.repoName,
-                                                                number = num,
-                                                                hintTitle = thread.subjectTitle,
-                                                                kindHint = if (thread.subjectType == NotificationSubjectType.PULL_REQUEST) {
-                                                                    IssueOrPullKind.PULL_REQUEST
-                                                                } else {
-                                                                    IssueOrPullKind.ISSUE
-                                                                }
-                                                            )
-                                                        )
-                                                    } else {
-                                                        openThreadSubjectDetail(thread)
-                                                    }
+                                            Icon(
+                                                Lucide.Inbox,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(56.dp),
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(Modifier.height(12.dp))
+                                            Text(strings.inboxZeroTitle, style = MaterialTheme.typography.headlineSmall)
+                                            Spacer(Modifier.height(4.dp))
+                                            Text(
+                                                text = if (filter == InboxFilter.UNREAD) {
+                                                    strings.inboxZeroUnreadHint
+                                                } else {
+                                                    strings.inboxZeroFilteredHint(filter.localizedLabel(strings))
                                                 },
-                                                onMarkDone = if (isMarkDoneAvailable(filter)) {
-                                                    {
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
+                                    else -> {
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 92.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        items(
+                                            items = pageThreads,
+                                            key = { it.id },
+                                            contentType = { "notification_thread" }
+                                        ) { thread ->
+                                            val dismissState = rememberSwipeToDismissBoxState(
+                                                confirmValueChange = { value ->
+                                                    if (value == SwipeToDismissBoxValue.EndToStart) {
                                                         threads = threads.filterNot { it.id == thread.id }
                                                         container.markNotificationDone(
                                                             threadId = thread.id,
+                                                            onSuccess = {
+                                                                scope.launch { onMessage(strings.markedDone) }
+                                                            },
                                                             onFailure = {
                                                                 scope.launch { loadNotifications() }
                                                             }
                                                         )
-                                                    }
-                                                } else {
-                                                    null
+                                                        true
+                                                    } else false
                                                 }
                                             )
+
+                                            SwipeToDismissBox(
+                                                state = dismissState,
+                                                enableDismissFromStartToEnd = false,
+                                                gesturesEnabled = isMarkDoneAvailable(filter),
+                                                backgroundContent = {
+                                                    // Only draw the done hint while the card is actually being swiped.
+                                                    if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .fillMaxSize()
+                                                                .padding(horizontal = 20.dp),
+                                                            contentAlignment = Alignment.CenterEnd
+                                                        ) {
+                                                            Icon(
+                                                                Lucide.Check,
+                                                                contentDescription = strings.doneAction,
+                                                                tint = MaterialTheme.colorScheme.primary
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            ) {
+                                                val currentKey = navigator.currentDestination?.contentKey
+                                                val isSelected = when {
+                                                    currentKey == "thread:${thread.id}" -> true
+                                                    currentKey != null && currentKey.startsWith("issue:") -> {
+                                                        selectedIssueTargets[currentKey]?.let {
+                                                            it.owner == thread.repoOwner &&
+                                                                it.repo == thread.repoName &&
+                                                                it.number == thread.subjectNumber
+                                                        } == true
+                                                    }
+                                                    else -> false
+                                                }
+                                                NotificationThreadCard(
+                                                    thread = thread,
+                                                    selected = isSelected,
+                                                    onClick = {
+                                                        if (thread.unread) {
+                                                            threads = threads.map {
+                                                                if (it.id == thread.id) it.copy(unread = false) else it
+                                                            }
+                                                            container.markNotificationRead(thread.id)
+                                                        }
+                                                        val num = thread.subjectNumber
+                                                        if (num != null && (thread.subjectType == NotificationSubjectType.ISSUE || thread.subjectType == NotificationSubjectType.PULL_REQUEST)) {
+                                                            openIssueDetail(
+                                                                IssuePullTarget(
+                                                                    owner = thread.repoOwner,
+                                                                    repo = thread.repoName,
+                                                                    number = num,
+                                                                    hintTitle = thread.subjectTitle,
+                                                                    kindHint = if (thread.subjectType == NotificationSubjectType.PULL_REQUEST) {
+                                                                        IssueOrPullKind.PULL_REQUEST
+                                                                    } else {
+                                                                        IssueOrPullKind.ISSUE
+                                                                    }
+                                                                )
+                                                            )
+                                                        } else {
+                                                            openThreadSubjectDetail(thread)
+                                                        }
+                                                    },
+                                                    onMarkDone = if (isMarkDoneAvailable(filter)) {
+                                                        {
+                                                            threads = threads.filterNot { it.id == thread.id }
+                                                            container.markNotificationDone(
+                                                                threadId = thread.id,
+                                                                onFailure = {
+                                                                    scope.launch { loadNotifications() }
+                                                                }
+                                                            )
+                                                        }
+                                                    } else {
+                                                        null
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
+                            }
                         }
                     }
 
