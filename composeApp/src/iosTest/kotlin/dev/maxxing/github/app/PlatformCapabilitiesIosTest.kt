@@ -8,6 +8,7 @@ class PlatformCapabilitiesIosTest {
     @Test
     fun iosUsesItsOwnCopyHidesDynamicColorToggleAndAvoidsTheKeyboard() {
         assertTrue(platformCapabilities.usesIosCopy)
+        assertFalse(platformCapabilities.supportsDynamicColor)
         assertFalse(platformCapabilities.supportsDynamicColorToggle)
         assertFalse(platformCapabilities.supportsCustomFonts)
         assertTrue(platformCapabilities.avoidsKeyboardOnSignIn)

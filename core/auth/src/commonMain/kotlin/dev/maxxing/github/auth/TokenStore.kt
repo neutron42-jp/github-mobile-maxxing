@@ -3,16 +3,34 @@ package dev.maxxing.github.auth
 import dev.maxxing.github.model.AppLanguage
 import dev.maxxing.github.model.AuthSession
 import dev.maxxing.github.model.FontSelection
+import dev.maxxing.github.model.MaxxingThemeDefaults
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 
+/**
+ * Persisted appearance preferences.
+ *
+ * [seedColorHex] and [monochromePresetSelected] are always written, even when they hold their
+ * defaults, so a record saved by this version can be told apart from a legacy record that
+ * predates the Graphite preset (see [decodeThemePreferences]).
+ */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class ThemePreferences(
-    val seedColorHex: Long = 0xFF6750A4,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val seedColorHex: Long = MaxxingThemeDefaults.DEFAULT_SEED_COLOR_HEX,
     val useDynamicColor: Boolean = true,
     val darkModeOverride: Boolean? = null,
     val primaryFont: FontSelection = FontSelection.SystemDefault,
     val fallbackFont: FontSelection = FontSelection.SystemDefault,
-    val language: AppLanguage = AppLanguage.DEFAULT
+    val language: AppLanguage = AppLanguage.DEFAULT,
+    /**
+     * True only when the Graphite preset itself is selected. A custom color that happens to
+     * equal the Graphite seed keeps this false and keeps the Expressive palette style.
+     */
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val monochromePresetSelected: Boolean = seedColorHex == MaxxingThemeDefaults.GRAPHITE_SEED_COLOR_HEX
 )
 
 @Serializable

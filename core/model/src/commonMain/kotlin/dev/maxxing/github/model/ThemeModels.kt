@@ -2,6 +2,23 @@ package dev.maxxing.github.model
 
 import kotlinx.serialization.Serializable
 
+/**
+ * Theme seed values shared by persistence (`core/auth`) and color generation (`core/ui`).
+ *
+ * [DEFAULT_SEED_COLOR_HEX] is the seed used when no preferences have been saved yet. It is also
+ * the Graphite preset's seed, which is generated with the MaterialKolor Monochrome style.
+ */
+object MaxxingThemeDefaults {
+    /** Opaque neutral middle gray seed behind the Graphite preset. */
+    const val GRAPHITE_SEED_COLOR_HEX: Long = 0xFF606060L
+
+    /** The pre-Graphite default seed (Iris). Kept for reading legacy records. */
+    const val IRIS_SEED_COLOR_HEX: Long = 0xFF6750A4L
+
+    /** Default seed for a new install and for legacy records that omitted a seed. */
+    const val DEFAULT_SEED_COLOR_HEX: Long = GRAPHITE_SEED_COLOR_HEX
+}
+
 @Serializable
 enum class FontSourceKind {
     SYSTEM_DEFAULT,

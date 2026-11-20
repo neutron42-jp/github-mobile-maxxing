@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -55,6 +56,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -119,6 +123,7 @@ import dev.maxxing.github.ui.components.formatSeedColorHex
 import dev.maxxing.github.ui.i18n.AppStrings
 import dev.maxxing.github.ui.i18n.appStrings
 import dev.maxxing.github.ui.theme.MaxxingSeedPresets
+import dev.maxxing.github.ui.theme.resolveMaxxingSeedPreset
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 
@@ -382,6 +387,7 @@ fun SettingsScreen(
                     container.sessionManager.updateThemePreferences(
                         themePrefs.copy(
                             seedColorHex = chosenHex,
+                            monochromePresetSelected = false,
                             useDynamicColor = false
                         )
                     )
@@ -711,7 +717,10 @@ private fun AppearanceSettingsPage(
                 }
 
                 Spacer(Modifier.height(16.dp))
-                val activePreset = MaxxingSeedPresets.firstOrNull { it.colorHex == themePrefs.seedColorHex }
+                val activePreset = resolveMaxxingSeedPreset(
+                    seedColorHex = themePrefs.seedColorHex,
+                    monochromePresetSelected = themePrefs.monochromePresetSelected
+                )
                 val isCustomColorSelected = activePreset == null
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -739,7 +748,7 @@ private fun AppearanceSettingsPage(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     MaxxingSeedPresets.forEach { preset ->
-                        val selected = themePrefs.seedColorHex == preset.colorHex
+                        val selected = preset == activePreset
                         val swatchColor = Color(preset.colorHex)
                         Box(
                             modifier = Modifier
@@ -753,20 +762,27 @@ private fun AppearanceSettingsPage(
                                         Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
                                     }
                                 )
-                                .clickable {
-                                    onUpdateTheme(
-                                        themePrefs.copy(
-                                            seedColorHex = preset.colorHex,
-                                            useDynamicColor = false
+                                .selectable(
+                                    selected = selected,
+                                    role = Role.RadioButton,
+                                    onClick = {
+                                        onUpdateTheme(
+                                            themePrefs.copy(
+                                                seedColorHex = preset.colorHex,
+                                                monochromePresetSelected = preset.requiresExplicitSelection,
+                                                useDynamicColor = false
+                                            )
                                         )
-                                    )
-                                },
+                                    }
+                                )
+                                .semantics { contentDescription = preset.name },
                             contentAlignment = Alignment.Center
                         ) {
                             if (selected) {
                                 Icon(
                                     Lucide.Check,
-                                    contentDescription = preset.name,
+                                    // The swatch itself announces the preset name and selected state.
+                                    contentDescription = null,
                                     tint = if (swatchColor.luminance() > 0.45f) Color.Black else Color.White,
                                     modifier = Modifier.size(18.dp)
                                 )
@@ -791,12 +807,17 @@ private fun AppearanceSettingsPage(
                                     Modifier.border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
                                 }
                             )
-                            .clickable(onClick = onOpenCustomColorPicker),
+                            .selectable(
+                                selected = isCustomColorSelected,
+                                role = Role.RadioButton,
+                                onClick = onOpenCustomColorPicker
+                            )
+                            .semantics { contentDescription = strings.pickCustomColorDesc },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             Lucide.SlidersHorizontal,
-                            contentDescription = strings.pickCustomColorDesc,
+                            contentDescription = null,
                             tint = if (isCustomColorSelected) {
                                 if (customBg.luminance() > 0.45f) Color.Black else Color.White
                             } else {
@@ -1559,7 +1580,9 @@ internal fun buildSettingsCategoryItems(
         subtitle = formatAppearanceSummary(
             themePrefs = themePrefs,
             strings = strings,
-            supportsDynamicColor = capabilities.supportsDynamicColorToggle
+            // Wallpaper colors are applied only where the platform actually provides them;
+            // the switch can still be visible on a platform with a meaningful choice.
+            supportsDynamicColor = capabilities.supportsDynamicColor
         ),
         icon = Lucide.Palette
     ),
@@ -1619,6 +1642,7 @@ internal fun buildSettingsAppInfoSubtitle(
 internal fun formatAppearanceSummary(
     themePrefs: ThemePreferences,
     strings: AppStrings,
+    /** Whether wallpaper-derived colors can actually be applied here, not whether the switch is shown. */
     supportsDynamicColor: Boolean = true
 ): String {
     val modeLabel = DarkModeOption.entries
@@ -1627,8 +1651,10 @@ internal fun formatAppearanceSummary(
     val colorLabel = if (supportsDynamicColor && themePrefs.useDynamicColor) {
         strings.settingsSummaryDynamicColor
     } else {
-        MaxxingSeedPresets.firstOrNull { it.colorHex == themePrefs.seedColorHex }?.name
-            ?: strings.customColorLabel
+        resolveMaxxingSeedPreset(
+            seedColorHex = themePrefs.seedColorHex,
+            monochromePresetSelected = themePrefs.monochromePresetSelected
+        )?.name ?: strings.customColorLabel
     }
     val customFontLabel = when {
         themePrefs.primaryFont.kind != FontSourceKind.SYSTEM_DEFAULT ->

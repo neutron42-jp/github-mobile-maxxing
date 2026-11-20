@@ -1,6 +1,7 @@
 package dev.maxxing.github.app.ui
 
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,12 +49,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.composables.icons.lucide.CircleCheck
 import com.composables.icons.lucide.CircleDot
 import com.composables.icons.lucide.GitMerge
 import com.composables.icons.lucide.GitPullRequest
+import com.composables.icons.lucide.GitPullRequestClosed
 import com.composables.icons.lucide.Layers
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.MessageSquare
@@ -80,6 +84,7 @@ import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.UserAvatar
 import dev.maxxing.github.ui.components.expressiveAnimateContentSize
 import dev.maxxing.github.ui.i18n.appStrings
+import dev.maxxing.github.ui.theme.LocalGraphitePalette
 import kotlinx.coroutines.launch
 
 @OptIn(
@@ -404,8 +409,10 @@ fun IssuePullSummaryCard(
     onClick: () -> Unit
 ) {
     val strings = appStrings()
+    val graphitePalette = LocalGraphitePalette.current
     val stateColor = when {
         item.isDraft -> MaterialTheme.colorScheme.onSurfaceVariant
+        item.state == IssueOrPullState.OPEN && graphitePalette -> Color(0xFF15803D)
         item.state == IssueOrPullState.OPEN -> Color(0xFF16A34A)
         item.state == IssueOrPullState.MERGED -> Color(0xFF7C3AED)
         else -> MaterialTheme.colorScheme.error
@@ -414,15 +421,25 @@ fun IssuePullSummaryCard(
     Card(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
-            containerColor = if (selected) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerLow
+            // Graphite's primaryContainer is dark in light mode and light in dark mode, so a
+            // translucent fill underneath onSurface/onSurfaceVariant text loses contrast.
+            // Use a neutral surface family and mark selection with a primary border instead.
+            containerColor = when {
+                selected && !graphitePalette -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                else -> MaterialTheme.colorScheme.surfaceContainerLow
             }
         ),
         modifier = Modifier
             .fillMaxWidth()
+            .then(
+                if (selected && graphitePalette) {
+                    Modifier.border(1.5.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.large)
+                } else {
+                    Modifier
+                }
+            )
             .clickable(onClick = onClick)
+            .semantics { this.selected = selected }
     ) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -430,11 +447,12 @@ fun IssuePullSummaryCard(
                     imageVector = when {
                         item.isDraft -> Lucide.Pencil
                         item.kind == IssueOrPullKind.PULL_REQUEST && item.state == IssueOrPullState.MERGED -> Lucide.GitMerge
+                        item.kind == IssueOrPullKind.PULL_REQUEST && item.state == IssueOrPullState.CLOSED -> Lucide.GitPullRequestClosed
                         item.kind == IssueOrPullKind.PULL_REQUEST -> Lucide.GitPullRequest
                         item.state == IssueOrPullState.CLOSED -> Lucide.CircleCheck
                         else -> Lucide.CircleDot
                     },
-                    contentDescription = null,
+                    contentDescription = strings.issueStateBadgeLabel(item.state, item.isDraft),
                     tint = stateColor,
                     modifier = Modifier.size(16.dp)
                 )

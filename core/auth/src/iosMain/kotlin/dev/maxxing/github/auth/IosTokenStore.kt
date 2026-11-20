@@ -259,8 +259,7 @@ internal class IosTokenStore(
 
     override suspend fun loadThemePreferences(): ThemePreferences {
         val raw = userDefaults.stringForKey(KEY_THEME_PREFS) ?: return ThemePreferences()
-        return runCatching { json.decodeFromString<ThemePreferences>(raw) }
-            .getOrDefault(ThemePreferences())
+        return decodeThemePreferences(raw)
     }
 
     override suspend fun saveNotificationPreferences(prefs: NotificationPreferences) {

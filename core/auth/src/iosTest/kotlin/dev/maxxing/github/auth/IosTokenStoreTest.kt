@@ -7,6 +7,7 @@ import dev.maxxing.github.model.AuthMethod
 import dev.maxxing.github.model.AuthSession
 import dev.maxxing.github.model.FontSelection
 import dev.maxxing.github.model.FontSourceKind
+import dev.maxxing.github.model.MaxxingThemeDefaults
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
@@ -172,9 +173,22 @@ class IosTokenStoreTest {
         store.saveClientId("client123")
         assertEquals("client123", store.loadClientId())
 
-        val theme = ThemePreferences(seedColorHex = 0xFF112233, useDynamicColor = false, darkModeOverride = true)
+        val theme = ThemePreferences(
+            seedColorHex = 0xFF112233,
+            monochromePresetSelected = false,
+            useDynamicColor = false,
+            darkModeOverride = true
+        )
         store.saveThemePreferences(theme)
         assertEquals(theme, store.loadThemePreferences())
+
+        // New Graphite records persist and restore the explicit Monochrome selection.
+        val graphite = ThemePreferences()
+        store.saveThemePreferences(graphite)
+        val reloadedGraphite = store.loadThemePreferences()
+        assertEquals(graphite, reloadedGraphite)
+        assertEquals(MaxxingThemeDefaults.GRAPHITE_SEED_COLOR_HEX, reloadedGraphite.seedColorHex)
+        assertTrue(reloadedGraphite.monochromePresetSelected)
 
         val notif = NotificationPreferences(osNotificationsEnabled = false, urgentOnly = true, pollIntervalMinutes = 5)
         store.saveNotificationPreferences(notif)
@@ -214,6 +228,36 @@ class IosTokenStoreTest {
     }
 
     @Test
+    fun legacyThemeRecordsAreDisambiguatedFromGraphiteRecords() = runTest {
+        val store = store()
+
+        // Legacy record with no seed (including {}) follows the Graphite default but keeps its fields.
+        defaults.setObject("""{"useDynamicColor":false}""", forKey = "theme_prefs")
+        val defaulted = store.loadThemePreferences()
+        assertEquals(MaxxingThemeDefaults.GRAPHITE_SEED_COLOR_HEX, defaulted.seedColorHex)
+        assertTrue(defaulted.monochromePresetSelected)
+        assertFalse(defaulted.useDynamicColor)
+
+        // Legacy Iris record keeps its seed and stays Expressive.
+        defaults.setObject(
+            """{"seedColorHex":${MaxxingThemeDefaults.IRIS_SEED_COLOR_HEX},"useDynamicColor":false}""",
+            forKey = "theme_prefs"
+        )
+        val iris = store.loadThemePreferences()
+        assertEquals(MaxxingThemeDefaults.IRIS_SEED_COLOR_HEX, iris.seedColorHex)
+        assertFalse(iris.monochromePresetSelected)
+
+        // Legacy custom #606060 keeps the Expressive style instead of silently becoming Graphite.
+        defaults.setObject(
+            """{"seedColorHex":${MaxxingThemeDefaults.GRAPHITE_SEED_COLOR_HEX},"useDynamicColor":false}""",
+            forKey = "theme_prefs"
+        )
+        val customGray = store.loadThemePreferences()
+        assertEquals(MaxxingThemeDefaults.GRAPHITE_SEED_COLOR_HEX, customGray.seedColorHex)
+        assertFalse(customGray.monochromePresetSelected)
+    }
+
+    @Test
     fun unknownEnumValuesInThemePreferencesFallBackToDefaultsWithoutLosingOtherFields() = runTest {
         val store = store()
 
@@ -225,6 +269,7 @@ class IosTokenStoreTest {
         assertEquals(
             ThemePreferences(
                 seedColorHex = 16734003L,
+                monochromePresetSelected = false,
                 useDynamicColor = false,
                 darkModeOverride = true,
                 primaryFont = FontSelection(
@@ -247,6 +292,7 @@ class IosTokenStoreTest {
         assertEquals(
             ThemePreferences(
                 seedColorHex = 16734003L,
+                monochromePresetSelected = false,
                 useDynamicColor = false,
                 darkModeOverride = false,
                 primaryFont = FontSelection(

@@ -11,6 +11,7 @@ import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -21,16 +22,30 @@ import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamiccolor.ColorSpec
 import com.materialkolor.rememberDynamicColorScheme
 import dev.maxxing.github.model.AppLanguage
+import dev.maxxing.github.model.MaxxingThemeDefaults
 import dev.maxxing.github.ui.i18n.LocalAppStrings
 import dev.maxxing.github.ui.i18n.stringsFor
 
 data class SeedPreset(
     val name: String,
-    val colorHex: Long
+    val colorHex: Long,
+    /** MaterialKolor palette style used for this preset. Graphite alone is Monochrome. */
+    val style: PaletteStyle = PaletteStyle.Expressive,
+    /**
+     * When true, [colorHex] only selects this preset when the persisted explicit-selection flag is
+     * also set. This keeps a custom color that equals the preset's seed on the Expressive style.
+     */
+    val requiresExplicitSelection: Boolean = false
 )
 
 val MaxxingSeedPresets = listOf(
-    SeedPreset("Iris", 0xFF6750A4),
+    SeedPreset(
+        name = "Graphite",
+        colorHex = MaxxingThemeDefaults.GRAPHITE_SEED_COLOR_HEX,
+        style = PaletteStyle.Monochrome,
+        requiresExplicitSelection = true
+    ),
+    SeedPreset("Iris", MaxxingThemeDefaults.IRIS_SEED_COLOR_HEX),
     SeedPreset("Fjord", 0xFF3B6E8C),
     SeedPreset("Teal", 0xFF2F7D7A),
     SeedPreset("Sage", 0xFF4A7C59),
@@ -38,6 +53,34 @@ val MaxxingSeedPresets = listOf(
     SeedPreset("Terracotta", 0xFFB85D43),
     SeedPreset("Plum", 0xFF9C4B6E)
 )
+
+/**
+ * Resolves the preset a saved seed represents.
+ *
+ * The legacy presets keep their existing name/seed matching. Graphite additionally requires the
+ * explicit selection flag, so an old custom `#606060` color stays Custom and Expressive.
+ */
+fun resolveMaxxingSeedPreset(
+    seedColorHex: Long,
+    monochromePresetSelected: Boolean
+): SeedPreset? = MaxxingSeedPresets.firstOrNull { preset ->
+    preset.colorHex == seedColorHex &&
+        (!preset.requiresExplicitSelection || monochromePresetSelected)
+}
+
+/** Palette style for a saved seed. Custom seeds and the legacy presets stay Expressive. */
+fun resolveMaxxingPaletteStyle(
+    seedColorHex: Long,
+    monochromePresetSelected: Boolean
+): PaletteStyle =
+    resolveMaxxingSeedPreset(seedColorHex, monochromePresetSelected)?.style
+        ?: PaletteStyle.Expressive
+
+/**
+ * True only when Graphite is the palette actually applied (the saved preset, with no wallpaper
+ * scheme taking precedence). Graphite-only contrast treatments read this.
+ */
+val LocalGraphitePalette = staticCompositionLocalOf { false }
 
 @Composable
 expect fun platformDynamicColorScheme(darkTheme: Boolean): ColorScheme?
@@ -148,22 +191,27 @@ fun buildMaxxingTypography(fontFamilyOverride: FontFamily? = null): Typography {
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun MaxxingTheme(
-    seedColorHex: Long = MaxxingSeedPresets.first().colorHex,
+    seedColorHex: Long = MaxxingThemeDefaults.DEFAULT_SEED_COLOR_HEX,
     useDynamicColor: Boolean = true,
     darkThemeOverride: Boolean? = null,
     fontFamilyOverride: FontFamily? = null,
     language: AppLanguage = AppLanguage.DEFAULT,
+    monochromePresetSelected: Boolean = seedColorHex == MaxxingThemeDefaults.GRAPHITE_SEED_COLOR_HEX,
     content: @Composable () -> Unit
 ) {
     val darkTheme = darkThemeOverride ?: isSystemInDarkTheme()
+    // Dynamic colors take precedence over the saved seed; the Graphite style and its screen
+    // treatments apply only when the saved preset is the scheme actually resolved.
     val dynamicScheme = if (useDynamicColor) platformDynamicColorScheme(darkTheme) else null
+    val paletteStyle = resolveMaxxingPaletteStyle(seedColorHex, monochromePresetSelected)
 
     val colorScheme = dynamicScheme ?: rememberDynamicColorScheme(
         seedColor = Color(seedColorHex),
         isDark = darkTheme,
-        style = PaletteStyle.Expressive,
+        style = paletteStyle,
         specVersion = ColorSpec.SpecVersion.SPEC_2025
     )
+    val graphiteActive = dynamicScheme == null && paletteStyle == PaletteStyle.Monochrome
     val typography = remember(fontFamilyOverride) {
         buildMaxxingTypography(fontFamilyOverride)
     }
@@ -171,7 +219,10 @@ fun MaxxingTheme(
         stringsFor(language)
     }
 
-    CompositionLocalProvider(LocalAppStrings provides strings) {
+    CompositionLocalProvider(
+        LocalAppStrings provides strings,
+        LocalGraphitePalette provides graphiteActive
+    ) {
         MaterialExpressiveTheme(
             colorScheme = colorScheme,
             motionScheme = MotionScheme.expressive(),

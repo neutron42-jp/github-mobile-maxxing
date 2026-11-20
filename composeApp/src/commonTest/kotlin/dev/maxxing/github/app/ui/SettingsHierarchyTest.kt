@@ -32,11 +32,11 @@ class SettingsHierarchyTest {
         assertEquals("System · Dynamic Color", formatAppearanceSummary(dynamicSystem, EnglishStrings))
         assertEquals("システム · ダイナミックカラー", formatAppearanceSummary(dynamicSystem, JapaneseStrings))
         assertEquals(
-            "System · Iris",
+            "System · Graphite",
             formatAppearanceSummary(dynamicSystem, EnglishStrings, supportsDynamicColor = false)
         )
         assertEquals(
-            "システム · Iris",
+            "システム · Graphite",
             formatAppearanceSummary(dynamicSystem, JapaneseStrings, supportsDynamicColor = false)
         )
 
@@ -133,6 +133,7 @@ class SettingsHierarchyTest {
     fun buildSettingsCategoryItemsAppliesIosCapabilitiesToAppearanceAndNotifications() {
         val iosCapabilities = PlatformCapabilities(
             usesIosCopy = true,
+            supportsDynamicColor = false,
             supportsDynamicColorToggle = false,
             supportsCustomFonts = false,
             avoidsKeyboardOnSignIn = true,
@@ -180,7 +181,7 @@ class SettingsHierarchyTest {
             updateCheckState = availableUpdate
         )
         val appearance = items.first { it.section == SettingsSection.APPEARANCE }
-        assertEquals("System · Iris", appearance.subtitle)
+        assertEquals("System · Graphite", appearance.subtitle)
 
         val notifications = items.first { it.section == SettingsSection.NOTIFICATIONS }
         assertEquals("1 min", notifications.subtitle)
@@ -199,6 +200,76 @@ class SettingsHierarchyTest {
                 supportsInAppUpdates = true,
                 strings = EnglishStrings
             )
+        )
+    }
+
+    @Test
+    fun appearanceSummarySeparatesWallpaperAvailabilityFromTheToggle() {
+        // iOS / Desktop / Android 26-30: no wallpaper palette, so the saved Graphite preset is named.
+        val iosLike = PlatformCapabilities(supportsDynamicColor = false, supportsDynamicColorToggle = false)
+        assertEquals(
+            "System · Graphite",
+            buildSettingsCategoryItems(
+                themePrefs = ThemePreferences(useDynamicColor = true),
+                notifPrefs = NotificationPreferences(),
+                osNotificationsBlocked = false,
+                linkHandlingState = GitHubLinkHandlingState(supportedOnPlatform = false),
+                strings = EnglishStrings,
+                capabilities = iosLike
+            ).first { it.section == SettingsSection.APPEARANCE }.subtitle
+        )
+        val desktopLike = PlatformCapabilities(supportsDynamicColor = false, supportsDynamicColorToggle = false)
+        assertEquals(
+            "System · Graphite",
+            buildSettingsCategoryItems(
+                themePrefs = ThemePreferences(useDynamicColor = true),
+                notifPrefs = NotificationPreferences(),
+                osNotificationsBlocked = false,
+                linkHandlingState = GitHubLinkHandlingState(supportedOnPlatform = false),
+                strings = EnglishStrings,
+                capabilities = desktopLike
+            ).first { it.section == SettingsSection.APPEARANCE }.subtitle
+        )
+        // Android 12+: the wallpaper palette is applied, so the summary says Dynamic Color.
+        val android12 = PlatformCapabilities(supportsDynamicColor = true, supportsDynamicColorToggle = true)
+        assertEquals(
+            "System · Dynamic Color",
+            buildSettingsCategoryItems(
+                themePrefs = ThemePreferences(useDynamicColor = true),
+                notifPrefs = NotificationPreferences(),
+                osNotificationsBlocked = false,
+                linkHandlingState = GitHubLinkHandlingState(supportedOnPlatform = true),
+                strings = EnglishStrings,
+                capabilities = android12
+            ).first { it.section == SettingsSection.APPEARANCE }.subtitle
+        )
+        // Graphite selected explicitly with wallpaper colors off names Graphite.
+        assertEquals(
+            "System · Graphite",
+            buildSettingsCategoryItems(
+                themePrefs = ThemePreferences(useDynamicColor = false),
+                notifPrefs = NotificationPreferences(),
+                osNotificationsBlocked = false,
+                linkHandlingState = GitHubLinkHandlingState(supportedOnPlatform = true),
+                strings = EnglishStrings,
+                capabilities = android12
+            ).first { it.section == SettingsSection.APPEARANCE }.subtitle
+        )
+        // A custom color equal to Graphite's seed stays Custom, not Graphite.
+        assertEquals(
+            "System · Custom",
+            buildSettingsCategoryItems(
+                themePrefs = ThemePreferences(
+                    seedColorHex = 0xFF606060,
+                    monochromePresetSelected = false,
+                    useDynamicColor = false
+                ),
+                notifPrefs = NotificationPreferences(),
+                osNotificationsBlocked = false,
+                linkHandlingState = GitHubLinkHandlingState(supportedOnPlatform = true),
+                strings = EnglishStrings,
+                capabilities = android12
+            ).first { it.section == SettingsSection.APPEARANCE }.subtitle
         )
     }
 

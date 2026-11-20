@@ -4,8 +4,7 @@ package dev.maxxing.github.app
  * Platform-specific UI behaviour flags.
  *
  * The texts live in the shared i18n table (`core/ui/i18n/strings.csv`); this class only says which
- * variant to use. Every default is the Desktop behaviour. Android keeps the defaults except for
- * [avoidsKeyboardOnSignIn]; iOS overrides what it needs.
+ * variant to use. Each platform actual overrides the shared defaults where needed.
  */
 data class PlatformCapabilities(
     /**
@@ -13,7 +12,16 @@ data class PlatformCapabilities(
      * description, test-notification failure message) instead of the Android / Linux ones.
      */
     val usesIosCopy: Boolean = false,
-    /** Whether the "Android Wallpaper Dynamic Color" switch is shown. iOS has no public equivalent. */
+    /**
+     * Whether wallpaper-derived colors can actually be applied. This is separate from
+     * [supportsDynamicColorToggle]: the summary must say "Dynamic Color" only when the platform
+     * really uses the wallpaper, while the switch is shown wherever the choice is meaningful.
+     */
+    val supportsDynamicColor: Boolean = false,
+    /**
+     * Whether the "Android Wallpaper Dynamic Color" switch is shown. Android shows it; iOS and
+     * Desktop have no wallpaper-color integration in this app, so they hide it.
+     */
     val supportsDynamicColorToggle: Boolean = true,
     /** Whether the "Typography & Fonts" settings card is shown (custom font import / system font list). */
     val supportsCustomFonts: Boolean = true,

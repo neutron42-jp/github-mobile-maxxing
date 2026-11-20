@@ -39,7 +39,7 @@ class SettingsScreenLayoutTest {
                 SettingsCategoryItem(
                     section = SettingsSection.APPEARANCE,
                     title = strings.settingsCategoryAppearance,
-                    subtitle = formatAppearanceSummary(ThemePreferences(), strings),
+                    subtitle = formatAppearanceSummary(ThemePreferences(), strings, supportsDynamicColor = false),
                     icon = Lucide.Palette
                 ),
                 SettingsCategoryItem(

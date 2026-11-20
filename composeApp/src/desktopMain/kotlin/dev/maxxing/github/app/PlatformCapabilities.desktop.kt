@@ -1,4 +1,8 @@
 package dev.maxxing.github.app
 
-// Desktop keeps the defaults of PlatformCapabilities (its existing behaviour).
-actual val platformCapabilities: PlatformCapabilities = PlatformCapabilities()
+actual val platformCapabilities: PlatformCapabilities = PlatformCapabilities(
+    // This build has no Desktop wallpaper-color integration (DesktopDynamicTheme always returns
+    // null), so neither the wallpaper palette nor its switch is exposed.
+    supportsDynamicColor = false,
+    supportsDynamicColorToggle = false,
+)

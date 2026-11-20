@@ -10,9 +10,10 @@ import kotlin.test.assertTrue
 
 class PlatformCapabilitiesTest {
     @Test
-    fun defaultsAreTheAndroidAndDesktopBehaviour() {
+    fun defaultsDescribeSharedCapabilities() {
         val defaults = PlatformCapabilities()
         assertFalse(defaults.usesIosCopy)
+        assertFalse(defaults.supportsDynamicColor)
         assertTrue(defaults.supportsDynamicColorToggle)
         assertTrue(defaults.supportsCustomFonts)
         assertFalse(defaults.avoidsKeyboardOnSignIn)

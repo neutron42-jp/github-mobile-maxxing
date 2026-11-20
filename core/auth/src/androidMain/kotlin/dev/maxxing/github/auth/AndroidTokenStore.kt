@@ -123,7 +123,7 @@ private class AndroidKeystoreTokenStore(
 
     override suspend fun loadThemePreferences(): ThemePreferences {
         val raw = prefs.getString(KEY_THEME_PREFS, null) ?: return ThemePreferences()
-        return runCatching { json.decodeFromString<ThemePreferences>(raw) }.getOrDefault(ThemePreferences())
+        return decodeThemePreferences(raw)
     }
 
     override suspend fun saveNotificationPreferences(prefs: NotificationPreferences) {

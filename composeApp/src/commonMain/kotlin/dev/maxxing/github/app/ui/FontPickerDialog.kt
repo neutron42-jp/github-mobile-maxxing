@@ -1,6 +1,6 @@
 package dev.maxxing.github.app.ui
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -34,6 +36,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -50,6 +54,7 @@ import dev.maxxing.github.model.FontSelection
 import dev.maxxing.github.model.FontSourceKind
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.i18n.appStrings
+import dev.maxxing.github.ui.theme.LocalGraphitePalette
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -314,6 +319,43 @@ private fun FontGroupHeader(title: String) {
     }
 }
 
+internal data class FontChoiceRowColors(
+    val container: Color,
+    val content: Color,
+    val border: Color?
+)
+
+/**
+ * Colors for one font row.
+ *
+ * Graphite's primaryContainer is dark in light mode and light in dark mode. At 65% opacity over
+ * the dialog surface (surfaceContainerHigh) the label falls to about 3.9:1 in light mode and
+ * 2.2:1 in dark mode, below the 4.5:1 requirement. Graphite therefore uses an opaque neutral
+ * surface family with onSurface text and marks selection with a primary border; the Expressive
+ * palettes keep their existing translucent primaryContainer fill.
+ */
+internal fun fontChoiceRowColors(
+    selected: Boolean,
+    graphitePalette: Boolean,
+    scheme: ColorScheme
+): FontChoiceRowColors = if (selected && graphitePalette) {
+    FontChoiceRowColors(
+        container = scheme.surfaceContainerHighest,
+        content = scheme.onSurface,
+        border = scheme.primary
+    )
+} else {
+    FontChoiceRowColors(
+        container = if (selected) {
+            scheme.primaryContainer.copy(alpha = 0.65f)
+        } else {
+            scheme.surfaceContainerHigh.copy(alpha = 0.55f)
+        },
+        content = scheme.onSurface,
+        border = null
+    )
+}
+
 @Composable
 private fun FontChoiceRow(
     label: String,
@@ -322,16 +364,19 @@ private fun FontChoiceRow(
     onDelete: (() -> Unit)? = null
 ) {
     val strings = appStrings()
+    val colors = fontChoiceRowColors(
+        selected = selected,
+        graphitePalette = LocalGraphitePalette.current,
+        scheme = MaterialTheme.colorScheme
+    )
     Surface(
         shape = MaterialTheme.shapes.small,
-        color = if (selected) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f)
-        },
+        color = colors.container,
+        contentColor = colors.content,
+        border = colors.border?.let { BorderStroke(1.dp, it) },
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .selectable(selected = selected, onClick = onClick, role = Role.RadioButton)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),

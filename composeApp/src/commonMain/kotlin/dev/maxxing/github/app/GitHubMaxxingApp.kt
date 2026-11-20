@@ -273,6 +273,7 @@ fun GitHubMaxxingApp(
     ) { fontFamilyOverride ->
         MaxxingTheme(
             seedColorHex = themePrefs.seedColorHex,
+            monochromePresetSelected = themePrefs.monochromePresetSelected,
             useDynamicColor = themePrefs.useDynamicColor,
             darkThemeOverride = themePrefs.darkModeOverride,
             fontFamilyOverride = fontFamilyOverride,

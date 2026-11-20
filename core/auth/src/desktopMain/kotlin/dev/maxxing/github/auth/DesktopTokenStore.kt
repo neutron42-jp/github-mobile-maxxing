@@ -15,7 +15,9 @@ import java.nio.file.attribute.PosixFilePermission
 import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.TimeUnit
 
-private class LinuxDesktopTokenStore : TokenStore {
+internal class LinuxDesktopTokenStore(
+    dataDirOverride: File? = null
+) : TokenStore {
     // Preference files stay pretty-printed for readability; sessions must be single-line compact JSON
     // because gnome-keyring plaintext .keyring files break when secret-tool stores embedded newlines.
     private val json = Json(from = TokenStoreJson) { prettyPrint = true }
@@ -23,7 +25,7 @@ private class LinuxDesktopTokenStore : TokenStore {
     private val dataDir: File by lazy {
         val xdgData = System.getenv("XDG_DATA_HOME")?.takeIf { it.isNotBlank() }
             ?: "${System.getProperty("user.home")}/.local/share"
-        File(xdgData, "github-mobile-maxxing").apply { mkdirs() }
+        (dataDirOverride ?: File(xdgData, "github-mobile-maxxing")).apply { mkdirs() }
     }
 
     private val sessionFile: File by lazy { File(dataDir, "session.json") }
@@ -74,8 +76,7 @@ private class LinuxDesktopTokenStore : TokenStore {
 
     override suspend fun loadThemePreferences(): ThemePreferences = withContext(Dispatchers.IO) {
         if (!themeFile.exists()) return@withContext ThemePreferences()
-        runCatching { json.decodeFromString<ThemePreferences>(themeFile.readText()) }
-            .getOrDefault(ThemePreferences())
+        runCatching { decodeThemePreferences(themeFile.readText()) }.getOrDefault(ThemePreferences())
     }
 
     override suspend fun saveNotificationPreferences(prefs: NotificationPreferences) = withContext(Dispatchers.IO) {

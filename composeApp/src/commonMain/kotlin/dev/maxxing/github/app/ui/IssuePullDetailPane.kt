@@ -2367,7 +2367,8 @@ private fun DetailHeaderCard(
     val stateLabel = strings.issueStateBadgeLabel(item.state, item.isDraft)
     val (stateBg, stateFg) = when {
         item.isDraft -> MaterialTheme.colorScheme.surfaceContainerHighest to MaterialTheme.colorScheme.onSurfaceVariant
-        item.state == IssueOrPullState.OPEN -> Color(0xFF16A34A) to Color.White
+        // #16A34A with white text is 3.30:1; the darker green keeps the filled Open pill at 5.02:1.
+        item.state == IssueOrPullState.OPEN -> Color(0xFF15803D) to Color.White
         item.state == IssueOrPullState.MERGED -> Color(0xFF7C3AED) to Color.White
         else -> MaterialTheme.colorScheme.error to MaterialTheme.colorScheme.onError
     }

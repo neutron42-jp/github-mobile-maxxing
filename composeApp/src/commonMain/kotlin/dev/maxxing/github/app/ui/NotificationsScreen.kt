@@ -2,6 +2,7 @@ package dev.maxxing.github.app.ui
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,6 +60,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -94,6 +97,7 @@ import dev.maxxing.github.ui.components.MaxxingTopHeaderDefaults
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.UserAvatar
 import dev.maxxing.github.ui.components.expressiveAnimateContentSize
+import dev.maxxing.github.ui.theme.LocalGraphitePalette
 import dev.maxxing.github.ui.i18n.AppStrings
 import dev.maxxing.github.ui.i18n.appStrings
 import kotlinx.coroutines.launch
@@ -803,11 +807,15 @@ private fun NotificationThreadCard(
         else -> Lucide.GitCommitHorizontal
     }
 
+    val graphitePalette = LocalGraphitePalette.current
     Card(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
             containerColor = when {
                 // Opaque so the swipe background behind the card never shows through.
+                // Graphite's primaryContainer is dark in light mode and light in dark mode, so
+                // use a neutral surface family and mark selection with a primary border.
+                selected && graphitePalette -> MaterialTheme.colorScheme.surfaceContainerHighest
                 selected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
                     .compositeOver(MaterialTheme.colorScheme.surface)
                 thread.unread -> MaterialTheme.colorScheme.surfaceContainerHigh
@@ -816,7 +824,15 @@ private fun NotificationThreadCard(
         ),
         modifier = Modifier
             .fillMaxWidth()
+            .then(
+                if (selected && graphitePalette) {
+                    Modifier.border(1.5.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.large)
+                } else {
+                    Modifier
+                }
+            )
             .clickable(onClick = onClick)
+            .semantics { this.selected = selected }
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
