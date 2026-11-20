@@ -1100,3 +1100,6 @@ reviewModeHeaderCtaOne,Int,Review changes in Review Mode ({0} file),レビュー
 reviewModeHeaderCtaOther,Int,Review changes in Review Mode ({0} files),レビューモードで変更を確認（{0} ファイル）
 reviewModeHeaderResumeCta,Int;Int,Resume Review Mode ({0}/{1} viewed),レビューモードを再開（確認済み {0}/{1}）
 reviewModeBannerSubtitle,,One-handed file-by-file swipe review,1ファイルずつスワイプして片手でレビュー
+
+gistDuplicateFilenameError,String,"A file named ""{0}"" already exists in this gist.",この Gist には「{0}」という名前のファイルがすでに存在します。
+gistTruncatedNotice,,This file is truncated by GitHub. You can edit the description without changing the file.,このファイルは GitHub API により本文が省略されています。ファイル内容は変更せず説明のみ編集できます。

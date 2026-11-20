@@ -279,6 +279,31 @@ private fun repoKey(owner: String, repo: String): RepoKey {
     return RepoKey(o, r)
 }
 
+private fun repoIssuesKey(
+    owner: String,
+    repo: String,
+    pullRequests: Boolean,
+    stateFilter: IssueStateFilter
+): RepoIssuesKey {
+    val (o, r) = normalizeRepoPair(owner, repo)
+    return RepoIssuesKey(o, r, pullRequests, stateFilter)
+}
+
+private fun workflowRunsKey(owner: String, repo: String, workflowId: Long?): WorkflowRunsKey {
+    val (o, r) = normalizeRepoPair(owner, repo)
+    return WorkflowRunsKey(o, r, workflowId)
+}
+
+private fun workflowRunIdKey(owner: String, repo: String, runId: Long): WorkflowRunIdKey {
+    val (o, r) = normalizeRepoPair(owner, repo)
+    return WorkflowRunIdKey(o, r, runId)
+}
+
+private fun discussionsKey(owner: String, repo: String, categoryId: String?): DiscussionsKey {
+    val (o, r) = normalizeRepoPair(owner, repo)
+    return DiscussionsKey(o, r, categoryId)
+}
+
 private fun repoMilestonesKey(owner: String, repo: String, state: String): RepoMilestonesKey {
     val (o, r) = normalizeRepoPair(owner, repo)
     return RepoMilestonesKey(o, r, state.trim().lowercase())
@@ -624,7 +649,7 @@ class GitHubRepository(
         repo: String,
         pullRequests: Boolean,
         stateFilter: IssueStateFilter = IssueStateFilter.OPEN
-    ): List<IssueOrPullSummary>? = repoIssuesCache.peek(RepoIssuesKey(owner, repo, pullRequests, stateFilter))
+    ): List<IssueOrPullSummary>? = repoIssuesCache.peek(repoIssuesKey(owner, repo, pullRequests, stateFilter))
 
     fun peekDirectoryContents(owner: String, repo: String, path: String = "", ref: String? = null): List<TreeEntry>? =
         dirCache.peek(repoPathKey(owner, repo, path, ref))
@@ -1037,9 +1062,10 @@ class GitHubRepository(
         labels: List<String> = emptyList()
     ): Result<Int> = runMutationCancellable {
         restService.createIssue(owner, repo, title, body, labels).also {
+            val key = repoKey(owner, repo)
             myIssuesCache.clear()
-            repoIssuesCache.invalidateWhere { it.owner == owner && it.repo == repo && !it.pullRequests }
-            repoDetailCache.invalidate(repoKey(owner, repo))
+            repoIssuesCache.invalidateWhere { it.owner == key.owner && it.repo == key.repo && !it.pullRequests }
+            repoDetailCache.invalidate(key)
         }
     }
 
@@ -1151,7 +1177,7 @@ class GitHubRepository(
         forceRefresh: Boolean = false
     ): Result<List<IssueOrPullSummary>> = cachedFetch(
         cache = repoIssuesCache,
-        cacheKey = RepoIssuesKey(owner, repo, pullRequests, stateFilter),
+        cacheKey = repoIssuesKey(owner, repo, pullRequests, stateFilter),
         flightNamespace = "repoIssues",
         forceRefresh = forceRefresh
     ) {
@@ -1264,7 +1290,7 @@ class GitHubRepository(
 
     suspend fun setStarred(owner: String, repo: String, starred: Boolean): Result<Unit> = runMutationCancellable {
         restService.setStarred(owner, repo, starred)
-        repoDetailCache.invalidate(RepoKey(owner, repo))
+        repoDetailCache.invalidate(repoKey(owner, repo))
         viewerReposCache.invalidate("STARRED")
         viewerReposCache.invalidate("MY")
         searchReposCache.clear()
@@ -1489,14 +1515,14 @@ class GitHubRepository(
     }
 
     fun peekRepoSubscription(owner: String, repo: String): Boolean? =
-        repoSubscriptionCache.peek(RepoKey(owner, repo))
+        repoSubscriptionCache.peek(repoKey(owner, repo))
 
     suspend fun getRepoSubscription(
         owner: String,
         repo: String,
         forceRefresh: Boolean = false
     ): Result<Boolean> {
-        val key = RepoKey(owner, repo)
+        val key = repoKey(owner, repo)
         if (!forceRefresh) {
             repoSubscriptionCache.peekIfFresh(key)?.let { return Result.success(it) }
         }
@@ -1513,8 +1539,9 @@ class GitHubRepository(
         subscribed: Boolean
     ): Result<Unit> = runMutationCancellable {
         restService.setRepoSubscription(owner, repo, subscribed)
-        repoSubscriptionCache.put(RepoKey(owner, repo), subscribed)
-        repoDetailCache.invalidate(RepoKey(owner, repo))
+        val key = repoKey(owner, repo)
+        repoSubscriptionCache.put(key, subscribed)
+        repoDetailCache.invalidate(key)
     }
 
     suspend fun getRepoStargazers(owner: String, repo: String): Result<List<UserSummary>> = runCatchingCancellable {
@@ -1676,7 +1703,7 @@ class GitHubRepository(
         forceRefresh: Boolean = false
     ): Result<List<UserSummary>> = cachedFetch(
         cache = repoAssigneesCache,
-        cacheKey = RepoKey(owner, repo),
+        cacheKey = repoKey(owner, repo),
         flightNamespace = "repoAssignees",
         forceRefresh = forceRefresh
     ) {
@@ -1693,11 +1720,11 @@ class GitHubRepository(
         clearMilestone: Boolean = false
     ): Result<Unit> = runMutationCancellable {
         restService.updateIssueMetadata(owner, repo, number, labels, assignees, milestoneNumber, clearMilestone)
+        val key = repoKey(owner, repo)
         issueDetailCache.invalidate(issuePullKey(owner, repo, number))
         myIssuesCache.clear()
-        repoIssuesCache.invalidateWhere { it.owner == owner && it.repo == repo }
+        repoIssuesCache.invalidateWhere { it.owner == key.owner && it.repo == key.repo }
         if (milestoneNumber != null || clearMilestone) {
-            val key = repoKey(owner, repo)
             repoMilestonesCache.invalidateWhere { it.owner == key.owner && it.repo == key.repo }
         }
     }
@@ -1769,7 +1796,7 @@ class GitHubRepository(
     }
 
     fun peekWorkflowRuns(owner: String, repo: String, workflowId: Long? = null): List<WorkflowRunSummary>? =
-        workflowRunsCache.peek(WorkflowRunsKey(owner, repo, workflowId))
+        workflowRunsCache.peek(workflowRunsKey(owner, repo, workflowId))
 
     suspend fun getWorkflows(
         owner: String,
@@ -1777,7 +1804,7 @@ class GitHubRepository(
         forceRefresh: Boolean = false
     ): Result<List<WorkflowSummary>> = cachedFetch(
         cache = workflowsCache,
-        cacheKey = RepoKey(owner, repo),
+        cacheKey = repoKey(owner, repo),
         flightNamespace = "workflows",
         forceRefresh = forceRefresh
     ) {
@@ -1791,7 +1818,7 @@ class GitHubRepository(
         forceRefresh: Boolean = false
     ): Result<List<WorkflowRunSummary>> = cachedFetch(
         cache = workflowRunsCache,
-        cacheKey = WorkflowRunsKey(owner, repo, workflowId),
+        cacheKey = workflowRunsKey(owner, repo, workflowId),
         flightNamespace = "workflowRuns",
         forceRefresh = forceRefresh
     ) {
@@ -1826,7 +1853,7 @@ class GitHubRepository(
         forceRefresh: Boolean = false
     ): Result<List<WorkflowJobSummary>> = cachedFetch(
         cache = workflowJobsCache,
-        cacheKey = WorkflowRunIdKey(owner, repo, runId),
+        cacheKey = workflowRunIdKey(owner, repo, runId),
         flightNamespace = "workflowJobs",
         forceRefresh = forceRefresh
     ) {
@@ -1844,14 +1871,16 @@ class GitHubRepository(
         failedOnly: Boolean = false
     ): Result<Unit> = runMutationCancellable {
         restService.rerunWorkflow(owner, repo, runId, failedOnly)
-        workflowRunsCache.invalidateWhere { it.owner == owner && it.repo == repo }
-        workflowJobsCache.invalidate(WorkflowRunIdKey(owner, repo, runId))
+        val key = repoKey(owner, repo)
+        workflowRunsCache.invalidateWhere { it.owner == key.owner && it.repo == key.repo }
+        workflowJobsCache.invalidate(workflowRunIdKey(owner, repo, runId))
     }
 
     suspend fun cancelWorkflowRun(owner: String, repo: String, runId: Long): Result<Unit> = runMutationCancellable {
         restService.cancelWorkflowRun(owner, repo, runId)
-        workflowRunsCache.invalidateWhere { it.owner == owner && it.repo == repo }
-        workflowJobsCache.invalidate(WorkflowRunIdKey(owner, repo, runId))
+        val key = repoKey(owner, repo)
+        workflowRunsCache.invalidateWhere { it.owner == key.owner && it.repo == key.repo }
+        workflowJobsCache.invalidate(workflowRunIdKey(owner, repo, runId))
     }
 
     suspend fun dispatchWorkflow(
@@ -1862,7 +1891,8 @@ class GitHubRepository(
         inputs: Map<String, String> = emptyMap()
     ): Result<Unit> = runMutationCancellable {
         restService.dispatchWorkflow(owner, repo, workflowId, ref, inputs)
-        workflowRunsCache.invalidateWhere { it.owner == owner && it.repo == repo }
+        val key = repoKey(owner, repo)
+        workflowRunsCache.invalidateWhere { it.owner == key.owner && it.repo == key.repo }
     }
 
     suspend fun getCheckRunsForRef(
@@ -1872,7 +1902,7 @@ class GitHubRepository(
         forceRefresh: Boolean = false
     ): Result<List<CheckRunSummary>> = cachedFetch(
         cache = checkRunsCache,
-        cacheKey = RepoPathKey(owner, repo, "", ref),
+        cacheKey = repoPathKey(owner, repo, "", ref),
         flightNamespace = "checkRuns",
         forceRefresh = forceRefresh
     ) {
@@ -1886,7 +1916,7 @@ class GitHubRepository(
         forceRefresh: Boolean = false
     ): Result<List<CheckRunSummary>> = cachedFetch(
         cache = checkRunsCache,
-        cacheKey = RepoPathKey(owner, repo, "", "check-suite:$checkSuiteId"),
+        cacheKey = repoPathKey(owner, repo, "", "check-suite:$checkSuiteId"),
         flightNamespace = "checkRuns",
         forceRefresh = forceRefresh
     ) {
@@ -1894,7 +1924,7 @@ class GitHubRepository(
     }
 
     fun peekReleases(owner: String, repo: String): List<ReleaseSummary>? =
-        releasesCache.peek(RepoKey(owner, repo))
+        releasesCache.peek(repoKey(owner, repo))
 
     suspend fun getReleases(
         owner: String,
@@ -1902,7 +1932,7 @@ class GitHubRepository(
         forceRefresh: Boolean = false
     ): Result<List<ReleaseSummary>> = cachedFetch(
         cache = releasesCache,
-        cacheKey = RepoKey(owner, repo),
+        cacheKey = repoKey(owner, repo),
         flightNamespace = "releases",
         forceRefresh = forceRefresh
     ) {
@@ -1931,13 +1961,14 @@ class GitHubRepository(
             isPrerelease = isPrerelease,
             generateReleaseNotes = generateReleaseNotes
         ).also {
-            releasesCache.invalidate(RepoKey(owner, repo))
-            tagsCache.invalidate(RepoKey(owner, repo))
+            val key = repoKey(owner, repo)
+            releasesCache.invalidate(key)
+            tagsCache.invalidate(key)
         }
     }
 
     fun peekDiscussions(owner: String, repo: String, categoryId: String? = null): DiscussionListData? =
-        discussionsCache.peek(DiscussionsKey(owner, repo, categoryId))
+        discussionsCache.peek(discussionsKey(owner, repo, categoryId))
 
     suspend fun getDiscussions(
         owner: String,
@@ -1946,7 +1977,7 @@ class GitHubRepository(
         forceRefresh: Boolean = false
     ): Result<DiscussionListData> = cachedFetch(
         cache = discussionsCache,
-        cacheKey = DiscussionsKey(owner, repo, categoryId),
+        cacheKey = discussionsKey(owner, repo, categoryId),
         flightNamespace = "discussions",
         forceRefresh = forceRefresh
     ) {
@@ -1979,7 +2010,8 @@ class GitHubRepository(
         body: String
     ): Result<DiscussionSummary> = runMutationCancellable {
         graphQlService.createDiscussion(repositoryId, categoryId, title, body).also {
-            discussionsCache.invalidateWhere { it.owner == owner && it.repo == repo }
+            val key = repoKey(owner, repo)
+            discussionsCache.invalidateWhere { it.owner == key.owner && it.repo == key.repo }
         }
     }
 
@@ -1992,8 +2024,9 @@ class GitHubRepository(
         replyToId: String? = null
     ): Result<DiscussionComment> = runMutationCancellable {
         graphQlService.addDiscussionComment(discussionId, body, replyToId).also {
+            val key = repoKey(owner, repo)
             discussionDetailCache.invalidate(issuePullKey(owner, repo, discussionNumber))
-            discussionsCache.invalidateWhere { it.owner == owner && it.repo == repo }
+            discussionsCache.invalidateWhere { it.owner == key.owner && it.repo == key.repo }
         }
     }
 
@@ -2005,7 +2038,8 @@ class GitHubRepository(
         discussionNumber: Int? = null
     ): Result<Pair<Boolean, Int>> = runMutationCancellable {
         graphQlService.toggleDiscussionUpvote(subjectId, currentlyUpvoted).also {
-            discussionsCache.invalidateWhere { it.owner == owner && it.repo == repo }
+            val key = repoKey(owner, repo)
+            discussionsCache.invalidateWhere { it.owner == key.owner && it.repo == key.repo }
             if (discussionNumber != null) {
                 discussionDetailCache.invalidate(issuePullKey(owner, repo, discussionNumber))
             }
@@ -2013,7 +2047,7 @@ class GitHubRepository(
     }
 
     fun peekRepoSecurityOverview(owner: String, repo: String): RepoSecurityOverview? =
-        securityOverviewCache.peek(RepoKey(owner, repo))
+        securityOverviewCache.peek(repoKey(owner, repo))
 
     suspend fun getRepoSecurityOverview(
         owner: String,
@@ -2021,7 +2055,7 @@ class GitHubRepository(
         forceRefresh: Boolean = false
     ): Result<RepoSecurityOverview> = cachedFetch(
         cache = securityOverviewCache,
-        cacheKey = RepoKey(owner, repo),
+        cacheKey = repoKey(owner, repo),
         flightNamespace = "securityOverview",
         forceRefresh = forceRefresh
     ) {
@@ -2073,9 +2107,10 @@ class GitHubRepository(
         draft: Boolean = false
     ): Result<Int> = runMutationCancellable {
         restService.createPullRequest(owner, repo, title, body, head, base, draft).also {
-            repoIssuesCache.invalidateWhere { it.owner == owner && it.repo == repo }
+            val key = repoKey(owner, repo)
+            repoIssuesCache.invalidateWhere { it.owner == key.owner && it.repo == key.repo }
             myIssuesCache.clear()
-            repoDetailCache.invalidate(repoKey(owner, repo))
+            repoDetailCache.invalidate(key)
         }
     }
 
@@ -2087,8 +2122,9 @@ class GitHubRepository(
         draft: Boolean
     ): Result<Unit> = runMutationCancellable {
         graphQlService.setPullRequestDraftState(pullRequestId, draft)
+        val key = repoKey(owner, repo)
         issueDetailCache.invalidate(issuePullKey(owner, repo, number))
-        repoIssuesCache.invalidateWhere { it.owner == owner && it.repo == repo }
+        repoIssuesCache.invalidateWhere { it.owner == key.owner && it.repo == key.repo }
     }
 
     suspend fun requestPullReviewers(
@@ -2220,7 +2256,7 @@ class GitHubRepository(
     }
 
     fun peekRepoInsights(owner: String, repo: String): RepoInsightsData? =
-        insightsCache.peek(RepoKey(owner, repo))
+        insightsCache.peek(repoKey(owner, repo))
 
     suspend fun getRepoInsights(
         owner: String,
@@ -2231,7 +2267,7 @@ class GitHubRepository(
         val cleanRepo = repo.substringAfterLast('/').trim()
         return cachedFetch(
             cache = insightsCache,
-            cacheKey = RepoKey(cleanOwner, cleanRepo),
+            cacheKey = repoKey(cleanOwner, cleanRepo),
             flightNamespace = "repoInsights",
             forceRefresh = forceRefresh,
             shouldCache = { !it.statsComputing }

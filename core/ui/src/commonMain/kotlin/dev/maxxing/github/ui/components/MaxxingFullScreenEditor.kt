@@ -104,6 +104,7 @@ fun MaxxingFullScreenEditorScaffold(
     bodyPlaceholder: String? = null,
     useMonospace: Boolean = false,
     supportsMarkdownPreview: Boolean = false,
+    bodyEditable: Boolean = true,
     metadataSummary: String? = null,
     initiallyMetadataExpanded: Boolean = true,
     onAttachMedia: (() -> Unit)? = null,
@@ -258,7 +259,8 @@ fun MaxxingFullScreenEditorScaffold(
                 OutlinedTextField(
                     value = bodyValue,
                     onValueChange = onBodyChange,
-                    enabled = !isSubmitting,
+                    enabled = !isSubmitting && bodyEditable,
+                    readOnly = !bodyEditable,
                     label = { Text(bodyLabel) },
                     placeholder = bodyPlaceholder?.let { { Text(it) } },
                     textStyle = if (useMonospace) {

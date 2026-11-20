@@ -16,7 +16,8 @@ import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.TimeUnit
 
 private class LinuxDesktopTokenStore : TokenStore {
-    // The shared token store settings, pretty-printed so the files stay readable.
+    // Preference files stay pretty-printed for readability; sessions must be single-line compact JSON
+    // because gnome-keyring plaintext .keyring files break when secret-tool stores embedded newlines.
     private val json = Json(from = TokenStoreJson) { prettyPrint = true }
 
     private val dataDir: File by lazy {
@@ -34,7 +35,7 @@ private class LinuxDesktopTokenStore : TokenStore {
     private val pinnedReposFile: File by lazy { File(dataDir, "pinned_repos.json") }
 
     override suspend fun saveSession(session: AuthSession) = withContext(Dispatchers.IO) {
-        val encoded = json.encodeToString(session)
+        val encoded = encodeSessionForSecretStore(session)
         if (!trySecretToolStore(encoded)) {
             writeOwnerOnlyFileAtomically(sessionFile, encoded)
         } else if (sessionFile.exists()) {
@@ -45,10 +46,10 @@ private class LinuxDesktopTokenStore : TokenStore {
     override suspend fun loadSession(): AuthSession? = withContext(Dispatchers.IO) {
         val fromKeyring = trySecretToolLookup()
         if (!fromKeyring.isNullOrBlank()) {
-            return@withContext runCatching { json.decodeFromString<AuthSession>(fromKeyring) }.getOrNull()
+            return@withContext decodeSessionFromSecretStore(fromKeyring)
         }
         if (!sessionFile.exists()) return@withContext null
-        return@withContext runCatching { json.decodeFromString<AuthSession>(sessionFile.readText()) }.getOrNull()
+        return@withContext decodeSessionFromSecretStore(sessionFile.readText())
     }
 
     override suspend fun clearSession() = withContext(Dispatchers.IO) {
@@ -124,8 +125,9 @@ private class LinuxDesktopTokenStore : TokenStore {
         }
     }
 
-    private fun trySecretToolStore(secret: String): Boolean =
-        runCommandWithTimeout(
+    private fun trySecretToolStore(secret: String): Boolean {
+        if ('\n' in secret || '\r' in secret) return false
+        return runCommandWithTimeout(
             command = listOf(
                 "secret-tool", "store",
                 "--label=github-mobile-maxxing GitHub Session",
@@ -134,6 +136,7 @@ private class LinuxDesktopTokenStore : TokenStore {
             ),
             stdinText = secret
         ) != null
+    }
 
     private fun trySecretToolLookup(): String? =
         runCommandWithTimeout(
@@ -154,6 +157,19 @@ private class LinuxDesktopTokenStore : TokenStore {
             )
         ) != null
 }
+
+/**
+ * Encodes [session] as single-line JSON so `secret-tool store` never writes multi-line secrets
+ * that break plaintext gnome-keyring `.keyring` files.
+ */
+internal fun encodeSessionForSecretStore(session: AuthSession): String {
+    val compact = TokenStoreJson.encodeToString(session)
+    check('\n' !in compact && '\r' !in compact) { "Session secret payload must not contain line breaks" }
+    return compact
+}
+
+internal fun decodeSessionFromSecretStore(raw: String): AuthSession? =
+    runCatching { TokenStoreJson.decodeFromString<AuthSession>(raw) }.getOrNull()
 
 /**
  * Plaintext fallback write: creates the temp file owner-only (POSIX 0600) so the secret is

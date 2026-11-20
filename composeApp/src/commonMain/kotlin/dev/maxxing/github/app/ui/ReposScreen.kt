@@ -1416,6 +1416,7 @@ fun RepoDetailScreen(
     var openedRun by remember(repo.fullName) { mutableStateOf<WorkflowRunSummary?>(null) }
     var runJobs by remember(repo.fullName) { mutableStateOf<List<WorkflowJobSummary>?>(null) }
     var jobsLoading by remember(repo.fullName) { mutableStateOf(false) }
+    val runJobsRequestGuard = remember(repo.fullName) { LatestRequestGuard() }
     var openedLogJob by remember(repo.fullName) { mutableStateOf<WorkflowJobSummary?>(null) }
     var jobLogsText by remember(repo.fullName) { mutableStateOf<String?>(null) }
     var jobLogsLoading by remember(repo.fullName) { mutableStateOf(false) }
@@ -1441,6 +1442,7 @@ fun RepoDetailScreen(
     var discussionDetailLoading by remember(repo.fullName) { mutableStateOf(false) }
     var discussionDetailError by remember(repo.fullName) { mutableStateOf<String?>(null) }
     var discussionCommentBusy by remember(repo.fullName) { mutableStateOf(false) }
+    var discussionCommentError by remember(repo.fullName) { mutableStateOf<String?>(null) }
     var showCreateDiscussionDialog by remember(repo.fullName) { mutableStateOf(false) }
     var creatingDiscussion by remember(repo.fullName) { mutableStateOf(false) }
     var createDiscussionError by remember(repo.fullName) { mutableStateOf<String?>(null) }
@@ -1488,6 +1490,7 @@ fun RepoDetailScreen(
 
     fun openDiscussion(number: Int, forceRefresh: Boolean = false) {
         openedDiscussionNumber = number
+        discussionCommentError = null
         scope.launch {
             val cached = container.repository.peekDiscussionDetail(repo.owner, repo.name, number)
             if (cached != null) {
@@ -1651,12 +1654,23 @@ fun RepoDetailScreen(
         openedRun = run
         openedLogJob = null
         jobLogsText = null
+        val reqSeq = runJobsRequestGuard.next()
         scope.launch {
             jobsLoading = true
             container.repository.getWorkflowRunJobs(repo.owner, repo.name, run.id, forceRefresh = forceRefresh)
-                .onSuccess { runJobs = it }
-                .onFailure { onMessage(strings.errorMessage(it, strings.failedLoadJobs)) }
-            jobsLoading = false
+                .onSuccess {
+                    if (runJobsRequestGuard.isLatest(reqSeq) && openedRun?.id == run.id) {
+                        runJobs = it
+                    }
+                }
+                .onFailure {
+                    if (runJobsRequestGuard.isLatest(reqSeq) && openedRun?.id == run.id) {
+                        onMessage(strings.errorMessage(it, strings.failedLoadJobs))
+                    }
+                }
+            if (runJobsRequestGuard.isLatest(reqSeq) && openedRun?.id == run.id) {
+                jobsLoading = false
+            }
         }
     }
 
@@ -3025,8 +3039,9 @@ fun RepoDetailScreen(
                         )
                     }
                     openedRun != null -> {
+                        val activeRun = openedRun!!
                         WorkflowRunDetailView(
-                            run = openedRun!!,
+                            run = activeRun,
                             jobs = runJobs,
                             isLoading = jobsLoading,
                             actionBusy = actionsBusy,
@@ -3035,15 +3050,17 @@ fun RepoDetailScreen(
                                 openedRun = null
                                 runJobs = null
                             },
-                            onRefresh = { openRun(openedRun!!, forceRefresh = true) },
+                            onRefresh = { openRun(activeRun, forceRefresh = true) },
                             onRerun = { failedOnly ->
                                 actionsBusy = true
                                 scope.launch {
-                                    container.repository.rerunWorkflow(repo.owner, repo.name, openedRun!!.id, failedOnly)
+                                    container.repository.rerunWorkflow(repo.owner, repo.name, activeRun.id, failedOnly)
                                         .onSuccess {
                                             onMessage(if (failedOnly) strings.notifRerunningFailed else strings.notifRerunningWorkflow)
                                             loadActions(selectedWorkflowId, forceRefresh = true)
-                                            openRun(openedRun!!, forceRefresh = true)
+                                            if (openedRun?.id == activeRun.id) {
+                                                openRun(activeRun, forceRefresh = true)
+                                            }
                                         }
                                         .onFailure { onMessage(strings.errorMessage(it, strings.actionsRerunFailedError)) }
                                     actionsBusy = false
@@ -3052,11 +3069,13 @@ fun RepoDetailScreen(
                             onCancel = {
                                 actionsBusy = true
                                 scope.launch {
-                                    container.repository.cancelWorkflowRun(repo.owner, repo.name, openedRun!!.id)
+                                    container.repository.cancelWorkflowRun(repo.owner, repo.name, activeRun.id)
                                         .onSuccess {
                                             onMessage(strings.notifCancelRequested)
                                             loadActions(selectedWorkflowId, forceRefresh = true)
-                                            openRun(openedRun!!, forceRefresh = true)
+                                            if (openedRun?.id == activeRun.id) {
+                                                openRun(activeRun, forceRefresh = true)
+                                            }
                                         }
                                         .onFailure { onMessage(strings.errorMessage(it, strings.actionsCancelFailedError)) }
                                     actionsBusy = false
@@ -3118,10 +3137,12 @@ fun RepoDetailScreen(
                         isLoading = discussionDetailLoading,
                         commentBusy = discussionCommentBusy,
                         errorMsg = discussionDetailError,
+                        commentError = discussionCommentError,
                         canParticipate = capabilities.canCommentOrCreateDiscussion,
                         onBack = {
                             openedDiscussionNumber = null
                             discussionDetail = null
+                            discussionCommentError = null
                         },
                         onRefresh = { openDiscussion(activeNum, forceRefresh = true) },
                         onToggleUpvote = { dSummary ->
@@ -3146,10 +3167,11 @@ fun RepoDetailScreen(
                                 }
                             }
                         },
-                        onSubmitComment = { commentBody, replyToId ->
+                        onSubmitComment = { commentBody, replyToId, onSuccess ->
                             val dId = discussionDetail?.summary?.id ?: return@DiscussionDetailView
                             scope.launch {
                                 discussionCommentBusy = true
+                                discussionCommentError = null
                                 container.repository.addDiscussionComment(
                                     owner = repo.owner,
                                     repo = repo.name,
@@ -3159,10 +3181,13 @@ fun RepoDetailScreen(
                                     replyToId = replyToId
                                 ).onSuccess {
                                     discussionCommentBusy = false
+                                    onSuccess()
                                     openDiscussion(activeNum, forceRefresh = true)
                                 }.onFailure { err ->
                                     discussionCommentBusy = false
-                                    discussionDetailError = strings.errorMessage(err, strings.failedPostComment)
+                                    val msg = strings.errorMessage(err, strings.failedPostComment)
+                                    discussionCommentError = msg
+                                    onMessage(msg)
                                 }
                             }
                         }

@@ -313,11 +313,12 @@ internal fun DiscussionDetailView(
     isLoading: Boolean,
     commentBusy: Boolean,
     errorMsg: String?,
+    commentError: String? = null,
     canParticipate: Boolean = true,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onToggleUpvote: (DiscussionSummary) -> Unit,
-    onSubmitComment: (body: String, replyToId: String?) -> Unit
+    onSubmitComment: (body: String, replyToId: String?, onSuccess: () -> Unit) -> Unit
 ) {
     var commentText by remember { mutableStateOf("") }
     var replyTarget by remember { mutableStateOf<DiscussionComment?>(null) }
@@ -494,6 +495,13 @@ internal fun DiscussionDetailView(
                         modifier = Modifier.fillMaxWidth().padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
+                        if (!commentError.isNullOrBlank()) {
+                            Text(
+                                text = commentError,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                         if (replyTarget != null) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
@@ -502,7 +510,11 @@ internal fun DiscussionDetailView(
                                     color = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.weight(1f)
                                 )
-                                IconButton(onClick = { replyTarget = null }, modifier = Modifier.size(24.dp)) {
+                                IconButton(
+                                    enabled = !commentBusy,
+                                    onClick = { replyTarget = null },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
                                     Icon(Lucide.X, contentDescription = appStrings().cancelReplyDesc, modifier = Modifier.size(14.dp))
                                 }
                             }
@@ -514,6 +526,7 @@ internal fun DiscussionDetailView(
                             OutlinedTextField(
                                 value = commentText,
                                 onValueChange = { commentText = it },
+                                enabled = !commentBusy,
                                 placeholder = { Text(if (replyTarget != null) appStrings().discussionWriteReply else appStrings().discussionAddComment) },
                                 modifier = Modifier.weight(1f),
                                 maxLines = 4
@@ -523,9 +536,10 @@ internal fun DiscussionDetailView(
                                 onClick = {
                                     val textToSend = commentText.trim()
                                     val targetId = replyTarget?.id
-                                    commentText = ""
-                                    replyTarget = null
-                                    onSubmitComment(textToSend, targetId)
+                                    onSubmitComment(textToSend, targetId) {
+                                        commentText = ""
+                                        replyTarget = null
+                                    }
                                 }
                             ) {
                                 Icon(Lucide.Send, contentDescription = appStrings().sendCommentDesc, modifier = Modifier.size(16.dp))

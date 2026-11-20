@@ -29,8 +29,10 @@ object GitHubImageTransformer : ImageTransformer {
     // The default ImageData only fills the placeholder's width, so the image kept its device-pixel height inside
     // the enlarged placeholder. Fill the whole placeholder; ContentScale.Fit keeps the aspect ratio.
     @Composable
-    override fun transform(link: String): ImageData? =
-        Coil3ImageTransformerImpl.transform(link)?.copy(modifier = Modifier.fillMaxSize())
+    override fun transform(link: String): ImageData? {
+        val safeLink = sanitizeMarkdownImageUri(link) ?: return null
+        return Coil3ImageTransformerImpl.transform(safeLink)?.copy(modifier = Modifier.fillMaxSize())
+    }
 
     @Composable
     override fun intrinsicSize(painter: Painter): Size =

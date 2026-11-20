@@ -439,6 +439,7 @@ gistDeleteConfirm	Permanently delete this gist (zqa1)?
 gistDeleteFailed	Failed to delete gist
 gistDeleteTitle	Delete Gist
 gistDeletedMessage	Deleted gist
+gistDuplicateFilenameError	A file named "zqa1" already exists in this gist.
 gistEditAction	Edit gist
 gistEditTitle	Edit Gist
 gistFileCount	7301 files
@@ -454,6 +455,7 @@ gistScopeErrorHint	Your token may lack the 'gist' scope — sign out and sign in
 gistSecretBadge	Secret
 gistSecretDesc	Secret (link only)
 gistStarUpdateFailed	Failed to update star
+gistTruncatedNotice	This file is truncated by GitHub. You can edit the description without changing the file.
 gistUpdatedMessage	Updated gist
 gistsAction	Gists
 gistsTabMine	My Gists

@@ -127,18 +127,28 @@ internal fun extractReleaseVersion(release: ReleaseSummary): Pair<String, AppBui
     return null
 }
 
+internal fun isTrustedUpdateDownloadUrl(url: String): Boolean {
+    val trimmed = url.trim()
+    if (!trimmed.startsWith("https://", ignoreCase = true)) return false
+    val afterScheme = trimmed.substring("https://".length)
+    val authority = afterScheme.substringBefore('/').substringBefore('?').substringBefore('#')
+    if (authority.isBlank() || '@' in authority) return false
+    val host = authority.substringBefore(':').lowercase()
+    return host == "github.com" || host.endsWith(".githubusercontent.com")
+}
+
 internal fun findPlatformUpdateAsset(
     release: ReleaseSummary,
     platform: UpdatePlatformKind
 ): ReleaseAsset? = when (platform) {
     UpdatePlatformKind.ANDROID -> release.assets.firstOrNull { asset ->
-        asset.downloadUrl.isNotBlank() && (
+        isTrustedUpdateDownloadUrl(asset.downloadUrl) && (
             asset.name.endsWith(".apk", ignoreCase = true) ||
                 asset.contentType.equals("application/vnd.android.package-archive", ignoreCase = true)
             )
     }
     UpdatePlatformKind.DESKTOP -> release.assets.firstOrNull { asset ->
-        asset.downloadUrl.isNotBlank() && (
+        isTrustedUpdateDownloadUrl(asset.downloadUrl) && (
             asset.name.endsWith(".AppImage", ignoreCase = true) ||
                 asset.contentType.equals("application/vnd.appimage", ignoreCase = true)
             )

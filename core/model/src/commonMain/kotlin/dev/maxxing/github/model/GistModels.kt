@@ -8,7 +8,8 @@ data class GistFile(
     val language: String? = null,
     val rawUrl: String = "",
     val size: Long = 0L,
-    val content: String = ""
+    val content: String = "",
+    val truncated: Boolean = false
 )
 
 @Serializable

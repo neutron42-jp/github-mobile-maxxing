@@ -781,7 +781,8 @@ private data class RestGistFileDto(
     val language: String? = null,
     @SerialName("raw_url") val rawUrl: String = "",
     val size: Long = 0L,
-    val content: String? = null
+    val content: String? = null,
+    val truncated: Boolean = false
 )
 
 @Serializable
@@ -812,7 +813,7 @@ private data class CreateGistRequest(
 @Serializable
 private data class UpdateGistRequest(
     val description: String? = null,
-    val files: Map<String, CreateOrUpdateGistFileRequest?>
+    val files: Map<String, CreateOrUpdateGistFileRequest?>? = null
 )
 
 private val LINK_ENTRY_REGEX = Regex("""<([^>]+)>\s*((?:;\s*[^<,]+)*)""")
@@ -1817,7 +1818,7 @@ class GitHubRestService(
             setBody(
                 UpdateGistRequest(
                     description = description?.trim(),
-                    files = payloadFiles
+                    files = payloadFiles.takeIf { it.isNotEmpty() }
                 )
             )
         }
@@ -1877,7 +1878,8 @@ class GitHubRestService(
                 language = fileDto.language,
                 rawUrl = fileDto.rawUrl,
                 size = fileDto.size,
-                content = fileDto.content.orEmpty()
+                content = fileDto.content.orEmpty(),
+                truncated = fileDto.truncated
             )
         },
         commentsCount = comments,

@@ -76,6 +76,8 @@ class SessionManager(
         val targetId = (clientIdOverride ?: _clientId.value).trim()
         return deviceFlowClient.startDeviceFlow(targetId).onEach { state ->
             if (state is DeviceCodeState.Authenticated) {
+                unsavedRefreshedSession = null
+                supersededAccessToken = null
                 tokenStore.saveSession(state.session)
                 _session.value = state.session
                 if (targetId.isNotEmpty()) {
@@ -88,6 +90,8 @@ class SessionManager(
 
     suspend fun signInWithPat(token: String): Result<AuthSession> {
         return deviceFlowClient.verifyPersonalAccessToken(token).onSuccess { verified ->
+            unsavedRefreshedSession = null
+            supersededAccessToken = null
             tokenStore.saveSession(verified)
             _session.value = verified
         }
@@ -165,24 +169,49 @@ class SessionManager(
             // NonCancellable: GitHub invalidates the old refresh token as soon as it answers, so the new pair must
             // reach the token store even if the request that triggered the refresh is cancelled meanwhile.
             withContext(NonCancellable) {
-                // The store is the source of truth shared by every SessionManager in the process.
-                val stored = tokenStore.loadSession() ?: return@withContext null
-                if (stored.accessToken != failedAccessToken) {
-                    // Another instance already refreshed (or the user signed in again).
-                    _session.value = stored
-                    return@withContext stored
+                // The store is the source of truth shared by every SessionManager in the process,
+                // unless an earlier refresh succeeded in memory but failed to persist to storage.
+                val unsaved = unsavedRefreshedSession
+                if (unsaved != null && runCatching { tokenStore.saveSession(unsaved) }.isSuccess) {
+                    unsavedRefreshedSession = null
+                    supersededAccessToken = null
                 }
-                if (onlyIfExpiringSoon && !stored.isExpiringSoon()) return@withContext stored
-                if (stored.isRefreshTokenUnusable()) return@withContext null
-                val refreshToken = stored.refreshToken ?: return@withContext null
+                val stored = tokenStore.loadSession()
+                val activeUnsaved = unsavedRefreshedSession
+                val current = when {
+                    activeUnsaved != null && (stored == null || stored.accessToken == supersededAccessToken) -> activeUnsaved
+                    stored != null -> {
+                        if (activeUnsaved != null && stored.accessToken != supersededAccessToken) {
+                            unsavedRefreshedSession = null
+                            supersededAccessToken = null
+                        }
+                        stored
+                    }
+                    else -> return@withContext null
+                }
+                if (current.accessToken != failedAccessToken) {
+                    // Another instance already refreshed (or the user signed in again).
+                    _session.value = current
+                    return@withContext current
+                }
+                if (onlyIfExpiringSoon && !current.isExpiringSoon()) return@withContext current
+                if (current.isRefreshTokenUnusable()) return@withContext null
+                val refreshToken = current.refreshToken ?: return@withContext null
 
-                deviceFlowClient.refreshAccessToken(stored).fold(
+                deviceFlowClient.refreshAccessToken(current).fold(
                     onSuccess = { refreshed ->
                         // GitHub has already invalidated the old pair, so keep the new one in memory first; if saving
-                        // fails, this process can still use it (the next sign-in or refresh rewrites the store).
+                        // fails, remember it so subsequent refreshes do not regress to the stale stored token.
                         _session.value = refreshed
                         refreshRetryNotBefore.update { it - refreshToken }
-                        runCatching { tokenStore.saveSession(refreshed) }
+                        val saved = runCatching { tokenStore.saveSession(refreshed) }.isSuccess
+                        if (saved) {
+                            unsavedRefreshedSession = null
+                            supersededAccessToken = null
+                        } else {
+                            unsavedRefreshedSession = refreshed
+                            supersededAccessToken = stored?.accessToken ?: current.accessToken
+                        }
                         refreshed
                     },
                     onFailure = { error ->
@@ -235,6 +264,8 @@ class SessionManager(
     suspend fun signOut() {
         // Wait for an in-flight token refresh so it cannot save the session again after it was cleared.
         refreshMutex.withLock {
+            unsavedRefreshedSession = null
+            supersededAccessToken = null
             tokenStore.clearSession()
             _session.value = null
         }
@@ -261,5 +292,11 @@ class SessionManager(
          * it). Written under [refreshMutex]; an immutable map in a StateFlow so it can be read without the lock.
          */
         private val refreshRetryNotBefore = MutableStateFlow<Map<String, Long>>(emptyMap())
+
+        @kotlin.concurrent.Volatile
+        private var unsavedRefreshedSession: AuthSession? = null
+
+        @kotlin.concurrent.Volatile
+        private var supersededAccessToken: String? = null
     }
 }

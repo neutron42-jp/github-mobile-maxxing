@@ -372,9 +372,11 @@ private fun IssuePullDetailPaneContent(
 
     var pendingDiffCommentTarget by remember(targetKey) { mutableStateOf<Triple<String, Int?, String>?>(null) }
     var diffCommentBody by remember(targetKey) { mutableStateOf("") }
+    var diffCommentError by remember(targetKey) { mutableStateOf<String?>(null) }
     var fullScreenDiffFile by remember(targetKey) { mutableStateOf<PullFileChange?>(null) }
     var editingComment by remember(targetKey) { mutableStateOf<TimelineEvent.CommentEvent?>(null) }
     var editingCommentBody by remember(targetKey) { mutableStateOf("") }
+    var editingCommentError by remember(targetKey) { mutableStateOf<String?>(null) }
     var deletingComment by remember(targetKey) { mutableStateOf<TimelineEvent.CommentEvent?>(null) }
     var showReviewersDialog by remember(targetKey) { mutableStateOf(false) }
     var selectedReviewerLogins by remember(targetKey) { mutableStateOf<Set<String>>(emptySet()) }
@@ -885,6 +887,7 @@ private fun IssuePullDetailPaneContent(
                                     },
                                     onEditComment = { c ->
                                         editingCommentBody = c.body
+                                        editingCommentError = null
                                         editingComment = c
                                     },
                                     onDeleteComment = { c -> deletingComment = c }
@@ -1225,6 +1228,7 @@ private fun IssuePullDetailPaneContent(
                                     onCommentFile = if (!item.headRefOid.isNullOrBlank()) {
                                         {
                                             diffCommentBody = ""
+                                            diffCommentError = null
                                             pendingDiffCommentTarget = Triple(file.filename, null, "RIGHT")
                                         }
                                     } else null
@@ -1363,6 +1367,7 @@ private fun IssuePullDetailPaneContent(
             onCommentFile = if (canInlineComment) {
                 {
                     diffCommentBody = ""
+                    diffCommentError = null
                     pendingDiffCommentTarget = Triple(activeFile.filename, null, "RIGHT")
                 }
             } else null,
@@ -1372,6 +1377,7 @@ private fun IssuePullDetailPaneContent(
                     val lineNum = if (side == "LEFT") line.oldLineNumber else line.newLineNumber
                     if (lineNum != null) {
                         diffCommentBody = ""
+                        diffCommentError = null
                         pendingDiffCommentTarget = Triple(activeFile.filename, lineNum, side)
                     }
                 }
@@ -1722,8 +1728,12 @@ private fun IssuePullDetailPaneContent(
             saveLabel = strings.issueCommentPost,
             canSave = diffCommentBody.trim().isNotBlank() && !commitSha.isNullOrBlank(),
             isSubmitting = actionBusy,
+            errorMsg = diffCommentError,
             bodyValue = diffCommentBody,
-            onBodyChange = { diffCommentBody = it },
+            onBodyChange = {
+                diffCommentBody = it
+                diffCommentError = null
+            },
             bodyLabel = strings.diffCommentBodyLabel,
             supportsMarkdownPreview = true,
             onAttachMedia = {
@@ -1732,13 +1742,18 @@ private fun IssuePullDetailPaneContent(
                 }
             },
             isAttachingMedia = attachmentController.isUploading,
-            onDismiss = { pendingDiffCommentTarget = null },
+            onDismiss = {
+                if (!actionBusy) {
+                    pendingDiffCommentTarget = null
+                    diffCommentError = null
+                }
+            },
             onSave = {
                 val bodyToPost = diffCommentBody.trim()
                 val sha = commitSha ?: return@MaxxingFullScreenEditorScaffold
-                pendingDiffCommentTarget = null
                 scope.launch {
                     actionBusy = true
+                    diffCommentError = null
                     container.repository.createPullDiffComment(
                         owner = target.owner,
                         repo = target.repo,
@@ -1749,10 +1764,15 @@ private fun IssuePullDetailPaneContent(
                         line = lineNum,
                         side = side
                     ).onSuccess {
+                        pendingDiffCommentTarget = null
+                        diffCommentBody = ""
+                        diffCommentError = null
                         onMessage(strings.addedInlineDiffComment)
                         loadDetail(forceRefresh = true)
                     }.onFailure {
-                        onMessage(strings.errorMessage(it, strings.failedPostDiffComment))
+                        val msg = strings.errorMessage(it, strings.failedPostDiffComment)
+                        diffCommentError = msg
+                        onMessage(msg)
                     }
                     actionBusy = false
                 }
@@ -1767,8 +1787,12 @@ private fun IssuePullDetailPaneContent(
             saveLabel = strings.save,
             canSave = editingCommentBody.trim().isNotBlank(),
             isSubmitting = actionBusy,
+            errorMsg = editingCommentError,
             bodyValue = editingCommentBody,
-            onBodyChange = { editingCommentBody = it },
+            onBodyChange = {
+                editingCommentBody = it
+                editingCommentError = null
+            },
             bodyLabel = strings.editCommentBodyLabel,
             supportsMarkdownPreview = true,
             onAttachMedia = {
@@ -1777,19 +1801,28 @@ private fun IssuePullDetailPaneContent(
                 }
             },
             isAttachingMedia = attachmentController.isUploading,
-            onDismiss = { editingComment = null },
+            onDismiss = {
+                if (!actionBusy) {
+                    editingComment = null
+                    editingCommentError = null
+                }
+            },
             onSave = {
                 val newBody = editingCommentBody.trim()
-                editingComment = null
                 scope.launch {
                     actionBusy = true
+                    editingCommentError = null
                     container.repository.updateIssueComment(
                         target.owner, target.repo, target.number, c.id, newBody
                     ).onSuccess {
+                        editingComment = null
+                        editingCommentError = null
                         onMessage(strings.issueCommentUpdated)
                         loadDetail(forceRefresh = true)
                     }.onFailure {
-                        onMessage(strings.errorMessage(it, strings.failedUpdateComment))
+                        val msg = strings.errorMessage(it, strings.failedUpdateComment)
+                        editingCommentError = msg
+                        onMessage(msg)
                     }
                     actionBusy = false
                 }

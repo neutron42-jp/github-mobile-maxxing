@@ -54,11 +54,7 @@ class NotificationMonitor(
         if (!changed) return@withLock
         nextMarkers[BASELINE_MARKER_KEY] = "1"
         val activeIds = threads.mapTo(HashSet()) { it.id }
-        val trimmed = if (nextMarkers.size > 200) {
-            nextMarkers.filterKeys { it in activeIds || it == BASELINE_MARKER_KEY }
-        } else {
-            nextMarkers
-        }
+        val trimmed = trimMarkers(nextMarkers, protectedIds = activeIds)
         sessionManager.saveSeenNotificationMarkers(trimmed)
     }
 
@@ -109,13 +105,9 @@ class NotificationMonitor(
             // keep isFirstBaseline = true forever and swallow the first real notification.
             nextMarkers[BASELINE_MARKER_KEY] = "1"
 
-            // Keep map bounded to active unread threads + baseline sentinel
+            // Keep map bounded to MAX_SEEN_MARKERS + baseline sentinel without dropping unrelated seen threads
             val activeIds = unread.mapTo(HashSet()) { it.id }
-            val trimmedMarkers = if (nextMarkers.size > 200) {
-                nextMarkers.filterKeys { it in activeIds || it == BASELINE_MARKER_KEY }
-            } else {
-                nextMarkers
-            }
+            val trimmedMarkers = trimMarkers(nextMarkers, protectedIds = activeIds)
             sessionManager.saveSeenNotificationMarkers(trimmedMarkers)
 
             NotificationCheckResult(
@@ -125,9 +117,39 @@ class NotificationMonitor(
         }
     }
 
+    private fun trimMarkers(
+        markers: Map<String, String>,
+        protectedIds: Set<String>,
+        maxEntries: Int = MAX_SEEN_MARKERS
+    ): Map<String, String> {
+        val threadEntries = markers.entries.filter { it.key != BASELINE_MARKER_KEY }
+        if (threadEntries.size <= maxEntries) return markers
+
+        val kept = LinkedHashMap<String, String>(maxEntries + 1)
+        markers[BASELINE_MARKER_KEY]?.let { kept[BASELINE_MARKER_KEY] = it }
+
+        // Always keep protected (active/newly marked) threads first.
+        for (entry in threadEntries) {
+            if (entry.key in protectedIds) {
+                kept[entry.key] = entry.value
+            }
+        }
+        val remainingBudget = (maxEntries - (kept.size - if (BASELINE_MARKER_KEY in kept) 1 else 0)).coerceAtLeast(0)
+        if (remainingBudget > 0) {
+            threadEntries
+                .asSequence()
+                .filter { it.key !in protectedIds }
+                .sortedByDescending { it.value }
+                .take(remainingBudget)
+                .forEach { kept[it.key] = it.value }
+        }
+        return kept
+    }
+
     companion object {
         internal const val BASELINE_MARKER_KEY = "__maxxing_baseline__"
         const val MAX_INDIVIDUAL_OS_NOTIFICATIONS = 6
+        const val MAX_SEEN_MARKERS = 200
 
         val URGENT_REASONS = setOf(
             NotificationReason.REVIEW_REQUESTED,

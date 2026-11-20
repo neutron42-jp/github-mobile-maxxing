@@ -38,14 +38,15 @@ import dev.maxxing.github.ui.i18n.stringsFor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import java.util.concurrent.TimeUnit
 
 private const val CHANNEL_URGENT = "maxxing_urgent"
 private const val CHANNEL_ACTIVITY = "maxxing_activity"
 private const val WORK_NAME = "github_maxxing_notification_sync"
 
-private const val ACTION_MARK_READ = "dev.maxxing.github.app.ACTION_MARK_READ"
-private const val ACTION_MARK_DONE = "dev.maxxing.github.app.ACTION_MARK_DONE"
+internal const val ACTION_MARK_READ = "dev.maxxing.github.app.ACTION_MARK_READ"
+internal const val ACTION_MARK_DONE = "dev.maxxing.github.app.ACTION_MARK_DONE"
 private const val EXTRA_THREAD_ID = "thread_id"
 private const val EXTRA_NOTIF_ID = "notif_id"
 private const val OVERFLOW_SUMMARY_NOTIF_ID = 9002
@@ -338,35 +339,73 @@ class NotificationSyncWorker(
     }
 }
 
+private const val NOTIFICATION_ACTION_TIMEOUT_MS = 8_000L
+
+internal suspend fun performNotificationBroadcastAction(
+    action: String,
+    threadId: String,
+    initializeSession: suspend () -> Unit,
+    hasActiveSession: () -> Boolean,
+    markRead: suspend (String) -> Result<Unit>,
+    markDone: suspend (String) -> Result<Unit>,
+    onSucceeded: () -> Unit
+) {
+    try {
+        withTimeout(NOTIFICATION_ACTION_TIMEOUT_MS) {
+            initializeSession()
+            if (!hasActiveSession()) return@withTimeout
+            val result = when (action) {
+                ACTION_MARK_READ -> markRead(threadId)
+                ACTION_MARK_DONE -> markDone(threadId)
+                else -> return@withTimeout
+            }
+            if (result.isSuccess) {
+                onSucceeded()
+            }
+        }
+    } catch (_: Throwable) {
+        // Keep the OS notification intact when session init, API call, or timeout fails so the user can retry.
+    }
+}
+
 class NotificationActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val threadId = intent.getStringExtra(EXTRA_THREAD_ID) ?: return
         val notifId = intent.getIntExtra(EXTRA_NOTIF_ID, 0)
         val action = intent.action ?: return
 
-        NotificationManagerCompat.from(context).cancel(notifId)
         val pendingResult = goAsync()
+        val appContext = context.applicationContext
 
         CoroutineScope(Dispatchers.IO).launch {
             // The receiver owns its HTTP clients; close them so repeated actions do not leak them.
             val authHttpClient = DeviceFlowClient.defaultAuthHttpClient()
+            val sessionManager = SessionManager(deviceFlowClient = DeviceFlowClient(authHttpClient))
+            var repo: GitHubRepository? = null
             try {
-                AndroidAuthContextHolder.init(context.applicationContext)
-                val sessionManager = SessionManager(deviceFlowClient = DeviceFlowClient(authHttpClient))
-                sessionManager.initialize()
-                if (sessionManager.session.value != null) {
-                    val repo = GitHubRepository(sessionManager)
-                    try {
-                        when (action) {
-                            ACTION_MARK_READ -> repo.markNotificationRead(threadId)
-                            ACTION_MARK_DONE -> repo.markNotificationDone(threadId)
-                        }
-                    } finally {
-                        repo.close()
+                performNotificationBroadcastAction(
+                    action = action,
+                    threadId = threadId,
+                    initializeSession = {
+                        AndroidAuthContextHolder.init(appContext)
+                        sessionManager.initialize()
+                    },
+                    hasActiveSession = { sessionManager.session.value != null },
+                    markRead = { id ->
+                        val r = repo ?: GitHubRepository(sessionManager).also { repo = it }
+                        r.markNotificationRead(id)
+                    },
+                    markDone = { id ->
+                        val r = repo ?: GitHubRepository(sessionManager).also { repo = it }
+                        r.markNotificationDone(id)
+                    },
+                    onSucceeded = {
+                        NotificationManagerCompat.from(appContext).cancel(notifId)
                     }
-                }
+                )
             } finally {
-                authHttpClient.close()
+                runCatching { repo?.close() }
+                runCatching { authHttpClient.close() }
                 pendingResult.finish()
             }
         }

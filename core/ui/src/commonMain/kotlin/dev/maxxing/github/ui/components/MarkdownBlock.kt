@@ -4,10 +4,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
@@ -21,10 +24,65 @@ private val HTML_PICTURE_SOURCE_REGEX = Regex("""</?(?:picture|source)\b[^>]*>""
 private val HTML_BR_REGEX = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
 private val HTML_ALIGN_WRAPPER_REGEX = Regex("""</?(?:p|div|center)\b[^>]*>""", RegexOption.IGNORE_CASE)
 private val MARKDOWN_IMAGE_REGEX = Regex("""!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)""")
+private val INLINE_CODE_SPAN_REGEX = Regex("""(`+)([^`]|[^`].*?[^`])\1""", RegexOption.DOT_MATCHES_ALL)
+private val EXPLICIT_SCHEME_REGEX = Regex("""^([a-zA-Z][a-zA-Z0-9+.-]*):(.*)$""")
 private val GITHUB_BLOB_OR_RAW_REGEX = Regex(
     """^https?://github\.com/([^/]+)/([^/]+)/(?:blob|raw)/(.+)$""",
     RegexOption.IGNORE_CASE
 )
+
+private val ALLOWED_IMAGE_SCHEMES = setOf("http", "https")
+private val ALLOWED_LINK_SCHEMES = setOf("http", "https", "mailto")
+
+private fun hasControlChars(text: String): Boolean =
+    text.any { it.code < 0x20 || it.code == 0x7F }
+
+/**
+ * Validates that a Markdown image URI uses an explicit `http://` or `https://` scheme
+ * with a non-blank host and no control characters, rejecting `data:`, `file:`, `content:`,
+ * `javascript:`, and unresolved relative paths.
+ */
+fun sanitizeMarkdownImageUri(rawUrl: String): String? {
+    val trimmed = rawUrl.trim().removePrefix("<").removeSuffix(">").trim()
+    if (trimmed.isEmpty() || hasControlChars(trimmed)) return null
+    val schemeMatch = EXPLICIT_SCHEME_REGEX.matchEntire(trimmed) ?: return null
+    val scheme = schemeMatch.groupValues[1].lowercase()
+    if (scheme !in ALLOWED_IMAGE_SCHEMES) return null
+    val rest = schemeMatch.groupValues[2]
+    if (!rest.startsWith("//")) return null
+    val authority = rest.removePrefix("//").substringBefore('/').substringBefore('?').substringBefore('#')
+    if (authority.isBlank() || '@' in authority) return null
+    return trimmed.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
+}
+
+/**
+ * Validates that a Markdown hyperlink URI uses a safe external scheme (`http`, `https`, or `mailto`)
+ * with no control characters before forwarding to the platform [UriHandler].
+ */
+fun sanitizeMarkdownLinkUri(rawUrl: String): String? {
+    val trimmed = rawUrl.trim().removePrefix("<").removeSuffix(">").trim()
+    if (trimmed.isEmpty() || hasControlChars(trimmed)) return null
+    val schemeMatch = EXPLICIT_SCHEME_REGEX.matchEntire(trimmed) ?: return null
+    val scheme = schemeMatch.groupValues[1].lowercase()
+    if (scheme !in ALLOWED_LINK_SCHEMES) return null
+    if (scheme == "mailto") {
+        val address = schemeMatch.groupValues[2].substringBefore('?')
+        return if ('@' in address && address.isNotBlank()) trimmed else null
+    }
+    val rest = schemeMatch.groupValues[2]
+    if (!rest.startsWith("//")) return null
+    val authority = rest.removePrefix("//").substringBefore('/').substringBefore('?').substringBefore('#')
+    if (authority.isBlank() || '@' in authority) return null
+    return trimmed
+}
+
+private fun escapeMarkdownAltText(alt: String): String =
+    alt.replace("\r", " ")
+        .replace("\n", " ")
+        .trim()
+        .replace("\\", "\\\\")
+        .replace("[", "\\[")
+        .replace("]", "\\]")
 
 internal fun resolveGitHubImageUrl(
     rawUrl: String,
@@ -33,27 +91,27 @@ internal fun resolveGitHubImageUrl(
     branchRef: String? = null,
     documentPath: String = ""
 ): String {
-    val trimmed = rawUrl.trim().removePrefix("<").removeSuffix(">")
-    if (trimmed.isBlank()) return trimmed
-    if (trimmed.startsWith("data:", ignoreCase = true) || trimmed.startsWith("#")) return trimmed
+    val trimmed = rawUrl.trim().removePrefix("<").removeSuffix(">").trim()
+    if (trimmed.isBlank() || hasControlChars(trimmed)) return ""
+    if (trimmed.startsWith("#")) return ""
 
     if (trimmed.startsWith("//")) {
-        return "https:$trimmed"
+        return sanitizeMarkdownImageUri("https:$trimmed").orEmpty()
     }
 
     GITHUB_BLOB_OR_RAW_REGEX.matchEntire(trimmed)?.let { match ->
         val owner = match.groupValues[1]
         val repo = match.groupValues[2]
         val rest = match.groupValues[3]
-        return "https://raw.githubusercontent.com/$owner/$repo/$rest"
+        return sanitizeMarkdownImageUri("https://raw.githubusercontent.com/$owner/$repo/$rest").orEmpty()
     }
 
-    if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
-        return trimmed
+    if (EXPLICIT_SCHEME_REGEX.matches(trimmed)) {
+        return sanitizeMarkdownImageUri(trimmed).orEmpty()
     }
 
-    val owner = repoOwner?.trim()?.takeIf { it.isNotEmpty() } ?: return trimmed
-    val repo = repoName?.trim()?.takeIf { it.isNotEmpty() } ?: return trimmed
+    val owner = repoOwner?.trim()?.takeIf { it.isNotEmpty() } ?: return ""
+    val repo = repoName?.trim()?.takeIf { it.isNotEmpty() } ?: return ""
     val ref = branchRef?.trim()?.takeIf { it.isNotEmpty() } ?: "HEAD"
 
     val resolvedPath = if (trimmed.startsWith("/")) {
@@ -75,20 +133,38 @@ internal fun resolveGitHubImageUrl(
         normalized.joinToString("/")
     }
 
-    return "https://raw.githubusercontent.com/$owner/$repo/$ref/$resolvedPath"
+    return sanitizeMarkdownImageUri("https://raw.githubusercontent.com/$owner/$repo/$ref/$resolvedPath").orEmpty()
 }
 
-fun normalizeGitHubMarkdown(
-    content: String,
-    repoOwner: String? = null,
-    repoName: String? = null,
-    branchRef: String? = null,
-    documentPath: String = ""
+private fun normalizeOutsideInlineCode(
+    text: String,
+    transform: (String) -> String
 ): String {
-    if (content.isBlank()) return content
-    var result = content
-    val hasHtmlAngle = '<' in result
-    if (hasHtmlAngle) {
+    if ('`' !in text) return transform(text)
+    val sb = StringBuilder(text.length)
+    var cursor = 0
+    for (match in INLINE_CODE_SPAN_REGEX.findAll(text)) {
+        if (match.range.first > cursor) {
+            sb.append(transform(text.substring(cursor, match.range.first)))
+        }
+        sb.append(match.value)
+        cursor = match.range.last + 1
+    }
+    if (cursor < text.length) {
+        sb.append(transform(text.substring(cursor)))
+    }
+    return sb.toString()
+}
+
+private fun normalizeMarkdownSegment(
+    segment: String,
+    repoOwner: String?,
+    repoName: String?,
+    branchRef: String?,
+    documentPath: String
+): String {
+    var result = segment
+    if ('<' in result) {
         if (result.contains("<picture", ignoreCase = true) || result.contains("<source", ignoreCase = true)) {
             result = result.replace(HTML_PICTURE_SOURCE_REGEX, "")
         }
@@ -116,7 +192,7 @@ fun normalizeGitHubMarkdown(
                 if (src.isEmpty()) {
                     ""
                 } else {
-                    val alt = attrs["alt"].orEmpty().replace("\n", " ").trim()
+                    val alt = escapeMarkdownAltText(attrs["alt"].orEmpty())
                     val resolved = resolveGitHubImageUrl(
                         rawUrl = src,
                         repoOwner = repoOwner,
@@ -124,7 +200,7 @@ fun normalizeGitHubMarkdown(
                         branchRef = branchRef,
                         documentPath = documentPath
                     )
-                    "![$alt]($resolved)"
+                    if (resolved.isEmpty()) alt else "![$alt]($resolved)"
                 }
             }
         }
@@ -141,11 +217,66 @@ fun normalizeGitHubMarkdown(
                 branchRef = branchRef,
                 documentPath = documentPath
             )
-            "![$alt]($resolved)"
+            if (resolved.isEmpty()) escapeMarkdownAltText(alt) else "![$alt]($resolved)"
         }
     }
-
     return result
+}
+
+fun normalizeGitHubMarkdown(
+    content: String,
+    repoOwner: String? = null,
+    repoName: String? = null,
+    branchRef: String? = null,
+    documentPath: String = ""
+): String {
+    if (content.isBlank()) return content
+    val lines = content.split('\n')
+    val out = StringBuilder(content.length)
+    val plainBuffer = StringBuilder()
+    var activeFence: String? = null
+    var hasEmittedLine = false
+
+    fun appendOutLine(lineText: String) {
+        if (hasEmittedLine) out.append('\n')
+        out.append(lineText)
+        hasEmittedLine = true
+    }
+
+    fun flushPlainBuffer() {
+        if (plainBuffer.isEmpty()) return
+        val normalized = normalizeOutsideInlineCode(plainBuffer.toString()) { segment ->
+            normalizeMarkdownSegment(segment, repoOwner, repoName, branchRef, documentPath)
+        }
+        appendOutLine(normalized)
+        plainBuffer.setLength(0)
+    }
+
+    for (line in lines) {
+        val trimmed = line.trimStart()
+        val fenceMarker = when {
+            trimmed.startsWith("```") -> "```"
+            trimmed.startsWith("~~~") -> "~~~"
+            else -> null
+        }
+        if (activeFence == null) {
+            if (fenceMarker != null) {
+                flushPlainBuffer()
+                activeFence = fenceMarker
+                appendOutLine(line)
+            } else {
+                if (plainBuffer.isNotEmpty()) plainBuffer.append('\n')
+                plainBuffer.append(line)
+            }
+        } else {
+            appendOutLine(line)
+            if (fenceMarker == activeFence) {
+                activeFence = null
+            }
+        }
+    }
+    flushPlainBuffer()
+    return out.toString()
 }
 
 /**
@@ -248,30 +379,40 @@ fun GitHubMarkdownPreNormalized(
     modifier: Modifier = Modifier
 ) {
     if (normalizedContent.isBlank()) return
+    val baseUriHandler = LocalUriHandler.current
+    val safeUriHandler = remember(baseUriHandler) {
+        object : UriHandler {
+            override fun openUri(uri: String) {
+                sanitizeMarkdownLinkUri(uri)?.let { baseUriHandler.openUri(it) }
+            }
+        }
+    }
     val markdownState = rememberMarkdownState(
         content = normalizedContent,
         retainState = true
     )
-    Markdown(
-        markdownState = markdownState,
-        colors = markdownColor(
-            text = MaterialTheme.colorScheme.onSurface,
-            codeBackground = MaterialTheme.colorScheme.surfaceContainerHighest,
-            inlineCodeBackground = MaterialTheme.colorScheme.surfaceContainerHigh,
-            dividerColor = MaterialTheme.colorScheme.outlineVariant
-        ),
-        typography = markdownTypography(
-            h1 = MaterialTheme.typography.headlineSmall,
-            h2 = MaterialTheme.typography.titleLarge,
-            h3 = MaterialTheme.typography.titleMedium,
-            paragraph = MaterialTheme.typography.bodyMedium,
-            code = MaterialTheme.typography.bodySmall.copy(
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-            )
-        ),
-        imageTransformer = GitHubImageTransformer,
-        modifier = modifier.fillMaxWidth()
-    )
+    CompositionLocalProvider(LocalUriHandler provides safeUriHandler) {
+        Markdown(
+            markdownState = markdownState,
+            colors = markdownColor(
+                text = MaterialTheme.colorScheme.onSurface,
+                codeBackground = MaterialTheme.colorScheme.surfaceContainerHighest,
+                inlineCodeBackground = MaterialTheme.colorScheme.surfaceContainerHigh,
+                dividerColor = MaterialTheme.colorScheme.outlineVariant
+            ),
+            typography = markdownTypography(
+                h1 = MaterialTheme.typography.headlineSmall,
+                h2 = MaterialTheme.typography.titleLarge,
+                h3 = MaterialTheme.typography.titleMedium,
+                paragraph = MaterialTheme.typography.bodyMedium,
+                code = MaterialTheme.typography.bodySmall.copy(
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                )
+            ),
+            imageTransformer = GitHubImageTransformer,
+            modifier = modifier.fillMaxWidth()
+        )
+    }
 }
 
 @Composable

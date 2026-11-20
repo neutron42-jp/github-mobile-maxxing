@@ -439,4 +439,79 @@ class TokenRefreshTest {
         val pretty = Json(from = TokenStoreJson) { prettyPrint = true }
         assertEquals(full, pretty.decodeFromString<AuthSession>(pretty.encodeToString(full)))
     }
+
+    @Test
+    fun saveFailureAfterRefreshDoesNotRevertToStaleStoredTokenOnNext401() = runTest {
+        var refreshCalls = 0
+        val engine = MockEngine { request ->
+            refreshCalls++
+            val form = request.form()
+            assertEquals(if (refreshCalls == 1) "ghr_old" else "ghr_fresh_1", form["refresh_token"])
+            val n = refreshCalls
+            json("""{"access_token":"ghu_fresh_$n","expires_in":28800,"refresh_token":"ghr_fresh_$n","refresh_token_expires_in":15897600,"token_type":"bearer","scope":"repo"}""")
+        }
+        val client = DeviceFlowClient(httpClient = jsonClient(engine), nowEpochSeconds = { NOW })
+        val flakyStore = object : TokenStore {
+            var stored: AuthSession? = expiringSession("ghu_old", "ghr_old")
+            var failSaves = true
+            override suspend fun saveSession(session: AuthSession) {
+                if (failSaves) error("keyring locked")
+                stored = session
+            }
+            override suspend fun loadSession(): AuthSession? = stored
+            override suspend fun clearSession() { stored = null }
+            override suspend fun saveClientId(clientId: String) {}
+            override suspend fun loadClientId(): String? = null
+            override suspend fun saveThemePreferences(prefs: ThemePreferences) {}
+            override suspend fun loadThemePreferences() = ThemePreferences()
+            override suspend fun saveNotificationPreferences(prefs: NotificationPreferences) {}
+            override suspend fun loadNotificationPreferences() = NotificationPreferences()
+            override suspend fun saveSeenNotificationMarkers(markers: Map<String, String>) {}
+            override suspend fun loadSeenNotificationMarkers() = emptyMap<String, String>()
+        }
+
+        val manager = SessionManager(flakyStore, client).also { it.initialize() }
+        val firstRefreshed = manager.refreshAfterUnauthorized("ghu_old")
+        assertEquals("ghu_fresh_1", firstRefreshed?.accessToken)
+        assertEquals("ghu_fresh_1", manager.session.value?.accessToken)
+        // Disk still has ghu_old because save failed.
+        assertEquals("ghu_old", flakyStore.stored?.accessToken)
+
+        // Next 401 on ghu_fresh_1 must NOT revert to ghu_old; it must refresh using ghr_fresh_1.
+        flakyStore.failSaves = false
+        val secondRefreshed = manager.refreshAfterUnauthorized("ghu_fresh_1")
+        assertEquals("ghu_fresh_2", secondRefreshed?.accessToken)
+        assertEquals("ghu_fresh_2", flakyStore.stored?.accessToken)
+        assertEquals(2, refreshCalls)
+    }
+
+    @Test
+    fun transientOauthErrorRetriesAfterBackoffWindow() = runTest {
+        var now = NOW
+        var calls = 0
+        val engine = MockEngine {
+            calls++
+            if (calls == 1) {
+                json("""{"error":"temporarily_unavailable","error_description":"GitHub busy"}""")
+            } else {
+                json("""{"access_token":"ghu_recovered","expires_in":28800,"refresh_token":"ghr_recovered","refresh_token_expires_in":15897600,"token_type":"bearer","scope":"repo"}""")
+            }
+        }
+        val client = DeviceFlowClient(httpClient = jsonClient(engine), nowEpochSeconds = { now })
+        val store = SharedTokenStore(expiringSession("ghu_t1", "ghr_t1"))
+        val manager = SessionManager(store, client).also { it.initialize() }
+
+        assertNull(manager.refreshAfterUnauthorized("ghu_t1"))
+        assertEquals(1, calls)
+
+        // During backoff window it does not hammer GitHub.
+        assertNull(manager.refreshAfterUnauthorized("ghu_t1"))
+        assertEquals(1, calls)
+
+        // After backoff expires (e.g. 15 minutes later), it retries and succeeds.
+        now += 15 * 60L
+        val recovered = manager.refreshAfterUnauthorized("ghu_t1")
+        assertEquals("ghu_recovered", recovered?.accessToken)
+        assertEquals(2, calls)
+    }
 }

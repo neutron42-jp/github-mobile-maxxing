@@ -313,8 +313,18 @@ class DeviceFlowClient(
             val tokenRes = runCatching { response.body<AccessTokenResponse>() }.getOrNull()
             val newAccessToken = tokenRes?.accessToken?.takeIf { it.isNotBlank() }
             when {
-                tokenRes?.error != null ->
-                    Result.failure(RefreshTokenRejectedException(tokenRes.error, tokenRes.errorDescription))
+                tokenRes?.error != null -> {
+                    if (tokenRes.error.lowercase() in TRANSIENT_OAUTH_ERRORS) {
+                        Result.failure(
+                            IllegalStateException(
+                                tokenRes.errorDescription?.takeIf { it.isNotBlank() }
+                                    ?: "Temporary OAuth refresh error (${tokenRes.error})"
+                            )
+                        )
+                    } else {
+                        Result.failure(RefreshTokenRejectedException(tokenRes.error, tokenRes.errorDescription))
+                    }
+                }
 
                 response.status != HttpStatusCode.OK || newAccessToken == null ->
                     Result.failure(IllegalStateException("GitHub token refresh failed (HTTP ${response.status.value})"))
@@ -375,6 +385,11 @@ class DeviceFlowClient(
     }
 
     companion object {
+        private val TRANSIENT_OAUTH_ERRORS = setOf(
+            "temporarily_unavailable",
+            "server_error",
+            "slow_down"
+        )
         const val DEFAULT_OAUTH_SCOPE = "repo gist notifications read:user user:follow read:org"
 
         /** Only this device-flow page is accepted as the verification URL, since the UI opens it in a browser. */

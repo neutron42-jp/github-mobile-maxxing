@@ -439,6 +439,7 @@ gistDeleteConfirm	この Gist（zqa1）を完全に削除しますか？
 gistDeleteFailed	Gist の削除に失敗しました
 gistDeleteTitle	Gist を削除
 gistDeletedMessage	Gist を削除しました
+gistDuplicateFilenameError	この Gist には「zqa1」という名前のファイルがすでに存在します。
 gistEditAction	Gist を編集
 gistEditTitle	Gist を編集
 gistFileCount	7301 ファイル
@@ -454,6 +455,7 @@ gistScopeErrorHint	トークンに 'gist' スコープがない可能性があ�
 gistSecretBadge	シークレット
 gistSecretDesc	シークレット（リンクを知っている人のみ）
 gistStarUpdateFailed	スター状態の更新に失敗しました
+gistTruncatedNotice	このファイルは GitHub API により本文が省略されています。ファイル内容は変更せず説明のみ編集できます。
 gistUpdatedMessage	Gist を更新しました
 gistsAction	Gist
 gistsTabMine	自分の Gist

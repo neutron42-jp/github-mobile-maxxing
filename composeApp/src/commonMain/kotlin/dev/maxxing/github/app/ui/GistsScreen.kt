@@ -378,12 +378,17 @@ fun GistsScreen(
         if (showEditorDialog) {
             val editing = editingDetail
             val primaryFile = editing?.files?.firstOrNull()
+            val isTruncatedOrIncomplete = primaryFile != null &&
+                (primaryFile.truncated || (primaryFile.size > 0L && primaryFile.content.isEmpty()))
+            val existingFilenames = editing?.files?.map { it.filename }?.toSet().orEmpty()
             GistFullScreenEditor(
                 isCreating = editing == null,
                 initialDescription = editing?.summary?.description.orEmpty(),
                 initialFilename = primaryFile?.filename ?: "snippet.txt",
                 initialContent = primaryFile?.content.orEmpty(),
                 initialPublic = editing?.summary?.isPublic ?: false,
+                isTruncated = isTruncatedOrIncomplete,
+                existingFilenames = existingFilenames,
                 isSubmitting = mutationBusy,
                 errorMsg = mutationError,
                 onDismiss = { if (!mutationBusy) showEditorDialog = false },
@@ -398,17 +403,24 @@ fun GistsScreen(
                                 files = mapOf(filename to content)
                             )
                         } else {
-                            val originalName = editing.files.firstOrNull()?.filename
-                            val updates = buildMap<String, String?> {
-                                if (originalName != null && originalName != filename) {
-                                    put(originalName, null)
-                                }
-                                put(filename, content)
-                            }
-                            container.repository.updateGist(
-                                gistId = editing.summary.id,
-                                description = desc,
-                                updatedFiles = updates
+                            val originalName = primaryFile?.filename
+                            val updatesRes = buildGistFileUpdates(
+                                originalName = originalName,
+                                originalContent = primaryFile?.content.orEmpty(),
+                                newFilename = filename,
+                                newContent = content,
+                                existingFilenames = existingFilenames,
+                                isTruncated = isTruncatedOrIncomplete
+                            )
+                            updatesRes.fold(
+                                onSuccess = { updates ->
+                                    container.repository.updateGist(
+                                        gistId = editing.summary.id,
+                                        description = desc,
+                                        updatedFiles = updates
+                                    )
+                                },
+                                onFailure = { err -> Result.failure(err) }
                             )
                         }
                         result.onSuccess { updated ->
@@ -419,7 +431,11 @@ fun GistsScreen(
                             loadGists(forceRefresh = true)
                         }.onFailure { err ->
                             mutationBusy = false
-                            mutationError = strings.errorMessage(err, strings.gistSaveFailed, strings.gistScopeErrorHint)
+                            mutationError = if (err is DuplicateGistFilenameException) {
+                                strings.gistDuplicateFilenameError(err.filename)
+                            } else {
+                                strings.errorMessage(err, strings.gistSaveFailed, strings.gistScopeErrorHint)
+                            }
                         }
                     }
                 }
@@ -678,6 +694,41 @@ private fun GistDetailView(
     }
 }
 
+internal class DuplicateGistFilenameException(val filename: String) :
+    IllegalArgumentException("A file named \"$filename\" already exists in this gist")
+
+/**
+ * Computes the `files` patch map for a Gist update while:
+ * 1. Rejecting renames that collide with another existing file in the Gist (#86).
+ * 2. Leaving files untouched when the file is truncated/incomplete or when only the description changed (#85).
+ */
+internal fun buildGistFileUpdates(
+    originalName: String?,
+    originalContent: String,
+    newFilename: String,
+    newContent: String,
+    existingFilenames: Set<String>,
+    isTruncated: Boolean
+): Result<Map<String, String?>> {
+    val cleanName = newFilename.trim()
+    if (isTruncated) {
+        return Result.success(emptyMap())
+    }
+    if (originalName != null && cleanName != originalName && cleanName in existingFilenames) {
+        return Result.failure(DuplicateGistFilenameException(cleanName))
+    }
+    if (originalName != null && cleanName == originalName && newContent == originalContent) {
+        return Result.success(emptyMap())
+    }
+    val updates = buildMap<String, String?> {
+        if (originalName != null && originalName != cleanName) {
+            put(originalName, null)
+        }
+        put(cleanName, newContent)
+    }
+    return Result.success(updates)
+}
+
 @Composable
 private fun GistFullScreenEditor(
     isCreating: Boolean,
@@ -685,6 +736,8 @@ private fun GistFullScreenEditor(
     initialFilename: String,
     initialContent: String,
     initialPublic: Boolean,
+    isTruncated: Boolean = false,
+    existingFilenames: Set<String> = emptySet(),
     isSubmitting: Boolean,
     errorMsg: String?,
     onDismiss: () -> Unit,
@@ -694,19 +747,36 @@ private fun GistFullScreenEditor(
     var filename by remember(initialFilename) { mutableStateOf(initialFilename) }
     var content by remember(initialContent) { mutableStateOf(initialContent) }
     var isPublic by remember(initialPublic) { mutableStateOf(initialPublic) }
+    val trimmedFilename = filename.trim()
+    val duplicateConflict = !isCreating &&
+        !isTruncated &&
+        trimmedFilename != initialFilename &&
+        trimmedFilename in existingFilenames
+    val effectiveError = when {
+        duplicateConflict -> appStrings().gistDuplicateFilenameError(trimmedFilename)
+        !errorMsg.isNullOrBlank() -> errorMsg
+        isTruncated -> appStrings().gistTruncatedNotice
+        else -> null
+    }
+    val canSave = if (isTruncated) {
+        description.trim() != initialDescription.trim()
+    } else {
+        trimmedFilename.isNotEmpty() && content.isNotBlank() && !duplicateConflict
+    }
 
     MaxxingFullScreenEditorScaffold(
         title = if (isCreating) appStrings().gistNewTitle else appStrings().gistEditTitle,
         subtitle = filename.ifBlank { "snippet.txt" },
         saveLabel = if (isSubmitting) appStrings().savingAction else if (isCreating) appStrings().create else appStrings().save,
-        canSave = filename.isNotBlank() && content.isNotBlank(),
+        canSave = canSave,
         isSubmitting = isSubmitting,
-        errorMsg = errorMsg,
+        errorMsg = effectiveError,
         bodyValue = content,
         onBodyChange = { content = it },
         bodyLabel = appStrings().gistContentsLabel,
         useMonospace = true,
         supportsMarkdownPreview = filename.trim().endsWith(".md", ignoreCase = true),
+        bodyEditable = !isTruncated,
         metadataSummary = if (isCreating) {
             null
         } else {
@@ -715,14 +785,14 @@ private fun GistFullScreenEditor(
                 if (description.isNotBlank()) append(" · $description")
             }
         },
-        initiallyMetadataExpanded = isCreating,
+        initiallyMetadataExpanded = isCreating || isTruncated,
         onDismiss = onDismiss,
-        onSave = { onSave(description, filename.trim(), content, isPublic) },
+        onSave = { onSave(description, trimmedFilename, content, isPublic) },
         headerContent = {
             OutlinedTextField(
                 value = filename,
                 onValueChange = { filename = it },
-                enabled = !isSubmitting,
+                enabled = !isSubmitting && !isTruncated,
                 label = { Text(appStrings().gistFilenameLabel) },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),

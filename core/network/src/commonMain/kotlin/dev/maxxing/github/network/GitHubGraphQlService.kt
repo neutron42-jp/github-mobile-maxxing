@@ -80,6 +80,16 @@ class GitHubGraphQlService(
         }
     )
 
+    private suspend fun executeMutation(
+        query: String,
+        variables: Map<String, String> = emptyMap()
+    ): JsonObject = executeMutationJson(
+        query = query,
+        variables = buildJsonObject {
+            variables.forEach { (key, value) -> put(key, value) }
+        }
+    )
+
     private suspend fun executeJson(
         query: String,
         variables: JsonObject = buildJsonObject {}
@@ -536,7 +546,9 @@ class GitHubGraphQlService(
               }
             }
         """.trimIndent()
-        execute(mutation, mapOf("subjectId" to subjectId))
+        val data = executeMutation(mutation, mapOf("subjectId" to subjectId))
+        data.obj(op)?.obj("reaction")
+            ?: throw GitHubApiException(422, "Failed to update reaction", isSyntheticStatus = true)
         return !currentlyReacted
     }
 
@@ -548,7 +560,9 @@ class GitHubGraphQlService(
               }
             }
         """.trimIndent()
-        execute(mutation, mapOf("id" to commentId, "body" to body))
+        val data = executeMutation(mutation, mapOf("id" to commentId, "body" to body))
+        data.obj("updateIssueComment")?.obj("issueComment")
+            ?: throw GitHubApiException(422, "Failed to update comment", isSyntheticStatus = true)
     }
 
     suspend fun deleteIssueComment(commentId: String) {
@@ -559,7 +573,9 @@ class GitHubGraphQlService(
               }
             }
         """.trimIndent()
-        execute(mutation, mapOf("id" to commentId))
+        val data = executeMutation(mutation, mapOf("id" to commentId))
+        data.obj("deleteIssueComment")
+            ?: throw GitHubApiException(422, "Failed to delete comment", isSyntheticStatus = true)
     }
 
     suspend fun setPullRequestDraftState(pullRequestId: String, draft: Boolean) {
@@ -571,7 +587,9 @@ class GitHubGraphQlService(
               }
             }
         """.trimIndent()
-        execute(mutation, mapOf("pullRequestId" to pullRequestId))
+        val data = executeMutation(mutation, mapOf("pullRequestId" to pullRequestId))
+        data.obj(op)?.obj("pullRequest")
+            ?: throw GitHubApiException(422, "Failed to update draft state", isSyntheticStatus = true)
     }
 
     suspend fun fetchPullReviewSyncState(
@@ -1556,7 +1574,7 @@ class GitHubGraphQlService(
               }
             }
         """.trimIndent()
-        val data = execute(
+        val data = executeMutation(
             mutation,
             mapOf(
                 "repositoryId" to repositoryId,
@@ -1614,7 +1632,7 @@ class GitHubGraphQlService(
             put("body", body)
             if (hasReply) put("replyToId", replyToId!!)
         }
-        val data = execute(mutation, vars)
+        val data = executeMutation(mutation, vars)
         val cObj = data.obj("addDiscussionComment")?.obj("comment")
             ?: throw GitHubApiException(422, "Failed to add discussion comment", isSyntheticStatus = true)
         val author = cObj.obj("author")
@@ -1645,10 +1663,11 @@ class GitHubGraphQlService(
               }
             }
         """.trimIndent()
-        val data = execute(mutation, mapOf("subjectId" to subjectId))
+        val data = executeMutation(mutation, mapOf("subjectId" to subjectId))
         val subjectObj = data.obj(op)?.obj("subject")
-        val upvoted = subjectObj?.bool("viewerHasUpvoted") ?: !currentlyUpvoted
-        val count = subjectObj?.int("upvoteCount") ?: 0
+            ?: throw GitHubApiException(422, "Failed to update discussion upvote", isSyntheticStatus = true)
+        val upvoted = subjectObj.bool("viewerHasUpvoted") ?: !currentlyUpvoted
+        val count = subjectObj.int("upvoteCount") ?: 0
         return upvoted to count
     }
 
