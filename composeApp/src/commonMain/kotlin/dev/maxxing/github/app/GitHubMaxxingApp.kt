@@ -388,6 +388,23 @@ private fun MainAuthenticatedShell(
     val openUserProfile: (String) -> Unit = { targetLogin ->
         navState = navState.openUserProfile(targetLogin)
     }
+    val openBranch: (owner: String, repoName: String, branch: String) -> Unit = { targetOwner, targetRepo, branch ->
+        val cleanOwner = targetOwner.trim()
+        val cleanRepo = targetRepo.trim()
+        val cleanBranch = branch.trim()
+        if (cleanOwner.isNotEmpty() && cleanRepo.isNotEmpty() && cleanBranch.isNotEmpty()) {
+            val summary = RepoSummary(
+                id = "branch_${cleanOwner}_${cleanRepo}_$cleanBranch",
+                name = cleanRepo,
+                owner = cleanOwner,
+                fullName = "$cleanOwner/$cleanRepo",
+                defaultBranch = cleanBranch
+            )
+            navState = navState
+                .copy(overlayIssue = null, overlayGistsUser = null)
+                .openRepo(summary, initialBranch = cleanBranch)
+        }
+    }
 
     // Nonce in the key so re-tapping the same deep link URL (same String value)
     // still re-launches this effect; parsing itself is unchanged.
@@ -538,6 +555,7 @@ private fun MainAuthenticatedShell(
                                             onNavigateRepos = { navState = navState.selectBottomDestination(ShellDestination.REPOS) },
                                             onOpenGists = { navState = navState.copy(overlayGistsUser = "") },
                                             onOpenUser = openUserProfile,
+                                            onOpenBranch = openBranch,
                                             onMessage = showMessage
                                         )
                                         ShellDestination.INBOX -> NotificationsScreen(
@@ -548,17 +566,20 @@ private fun MainAuthenticatedShell(
                                                 onConsumeDeepLink()
                                             },
                                             isTabActive = isTabActive,
+                                            onOpenBranch = openBranch,
                                             onMessage = showMessage
                                         )
                                         ShellDestination.ISSUES_PRS -> IssuesPullsScreen(
                                             container = container,
                                             isTabActive = isTabActive,
+                                            onOpenBranch = openBranch,
                                             onMessage = showMessage
                                         )
                                         ShellDestination.REPOS -> ReposScreen(
                                             container = container,
                                             isTabActive = isTabActive,
                                             onOpenUser = openUserProfile,
+                                            onOpenBranch = openBranch,
                                             onMessage = showMessage
                                         )
                                         ShellDestination.SETTINGS -> SettingsScreen(
@@ -602,11 +623,12 @@ private fun MainAuthenticatedShell(
                 MaxxingPredictiveOverlayHost(
                     target = navState.activeRepo,
                     onBack = { navState = navState.popRepo() },
-                    contentKey = { it.fullName }
+                    contentKey = { "${it.fullName}@${navState.activeRepoInitialBranch.orEmpty()}" }
                 ) { repo ->
                     RepoDetailScreen(
                         repo = repo,
                         container = container,
+                        initialBranch = navState.activeRepoInitialBranch,
                         onBack = { navState = navState.popRepo() },
                         onOpenIssueOrPull = { navState = navState.copy(overlayIssue = it) },
                         onOpenRepo = { navState = navState.openRepo(it) },
@@ -624,6 +646,7 @@ private fun MainAuthenticatedShell(
                         container = container,
                         showBackButton = true,
                         onBack = { navState = navState.copy(overlayIssue = null) },
+                        onOpenBranch = openBranch,
                         onMessage = showMessage
                     )
                 }

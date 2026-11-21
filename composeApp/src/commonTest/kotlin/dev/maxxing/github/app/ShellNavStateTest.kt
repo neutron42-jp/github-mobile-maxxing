@@ -61,6 +61,26 @@ class ShellNavStateTest {
     }
 
     @Test
+    fun repoStackTracksInitialBranchAcrossPushAndPop() {
+        val mainRepo = RepoSummary(id = "r1", name = "app", owner = "hubot", fullName = "hubot/app")
+        val forkRepo = RepoSummary(id = "r2", name = "app", owner = "alice", fullName = "alice/app")
+
+        var state = ShellNavState(currentDestination = ShellDestination.HOME)
+            .openRepo(mainRepo, initialBranch = "main")
+            .openRepo(forkRepo, initialBranch = "feat/long-branch")
+
+        assertEquals("feat/long-branch", state.activeRepoInitialBranch)
+
+        state = state.popRepo()
+        assertEquals("hubot/app", state.activeRepo?.fullName)
+        assertEquals("main", state.activeRepoInitialBranch)
+
+        state = state.popRepo()
+        assertNull(state.activeRepo)
+        assertNull(state.activeRepoInitialBranch)
+    }
+
+    @Test
     fun saverKeepsOnlyTheDestinationAndFallsBackToHome() {
         val scope = SaverScope { true }
         val sampleRepo = RepoSummary(id = "r1", name = "app", owner = "hubot", fullName = "hubot/app")

@@ -124,6 +124,7 @@ fun HomeScreen(
     onNavigateRepos: () -> Unit,
     onOpenGists: () -> Unit = {},
     onOpenUser: (String) -> Unit = {},
+    onOpenBranch: ((owner: String, repo: String, branch: String) -> Unit)? = null,
     onMessage: (String) -> Unit
 ) {
     var repoStack by remember { mutableStateOf<List<RepoSummary>>(emptyList()) }
@@ -185,6 +186,7 @@ fun HomeScreen(
                 container = container,
                 showBackButton = true,
                 onBack = { selectedIssueTarget = null },
+                onOpenBranch = onOpenBranch,
                 onMessage = onMessage
             )
         }

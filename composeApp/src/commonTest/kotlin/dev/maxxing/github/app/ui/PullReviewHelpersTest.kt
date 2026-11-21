@@ -83,6 +83,28 @@ class PullReviewHelpersTest {
     }
 
     @Test
+    fun findsFirstUnviewedFileWhenStartingReviewMode() {
+        val entries = organizeFilesForReview(
+            listOf(file("a.kt"), file("b.kt"), file("c.kt"))
+        )
+        // Regression test for #110: initial scan (currentIndex = -1) must start at index 0, not index 1.
+        assertEquals(0, findNextUnviewedFileIndex(entries, emptyMap(), currentIndex = -1))
+
+        val firstViewed = mapOf("a.kt" to FileViewedState.VIEWED)
+        assertEquals(1, findNextUnviewedFileIndex(entries, firstViewed, currentIndex = -1))
+
+        val single = organizeFilesForReview(listOf(file("only.kt")))
+        assertEquals(0, findNextUnviewedFileIndex(single, emptyMap(), currentIndex = -1))
+
+        val allViewed = mapOf(
+            "a.kt" to FileViewedState.VIEWED,
+            "b.kt" to FileViewedState.VIEWED,
+            "c.kt" to FileViewedState.VIEWED
+        )
+        assertNull(findNextUnviewedFileIndex(entries, allViewed, currentIndex = -1))
+    }
+
+    @Test
     fun buildsSuggestedChangeMarkdownAndHandlesBackticks() {
         assertEquals(
             "```suggestion\nval x = 2\n```",

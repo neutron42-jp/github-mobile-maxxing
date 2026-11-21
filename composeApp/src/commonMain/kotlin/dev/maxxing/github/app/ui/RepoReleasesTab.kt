@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -195,7 +196,11 @@ internal fun RepoReleasesTabContent(
                         items(items = releases, key = { it.id }, contentType = { "release" }) { release ->
                             ReleaseCard(
                                 release = release,
-                                isLatest = release.id == latestStableId
+                                isLatest = release.id == latestStableId,
+                                onSelectTag = {
+                                    val matchingTag = tags.firstOrNull { it.name == release.tagName }
+                                    onSelectTag(matchingTag ?: TagRef(name = release.tagName, commitSha = ""))
+                                }
                             )
                         }
                     }
@@ -209,7 +214,8 @@ internal fun RepoReleasesTabContent(
 @Composable
 private fun ReleaseCard(
     release: ReleaseSummary,
-    isLatest: Boolean
+    isLatest: Boolean,
+    onSelectTag: () -> Unit
 ) {
     val strings = appStrings()
     var notesExpanded by remember(release.id) { mutableStateOf(isLatest) }
@@ -238,7 +244,10 @@ private fun ReleaseCard(
                     ) {
                         Surface(
                             color = MaterialTheme.colorScheme.secondaryContainer,
-                            shape = MaterialTheme.shapes.small
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier
+                                .clip(MaterialTheme.shapes.small)
+                                .clickable(enabled = release.tagName.isNotBlank(), onClick = onSelectTag)
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
@@ -248,7 +257,9 @@ private fun ReleaseCard(
                                 Icon(Lucide.Tag, contentDescription = null, modifier = Modifier.size(12.dp))
                                 Text(
                                     text = release.tagName,
-                                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace)
+                                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }

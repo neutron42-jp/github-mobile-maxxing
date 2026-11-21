@@ -1,22 +1,56 @@
 package dev.maxxing.github.ui.components
 
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.mikepenz.markdown.annotator.annotatorSettings
+import com.mikepenz.markdown.annotator.buildMarkdownAnnotatedString
+import com.mikepenz.markdown.compose.LocalMarkdownColors
+import com.mikepenz.markdown.compose.LocalMarkdownDimens
+import com.mikepenz.markdown.compose.components.markdownComponents
+import com.mikepenz.markdown.compose.elements.MarkdownTableBasicText
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.rememberMarkdownState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.intellij.markdown.ast.ASTNode
+import org.intellij.markdown.ast.findChildOfType
+import org.intellij.markdown.flavours.gfm.GFMElementTypes
+import org.intellij.markdown.flavours.gfm.GFMTokenTypes
 
 private val HTML_IMG_REGEX = Regex("""<img\b([^>]*)/?>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
 private val HTML_ANCHOR_IMG_REGEX = Regex(
@@ -486,10 +520,11 @@ fun splitMarkdownIntoSections(
 
         if (activeFence == null) {
             val isHeading = trimmed.startsWith("#")
+            val isTableLine = trimmed.startsWith("|")
             val shouldSplitBefore =
                 (isHeading && currentLineCount >= 8) ||
                     (trimmed.isEmpty() && currentLineCount >= maxLinesPerSection) ||
-                    (currentLineCount >= maxLinesPerSection * 3)
+                    (!isTableLine && currentLineCount >= maxLinesPerSection * 3)
             if (shouldSplitBefore) {
                 flushCurrent()
             }
@@ -586,6 +621,233 @@ fun rememberNormalizedMarkdownSections(
     return sections
 }
 
+/**
+ * Computes column widths in dp for a Markdown table.
+ *
+ * Each column keeps at least [minColWidthDp] and at most [maxColWidthDp] so normal prose wraps
+ * cleanly across lines instead of forcing excessive horizontal scrolling. When the table is
+ * narrower than [availableWidthDp], remaining width is distributed evenly so it fills the container;
+ * when wider, columns keep their clamped natural widths and scroll horizontally.
+ */
+internal fun computeMarkdownTableColumnWidthsDp(
+    naturalColumnWidthsDp: List<Float>,
+    availableWidthDp: Float,
+    minColWidthDp: Float = 64f,
+    maxColWidthDp: Float = 260f
+): List<Float> {
+    if (naturalColumnWidthsDp.isEmpty()) return emptyList()
+    val clamped = naturalColumnWidthsDp.map { it.coerceIn(minColWidthDp, maxColWidthDp) }
+    val totalClamped = clamped.sum()
+    if (totalClamped >= availableWidthDp || availableWidthDp <= 0f) {
+        return clamped
+    }
+    val extraPerCol = (availableWidthDp - totalClamped) / clamped.size
+    return clamped.map { it + extraPerCol }
+}
+
+@Composable
+fun ScrollableMarkdownTableFrame(
+    columnCount: Int,
+    rowCount: Int,
+    hasHeader: Boolean,
+    naturalColumnWidthsDp: List<Float>,
+    modifier: Modifier = Modifier,
+    horizontalScrollState: ScrollState = rememberScrollState(),
+    horizontalCellPaddingDp: Float = 12f,
+    tableBackground: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.surface,
+    headerBackground: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    alternateRowBackground: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.surfaceContainerLow,
+    dividerColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.outlineVariant,
+    cornerSize: androidx.compose.ui.unit.Dp = 8.dp,
+    renderCell: @Composable (rowIdx: Int, colIdx: Int, isHeader: Boolean) -> Unit
+) {
+    if (columnCount <= 0) return
+    val dividerWidthDp = 1f
+    val tableShape = RoundedCornerShape(cornerSize)
+
+    Surface(
+        shape = tableShape,
+        color = tableBackground,
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(tableShape)
+            .border(1.dp, dividerColor, tableShape)
+    ) {
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val totalDividerWidthDp = (columnCount - 1).coerceAtLeast(0) * dividerWidthDp
+            val availableForCellsDp = (maxWidth.value - totalDividerWidthDp).coerceAtLeast(0f)
+            val columnWidthsDp = remember(naturalColumnWidthsDp, availableForCellsDp) {
+                computeMarkdownTableColumnWidthsDp(
+                    naturalColumnWidthsDp = naturalColumnWidthsDp,
+                    availableWidthDp = availableForCellsDp
+                )
+            }
+            val totalTableWidth = remember(columnWidthsDp, totalDividerWidthDp) {
+                (columnWidthsDp.sum() + totalDividerWidthDp).dp
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(horizontalScrollState)
+            ) {
+                Column(modifier = Modifier.width(totalTableWidth)) {
+                    if (hasHeader) {
+                        Row(
+                            modifier = Modifier
+                                .width(totalTableWidth)
+                                .height(IntrinsicSize.Min)
+                                .background(headerBackground)
+                        ) {
+                            for (colIdx in 0 until columnCount) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(columnWidthsDp[colIdx].dp)
+                                        .fillMaxHeight()
+                                        .padding(horizontal = horizontalCellPaddingDp.dp, vertical = 8.dp),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    renderCell(0, colIdx, true)
+                                }
+                                if (colIdx < columnCount - 1) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(dividerWidthDp.dp)
+                                            .fillMaxHeight()
+                                            .background(dividerColor)
+                                    )
+                                }
+                            }
+                        }
+                        HorizontalDivider(thickness = 1.dp, color = dividerColor)
+                    }
+
+                    for (rowIdx in 0 until rowCount) {
+                        if (rowIdx > 0) {
+                            HorizontalDivider(thickness = 1.dp, color = dividerColor.copy(alpha = 0.6f))
+                        }
+                        val rowBg = if (rowIdx % 2 == 1) alternateRowBackground else tableBackground
+                        Row(
+                            modifier = Modifier
+                                .width(totalTableWidth)
+                                .height(IntrinsicSize.Min)
+                                .background(rowBg)
+                        ) {
+                            for (colIdx in 0 until columnCount) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(columnWidthsDp[colIdx].dp)
+                                        .fillMaxHeight()
+                                        .padding(horizontal = horizontalCellPaddingDp.dp, vertical = 8.dp),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    renderCell(rowIdx, colIdx, false)
+                                }
+                                if (colIdx < columnCount - 1) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(dividerWidthDp.dp)
+                                            .fillMaxHeight()
+                                            .background(dividerColor.copy(alpha = 0.6f))
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun GitHubMarkdownTable(
+    content: String,
+    node: ASTNode,
+    style: TextStyle,
+    modifier: Modifier = Modifier,
+    horizontalScrollState: ScrollState = rememberScrollState()
+) {
+    val headerNode = remember(node) { node.findChildOfType(GFMElementTypes.HEADER) }
+    val rowNodes = remember(node) { node.children.filter { it.type == GFMElementTypes.ROW } }
+    val headerCells = remember(headerNode) {
+        headerNode?.children?.filter { it.type == GFMTokenTypes.CELL }.orEmpty()
+    }
+    val bodyRows = remember(rowNodes) {
+        rowNodes.map { row -> row.children.filter { it.type == GFMTokenTypes.CELL } }
+    }
+    val columnCount = remember(headerCells, bodyRows) {
+        maxOf(headerCells.size, bodyRows.maxOfOrNull { it.size } ?: 0)
+    }
+    if (columnCount == 0) return
+
+    val settings = annotatorSettings()
+    val colors = LocalMarkdownColors.current
+    val dimens = LocalMarkdownDimens.current
+    val density = LocalDensity.current
+    val textMeasurer = rememberTextMeasurer()
+    val headerStyle = remember(style) { style.copy(fontWeight = FontWeight.SemiBold) }
+    val horizontalCellPaddingDp = 12f
+
+    val naturalColumnWidthsDp = remember(content, headerCells, bodyRows, columnCount, headerStyle, style, settings, density) {
+        val maxWidths = FloatArray(columnCount) { 64f }
+        fun measureRow(cells: List<ASTNode>, rowStyle: TextStyle) {
+            cells.forEachIndexed { colIdx, cell ->
+                if (colIdx >= columnCount) return@forEachIndexed
+                val annotated = androidx.compose.ui.text.AnnotatedString.Builder().apply {
+                    pushStyle(rowStyle.toSpanStyle())
+                    buildMarkdownAnnotatedString(content, cell, settings)
+                    pop()
+                }.toAnnotatedString()
+                if (annotated.isNotEmpty()) {
+                    val measuredPx = textMeasurer.measure(
+                        text = annotated,
+                        style = rowStyle,
+                        softWrap = false,
+                        maxLines = 1
+                    ).size.width
+                    val widthDp = with(density) { measuredPx.toDp().value } + horizontalCellPaddingDp * 2f + 4f
+                    if (widthDp > maxWidths[colIdx]) {
+                        maxWidths[colIdx] = widthDp
+                    }
+                }
+            }
+        }
+        measureRow(headerCells, headerStyle)
+        bodyRows.forEach { cells -> measureRow(cells, style) }
+        maxWidths.toList()
+    }
+
+    ScrollableMarkdownTableFrame(
+        columnCount = columnCount,
+        rowCount = bodyRows.size,
+        hasHeader = headerNode != null,
+        naturalColumnWidthsDp = naturalColumnWidthsDp,
+        modifier = modifier,
+        horizontalScrollState = horizontalScrollState,
+        horizontalCellPaddingDp = horizontalCellPaddingDp,
+        tableBackground = colors.tableBackground,
+        dividerColor = colors.dividerColor,
+        cornerSize = dimens.tableCornerSize
+    ) { rowIdx, colIdx, isHeader ->
+        val cell = if (isHeader) {
+            headerCells.getOrNull(colIdx)
+        } else {
+            bodyRows.getOrNull(rowIdx)?.getOrNull(colIdx)
+        }
+        if (cell != null) {
+            MarkdownTableBasicText(
+                content = content,
+                cell = cell,
+                style = if (isHeader) headerStyle else style,
+                maxLines = Int.MAX_VALUE,
+                overflow = TextOverflow.Clip,
+                annotatorSettings = settings
+            )
+        }
+    }
+}
+
 @Composable
 fun GitHubMarkdownPreNormalized(
     normalizedContent: String,
@@ -604,6 +866,17 @@ fun GitHubMarkdownPreNormalized(
         content = normalizedContent,
         retainState = true
     )
+    val components = remember {
+        markdownComponents(
+            table = { model ->
+                GitHubMarkdownTable(
+                    content = model.content,
+                    node = model.node,
+                    style = model.typography.table
+                )
+            }
+        )
+    }
     CompositionLocalProvider(LocalUriHandler provides safeUriHandler) {
         Markdown(
             markdownState = markdownState,
@@ -623,6 +896,7 @@ fun GitHubMarkdownPreNormalized(
                 )
             ),
             imageTransformer = GitHubImageTransformer,
+            components = components,
             modifier = modifier.fillMaxWidth()
         )
     }

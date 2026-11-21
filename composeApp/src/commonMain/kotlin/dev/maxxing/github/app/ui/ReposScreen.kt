@@ -303,6 +303,7 @@ fun ReposScreen(
     container: AppContainer,
     isTabActive: Boolean = true,
     onOpenUser: (String) -> Unit = {},
+    onOpenBranch: ((owner: String, repo: String, branch: String) -> Unit)? = null,
     onMessage: (String) -> Unit
 ) {
     var repoStack by remember { mutableStateOf<List<Pair<RepoSummary, String?>>>(emptyList()) }
@@ -366,6 +367,7 @@ fun ReposScreen(
                 container = container,
                 showBackButton = true,
                 onBack = { selectedIssueTarget = null },
+                onOpenBranch = onOpenBranch,
                 onMessage = onMessage
             )
         }
@@ -1283,6 +1285,7 @@ fun RepoDetailScreen(
     repo: RepoSummary,
     container: AppContainer,
     initialFilePath: String? = null,
+    initialBranch: String? = null,
     backEnabled: Boolean = true,
     onBack: () -> Unit,
     onOpenIssueOrPull: (IssuePullTarget) -> Unit,
@@ -1299,7 +1302,13 @@ fun RepoDetailScreen(
     var detail by remember(repo.fullName) {
         mutableStateOf(container.repository.peekRepoDetail(repo.owner, repo.name))
     }
-    var currentRef by remember(repo.fullName) { mutableStateOf(detail?.summary?.defaultBranch ?: repo.defaultBranch) }
+    var currentRef by remember(repo.fullName, initialBranch) {
+        mutableStateOf(
+            initialBranch?.takeIf { it.isNotBlank() }
+                ?: detail?.summary?.defaultBranch
+                ?: repo.defaultBranch
+        )
+    }
     var isStarred by remember(repo.fullName) { mutableStateOf(detail?.summary?.viewerHasStarred ?: repo.viewerHasStarred) }
     var isWatching by remember(repo.fullName) {
         mutableStateOf(container.repository.peekRepoSubscription(repo.owner, repo.name) ?: false)
@@ -2060,7 +2069,7 @@ fun RepoDetailScreen(
     val effectiveParent = detail?.summary?.parent ?: repo.parent
     val isForkRepo = detail?.summary?.isFork ?: repo.isFork || effectiveParent != null
 
-    LaunchedEffect(repo.fullName, initialFilePath) {
+    LaunchedEffect(repo.fullName, initialFilePath, initialBranch) {
         isLoading = detail == null && entries.isEmpty()
         val initialParent = initialFilePath?.substringBeforeLast('/', "")?.takeIf { it.isNotBlank() } ?: ""
         currentPath = initialParent
@@ -2076,7 +2085,7 @@ fun RepoDetailScreen(
                 detail = it
                 isStarred = it.summary.viewerHasStarred
                 val nextDefault = it.summary.defaultBranch.ifBlank { repo.defaultBranch }
-                if (nextDefault != initialRef) {
+                if (initialBranch.isNullOrBlank() && nextDefault != initialRef) {
                     refChanged = true
                     resolvedRef = nextDefault
                     currentRef = resolvedRef
@@ -2572,14 +2581,14 @@ fun RepoDetailScreen(
                                     }
                                     if (branches.isEmpty() && repoTags.isEmpty()) {
                                         DropdownMenuItem(
-                                            text = { Text(currentRef) },
+                                            text = { Text(currentRef, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                             onClick = { showBranchMenu = false }
                                         )
                                     } else {
                                         branches.forEach { b ->
                                             DropdownMenuItem(
                                                 leadingIcon = { Icon(Lucide.GitBranch, contentDescription = null, modifier = Modifier.size(15.dp)) },
-                                                text = { Text(b.name) },
+                                                text = { Text(b.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                                 onClick = { selectRef(b.name) }
                                             )
                                         }
@@ -2588,7 +2597,7 @@ fun RepoDetailScreen(
                                             repoTags.take(20).forEach { tag ->
                                                 DropdownMenuItem(
                                                     leadingIcon = { Icon(Lucide.Tag, contentDescription = null, modifier = Modifier.size(15.dp)) },
-                                                    text = { Text(tag.name) },
+                                                    text = { Text(tag.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                                     onClick = { selectRef(tag.name) }
                                                 )
                                             }
@@ -3131,7 +3140,24 @@ fun RepoDetailScreen(
                             },
                             onRefresh = { loadActions(selectedWorkflowId, forceRefresh = true) },
                             onOpenDispatch = { showDispatchDialog = true },
-                            onOpenRun = { run -> openRun(run) }
+                            onOpenRun = { run -> openRun(run) },
+                            onOpenBranch = { branch ->
+                                val cleanRef = branch.trim()
+                                if (cleanRef.isNotEmpty()) {
+                                    currentRef = cleanRef
+                                    currentPath = ""
+                                    openedFile = null
+                                    showCommitsView = false
+                                    showCompareView = false
+                                    openedCommitSha = null
+                                    activeTab = RepoDetailTab.CODE
+                                    loadDirectory("", cleanRef)
+                                    scope.launch {
+                                        container.repository.getReadme(repo.owner, repo.name, cleanRef)
+                                            .onSuccess { if (currentRef == cleanRef) readme = it }
+                                    }
+                                }
+                            }
                         )
                     }
                 }
@@ -3158,6 +3184,10 @@ fun RepoDetailScreen(
                         openedCommitSha = null
                         activeTab = RepoDetailTab.CODE
                         loadDirectory("", tag.name)
+                        scope.launch {
+                            container.repository.getReadme(repo.owner, repo.name, tag.name)
+                                .onSuccess { if (currentRef == tag.name) readme = it }
+                        }
                     }
                 )
             }
@@ -4404,12 +4434,17 @@ private fun RepoCommitsTabContent(
                 Spacer(Modifier.width(4.dp))
                 Text(strings.repoDetailTabCode, maxLines = 1, softWrap = false)
             }
-            ExpressiveStatusPill(
-                label = currentRef,
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                icon = Lucide.GitBranch
-            )
+            Box(modifier = Modifier.weight(1f)) {
+                ExpressiveStatusPill(
+                    label = currentRef,
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    icon = Lucide.GitBranch,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable(onClick = onBackToCode)
+                )
+            }
             OutlinedButton(
                 onClick = onOpenCompare,
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
@@ -4418,7 +4453,6 @@ private fun RepoCommitsTabContent(
                 Spacer(Modifier.width(5.dp))
                 Text(if (parentRepo != null) strings.repoCompareUpstream else strings.repoCompare, maxLines = 1, softWrap = false)
             }
-            Spacer(Modifier.weight(1f))
             IconButton(onClick = onRefresh) {
                 Icon(Lucide.RefreshCw, contentDescription = strings.refreshCommitsDesc, modifier = Modifier.size(18.dp))
             }
@@ -4994,7 +5028,8 @@ private fun RepoActionsTabContent(
     onSelectWorkflow: (Long?) -> Unit,
     onRefresh: () -> Unit,
     onOpenDispatch: () -> Unit,
-    onOpenRun: (WorkflowRunSummary) -> Unit
+    onOpenRun: (WorkflowRunSummary) -> Unit,
+    onOpenBranch: (String) -> Unit = {}
 ) {
     val strings = appStrings()
     Column(modifier = Modifier.fillMaxSize()) {
@@ -5081,7 +5116,11 @@ private fun RepoActionsTabContent(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(items = runs, key = { it.id }, contentType = { "workflow_run" }) { run ->
-                            WorkflowRunSummaryCard(run = run, onClick = { onOpenRun(run) })
+                            WorkflowRunSummaryCard(
+                                run = run,
+                                onClick = { onOpenRun(run) },
+                                onOpenBranch = onOpenBranch
+                            )
                         }
                     }
                 }
@@ -5093,7 +5132,8 @@ private fun RepoActionsTabContent(
 @Composable
 internal fun WorkflowRunSummaryCard(
     run: WorkflowRunSummary,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onOpenBranch: ((String) -> Unit)? = null
 ) {
     val strings = appStrings()
     val (statusIcon, statusTint) = actionStatusVisual(run.status, run.conclusion)
@@ -5133,10 +5173,25 @@ internal fun WorkflowRunSummaryCard(
                         modifier = Modifier.weight(1f, fill = false)
                     )
                     if (run.headBranch.isNotBlank()) {
-                        Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .clip(MaterialTheme.shapes.small)
+                                .then(
+                                    if (onOpenBranch != null) {
+                                        Modifier.clickable { onOpenBranch(run.headBranch) }
+                                    } else {
+                                        Modifier
+                                    }
+                                )
+                        ) {
                             Text(
                                 text = run.headBranch,
                                 style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
@@ -5145,7 +5200,9 @@ internal fun WorkflowRunSummaryCard(
                         Text(
                             text = run.event,
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }

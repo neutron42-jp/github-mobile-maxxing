@@ -167,6 +167,7 @@ fun NotificationsScreen(
     deepLinkTarget: IssuePullTarget? = null,
     onConsumeDeepLink: () -> Unit = {},
     isTabActive: Boolean = true,
+    onOpenBranch: ((owner: String, repo: String, branch: String) -> Unit)? = null,
     onMessage: (String) -> Unit
 ) {
     val navigator = rememberListDetailPaneScaffoldNavigator<String>()
@@ -751,6 +752,7 @@ fun NotificationsScreen(
                             container = container,
                             showBackButton = navigator.canNavigateBack(),
                             onBack = { scope.launch { navigator.navigateBack() } },
+                            onOpenBranch = onOpenBranch,
                             onMessage = onMessage
                         )
                     }

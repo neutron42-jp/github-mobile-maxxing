@@ -157,6 +157,8 @@ data class IssueOrPullDetail(
     val milestone: MilestoneSummary? = null,
     val headRefName: String? = null,
     val baseRefName: String? = null,
+    val headRepoOwner: String? = null,
+    val headRepoName: String? = null,
     val additions: Int = 0,
     val deletions: Int = 0,
     val changedFilesCount: Int = 0,

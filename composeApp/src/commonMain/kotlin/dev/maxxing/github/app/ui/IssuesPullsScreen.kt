@@ -96,6 +96,7 @@ import kotlinx.coroutines.launch
 fun IssuesPullsScreen(
     container: AppContainer,
     isTabActive: Boolean = true,
+    onOpenBranch: ((owner: String, repo: String, branch: String) -> Unit)? = null,
     onMessage: (String) -> Unit
 ) {
     // String content keys keep the navigator saveable into the Android Bundle; IssuePullTarget is not.
@@ -384,6 +385,7 @@ fun IssuesPullsScreen(
                         container = container,
                         showBackButton = navigator.canNavigateBack(),
                         onBack = { scope.launch { navigator.navigateBack() } },
+                        onOpenBranch = onOpenBranch,
                         onMessage = onMessage
                     )
                 } else {

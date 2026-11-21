@@ -23,6 +23,7 @@ data class ShellNavState(
     val settingsSection: SettingsSection? = null,
     val profileBackStack: List<String> = emptyList(),
     val repoBackStack: List<RepoSummary> = emptyList(),
+    val repoBranchStack: List<String?> = emptyList(),
     val overlayRepo: RepoSummary? = null,
     val overlayIssue: IssuePullTarget? = null,
     val overlayGistsUser: String? = null,
@@ -30,6 +31,9 @@ data class ShellNavState(
 ) {
     val activeRepo: RepoSummary?
         get() = repoBackStack.lastOrNull() ?: overlayRepo
+
+    val activeRepoInitialBranch: String?
+        get() = if (repoBackStack.isNotEmpty()) repoBranchStack.lastOrNull() else null
 
     val hasOverlay: Boolean
         get() = overlayGistsUser != null ||
@@ -43,6 +47,7 @@ data class ShellNavState(
             settingsSection = null,
             profileBackStack = emptyList(),
             repoBackStack = emptyList(),
+            repoBranchStack = emptyList(),
             overlayRepo = null,
             overlayIssue = null,
             overlayGistsUser = null,
@@ -66,6 +71,7 @@ data class ShellNavState(
         if (login.isBlank()) return this
         return copy(
             repoBackStack = emptyList(),
+            repoBranchStack = emptyList(),
             overlayRepo = null,
             overlayIssue = null,
             overlayGistsUser = null,
@@ -73,24 +79,36 @@ data class ShellNavState(
         )
     }
 
-    fun openRepo(repo: RepoSummary): ShellNavState {
+    fun openRepo(repo: RepoSummary, initialBranch: String? = null): ShellNavState {
         val base = if (repoBackStack.isNotEmpty()) repoBackStack else listOfNotNull(overlayRepo)
-        val next = if (base.lastOrNull()?.fullName?.equals(repo.fullName, ignoreCase = true) == true) {
-            base.dropLast(1) + repo
+        val baseBranches = if (repoBackStack.isNotEmpty()) {
+            List(base.size) { idx -> repoBranchStack.getOrNull(idx) }
         } else {
-            base + repo
+            List(base.size) { null }
         }
+        val cleanBranch = initialBranch?.trim()?.takeIf { it.isNotEmpty() }
+        val replacingTop = base.lastOrNull()?.fullName?.equals(repo.fullName, ignoreCase = true) == true
+        val next = if (replacingTop) base.dropLast(1) + repo else base + repo
+        val nextBranches = if (replacingTop) baseBranches.dropLast(1) + cleanBranch else baseBranches + cleanBranch
         return copy(
             repoBackStack = next,
+            repoBranchStack = nextBranches,
             overlayRepo = next.lastOrNull()
         )
     }
 
     fun popRepo(): ShellNavState {
         val base = if (repoBackStack.isNotEmpty()) repoBackStack else listOfNotNull(overlayRepo)
+        val baseBranches = if (repoBackStack.isNotEmpty()) {
+            List(base.size) { idx -> repoBranchStack.getOrNull(idx) }
+        } else {
+            List(base.size) { null }
+        }
         val next = if (base.isNotEmpty()) base.dropLast(1) else emptyList()
+        val nextBranches = if (baseBranches.isNotEmpty()) baseBranches.dropLast(1) else emptyList()
         return copy(
             repoBackStack = next,
+            repoBranchStack = nextBranches,
             overlayRepo = next.lastOrNull()
         )
     }

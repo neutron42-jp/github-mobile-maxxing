@@ -148,7 +148,7 @@ fun findNextUnviewedFileIndex(
     currentIndex: Int
 ): Int? {
     if (entries.isEmpty()) return null
-    val start = currentIndex.coerceIn(0, entries.lastIndex)
+    val start = if (currentIndex < 0) -1 else currentIndex.coerceAtMost(entries.lastIndex)
     for (offset in 1..entries.size) {
         val candidate = (start + offset) % entries.size
         if (viewedStates[entries[candidate].file.filename] != FileViewedState.VIEWED) {

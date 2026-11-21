@@ -322,6 +322,10 @@ class GitHubGraphQlService(
                     updatedAt
                     headRefName
                     headRefOid
+                    headRepository {
+                      name
+                      owner { login }
+                    }
                     baseRefName
                     additions
                     deletions
@@ -523,6 +527,8 @@ class GitHubGraphQlService(
             milestone = milestone,
             headRefName = item.str("headRefName"),
             baseRefName = item.str("baseRefName"),
+            headRepoOwner = item.obj("headRepository")?.obj("owner")?.str("login"),
+            headRepoName = item.obj("headRepository")?.str("name"),
             additions = item.int("additions") ?: 0,
             deletions = item.int("deletions") ?: 0,
             changedFilesCount = item.int("changedFiles") ?: 0,

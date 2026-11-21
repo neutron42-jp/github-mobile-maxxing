@@ -62,13 +62,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -80,6 +83,7 @@ import com.composables.icons.lucide.CircleDot
 import com.composables.icons.lucide.ExternalLink
 import com.composables.icons.lucide.FileDiff
 import com.composables.icons.lucide.Flag
+import com.composables.icons.lucide.GitBranch
 import com.composables.icons.lucide.GitCommitHorizontal
 import com.composables.icons.lucide.GitMerge
 import com.composables.icons.lucide.GitPullRequest
@@ -302,6 +306,7 @@ fun IssuePullDetailPane(
     container: AppContainer,
     showBackButton: Boolean = false,
     onBack: () -> Unit = {},
+    onOpenBranch: ((owner: String, repo: String, branch: String) -> Unit)? = null,
     onMessage: (String) -> Unit = {}
 ) {
     // The detail content and its full-screen editors/viewers are emitted as siblings. Keep them in one
@@ -313,6 +318,7 @@ fun IssuePullDetailPane(
             container = container,
             showBackButton = showBackButton,
             onBack = onBack,
+            onOpenBranch = onOpenBranch,
             onMessage = onMessage
         )
     }
@@ -325,6 +331,7 @@ private fun IssuePullDetailPaneContent(
     container: AppContainer,
     showBackButton: Boolean,
     onBack: () -> Unit,
+    onOpenBranch: ((owner: String, repo: String, branch: String) -> Unit)?,
     onMessage: (String) -> Unit
 ) {
     val targetKey = remember(target.owner, target.repo, target.number) { issuePullIdentityKey(target) }
@@ -789,6 +796,7 @@ private fun IssuePullDetailPaneContent(
                                             showReviewMode = true
                                         }
                                     } else null,
+                                    onOpenBranch = onOpenBranch,
                                     onEditLabels = {
                                         selectedLabelNames = item.labels.map { it.name }.toSet()
                                         showLabelsDialog = true
@@ -2354,13 +2362,123 @@ private fun DraftNoticeCard() {
     }
 }
 
+/**
+ * Allocates pixel widths between two branch pills inside a constrained row so a short branch
+ * (such as `main`) keeps its full width while a long branch uses the remaining space and ellipsizes.
+ */
+internal fun allocateBranchChipWidths(
+    headIntrinsicPx: Int,
+    baseIntrinsicPx: Int,
+    availablePx: Int
+): Pair<Int, Int> {
+    if (availablePx <= 0) return 0 to 0
+    if (headIntrinsicPx + baseIntrinsicPx <= availablePx) {
+        return headIntrinsicPx to baseIntrinsicPx
+    }
+    val half = availablePx / 2
+    return when {
+        baseIntrinsicPx <= half -> (availablePx - baseIntrinsicPx).coerceAtLeast(0) to baseIntrinsicPx
+        headIntrinsicPx <= half -> headIntrinsicPx to (availablePx - headIntrinsicPx).coerceAtLeast(0)
+        else -> half to (availablePx - half)
+    }
+}
+
+@Composable
+internal fun PullBranchComparisonRow(
+    headRefName: String,
+    baseRefName: String,
+    onHeadClick: (() -> Unit)?,
+    onBaseClick: (() -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    val graphitePalette = LocalGraphitePalette.current
+    val branchChip = GraphiteContrast.branchChipColors(
+        MaterialTheme.colorScheme,
+        graphitePalette
+    )
+    val contentColor = branchChip.content ?: contentColorFor(branchChip.container)
+
+    @Composable
+    fun BranchChip(name: String, onClick: (() -> Unit)?) {
+        Surface(
+            color = branchChip.container,
+            contentColor = contentColor,
+            shape = MaterialTheme.shapes.small,
+            modifier = Modifier
+                .clip(MaterialTheme.shapes.small)
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    imageVector = Lucide.GitBranch,
+                    contentDescription = null,
+                    modifier = Modifier.size(12.dp)
+                )
+                Text(
+                    text = name,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+
+    Layout(
+        modifier = modifier.fillMaxWidth(),
+        content = {
+            BranchChip(name = headRefName, onClick = onHeadClick)
+            Text(
+                text = "→",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                softWrap = false
+            )
+            BranchChip(name = baseRefName, onClick = onBaseClick)
+        }
+    ) { measurables, constraints ->
+        val gapPx = 6.dp.roundToPx()
+        val arrowPlaceable = measurables[1].measure(Constraints())
+        val availableForChips = (constraints.maxWidth - arrowPlaceable.width - gapPx * 2).coerceAtLeast(0)
+        val headIntrinsic = measurables[0].maxIntrinsicWidth(constraints.maxHeight)
+        val baseIntrinsic = measurables[2].maxIntrinsicWidth(constraints.maxHeight)
+        val (headMaxW, baseMaxW) = allocateBranchChipWidths(headIntrinsic, baseIntrinsic, availableForChips)
+
+        val headPlaceable = measurables[0].measure(
+            Constraints(minWidth = 0, maxWidth = headMaxW, minHeight = 0, maxHeight = constraints.maxHeight)
+        )
+        val basePlaceable = measurables[2].measure(
+            Constraints(minWidth = 0, maxWidth = baseMaxW, minHeight = 0, maxHeight = constraints.maxHeight)
+        )
+
+        val height = maxOf(headPlaceable.height, arrowPlaceable.height, basePlaceable.height)
+        val width = (headPlaceable.width + arrowPlaceable.width + basePlaceable.width + gapPx * 2)
+            .coerceIn(constraints.minWidth, constraints.maxWidth)
+
+        layout(width, height) {
+            var x = 0
+            headPlaceable.placeRelative(x, (height - headPlaceable.height) / 2)
+            x += headPlaceable.width + gapPx
+            arrowPlaceable.placeRelative(x, (height - arrowPlaceable.height) / 2)
+            x += arrowPlaceable.width + gapPx
+            basePlaceable.placeRelative(x, (height - basePlaceable.height) / 2)
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun DetailHeaderCard(
+internal fun DetailHeaderCard(
     item: IssueOrPullDetail,
     filesCount: Int = 0,
     viewedFilesCount: Int = 0,
     onStartReviewMode: (() -> Unit)? = null,
+    onOpenBranch: ((owner: String, repo: String, branch: String) -> Unit)? = null,
     onEditLabels: () -> Unit,
     onEditAssignees: () -> Unit,
     onEditMilestone: () -> Unit,
@@ -2386,9 +2504,9 @@ private fun DetailHeaderCard(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 ExpressiveStatusPill(
                     label = stateLabel,
@@ -2440,29 +2558,23 @@ private fun DetailHeaderCard(
             )
 
             if (item.kind == IssueOrPullKind.PULL_REQUEST && item.headRefName != null && item.baseRefName != null) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val branchChip = GraphiteContrast.branchChipColors(
-                        MaterialTheme.colorScheme,
-                        graphitePalette
+                val headRef = item.headRefName!!
+                val baseRef = item.baseRefName!!
+                val headOwner = item.headRepoOwner?.takeIf { it.isNotBlank() } ?: item.repoOwner
+                val headRepo = item.headRepoName?.takeIf { it.isNotBlank() } ?: item.repoName
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    PullBranchComparisonRow(
+                        headRefName = headRef,
+                        baseRefName = baseRef,
+                        onHeadClick = onOpenBranch?.let { open -> { open(headOwner, headRepo, headRef) } },
+                        onBaseClick = onOpenBranch?.let { open -> { open(item.repoOwner, item.repoName, baseRef) } }
                     )
-                    Surface(
-                        color = branchChip.container,
-                        contentColor = branchChip.content ?: contentColorFor(branchChip.container),
-                        shape = MaterialTheme.shapes.small
-                    ) {
-                        Text(
-                            text = "${item.headRefName} → ${item.baseRefName}",
-                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
                     Text(
                         text = "+${item.additions} / -${item.deletions}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
