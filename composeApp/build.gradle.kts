@@ -93,7 +93,7 @@ kotlin {
 
     jvm("desktop") {
         compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
         }
     }
 
@@ -176,8 +176,45 @@ compose.desktop {
     }
 }
 
+val desktopJavaLauncher = javaToolchains.launcherFor {
+    languageVersion.set(JavaLanguageVersion.of(21))
+}
+val desktopJavaHome = desktopJavaLauncher.map { it.metadata.installationPath.asFile.absolutePath }
+
+// Compose Desktop registers its packaging task defaults in its own afterEvaluate (via plugin
+// application), so set javaHome/jdkHome inside afterEvaluate here to override the Gradle JVM.
+afterEvaluate {
+    tasks.withType<org.jetbrains.compose.desktop.application.tasks.AbstractJvmToolOperationTask>().configureEach {
+        javaHome.set(desktopJavaHome)
+    }
+
+    tasks.withType<org.jetbrains.compose.desktop.application.tasks.AbstractCheckNativeDistributionRuntime>().configureEach {
+        jdkHome.set(desktopJavaHome)
+    }
+
+    tasks.withType<JavaExec>().matching { it.name == "run" || it.name == "desktopRun" }.configureEach {
+        javaLauncher.set(desktopJavaLauncher)
+    }
+}
+
 tasks.register<Exec>("packageLinuxAppImage") {
     dependsOn("createDistributable")
     workingDir = rootProject.projectDir
+    doFirst {
+        val releaseFile = file("build/compose/binaries/main/app/github-mobile-maxxing/lib/runtime/release")
+        val versionLine = releaseFile.takeIf { it.exists() }
+            ?.readLines()
+            ?.firstOrNull { it.startsWith("JAVA_VERSION=") }
+        val major = versionLine
+            ?.substringAfter('=')
+            ?.trim('"')
+            ?.substringBefore('.')
+            ?.toIntOrNull()
+        if (major == null || major < 21) {
+            throw GradleException(
+                "Linux AppImage requires a bundled Java 21+ runtime (found: ${versionLine ?: "missing $releaseFile"})."
+            )
+        }
+    }
     commandLine("bash", "scripts/package-linux-appimage.sh")
 }

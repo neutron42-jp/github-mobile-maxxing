@@ -22,11 +22,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -90,7 +90,9 @@ jobs:
         run: unzip -l androidApp/build/outputs/apk/release/androidApp-release.apk | grep -q "assets/composeResources/.*/app_icon.png"
 
       - name: Verify Linux AppImage artifact generated
-        run: test -x composeApp/build/compose/binaries/main/appimage/github-mobile-maxxing-x86_64.AppImage
+        run: |
+          test -x composeApp/build/compose/binaries/main/appimage/github-mobile-maxxing-x86_64.AppImage
+          grep -qE '^JAVA_VERSION="(2[1-9]|[3-9][0-9])' composeApp/build/compose/binaries/main/app/github-mobile-maxxing/lib/runtime/release
 
       - name: Upload Desktop test results
         if: always()
