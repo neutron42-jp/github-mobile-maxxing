@@ -125,6 +125,7 @@ fun HomeScreen(
     onOpenGists: () -> Unit = {},
     onOpenUser: (String) -> Unit = {},
     onOpenBranch: ((owner: String, repo: String, branch: String) -> Unit)? = null,
+    accountSwitcherPill: @Composable () -> Unit = {},
     onMessage: (String) -> Unit
 ) {
     var repoStack by remember { mutableStateOf<List<RepoSummary>>(emptyList()) }
@@ -158,6 +159,7 @@ fun HomeScreen(
             onOpenIssueOrPull = { selectedIssueTarget = it },
             onOpenGists = onOpenGists,
             onOpenUser = onOpenUser,
+            accountSwitcherPill = accountSwitcherPill,
             onMessage = onMessage
         )
 
@@ -205,11 +207,13 @@ private fun HomeDashboardPane(
     onOpenIssueOrPull: (IssuePullTarget) -> Unit,
     onOpenGists: () -> Unit,
     onOpenUser: (String) -> Unit,
+    accountSwitcherPill: @Composable () -> Unit,
     onMessage: (String) -> Unit
 ) {
     val profile by container.viewerProfile.collectAsState()
     val session by container.sessionManager.session.collectAsState()
     val pinnedRepoNames by container.sessionManager.pinnedRepos.collectAsState()
+    val capabilities = container.repository.activeCapabilities()
     val login = profile?.login ?: session?.userLogin.orEmpty()
 
     var feedTab by remember { mutableStateOf(FeedTab.FOLLOWING) }
@@ -328,8 +332,10 @@ private fun HomeDashboardPane(
                         }
                     }
                 }
-                IconButton(onClick = onOpenGists) {
-                    Icon(Lucide.FileCode, contentDescription = strings.gistsAction, modifier = Modifier.size(18.dp))
+                if (capabilities.supportsGists) {
+                    IconButton(onClick = onOpenGists) {
+                        Icon(Lucide.FileCode, contentDescription = strings.gistsAction, modifier = Modifier.size(18.dp))
+                    }
                 }
                 IconButton(onClick = { loadHome(forceRefresh = true) }) {
                     Icon(Lucide.RefreshCw, contentDescription = strings.refresh, modifier = Modifier.size(18.dp))
@@ -342,26 +348,27 @@ private fun HomeDashboardPane(
             }
         }
 
-        PullToRefreshBox(
-            isRefreshing = isRefreshing && (feedEvents.isNotEmpty() || calendar != null),
-            onRefresh = { loadHome(forceRefresh = true) },
-            modifier = Modifier.fillMaxSize().nestedScroll(headerNestedScroll)
-        ) {
-            if (isLoading && feedEvents.isEmpty() && calendar == null) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    MaxxingLoadingState(message = strings.loadingHome)
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    calendar?.let { cal ->
-                        item(key = "contributions", contentType = "contribution_heatmap") {
-                            ContributionHeatmapCard(calendar = cal)
-                        }
+        Box(modifier = Modifier.fillMaxSize()) {
+            PullToRefreshBox(
+                isRefreshing = isRefreshing && (feedEvents.isNotEmpty() || calendar != null),
+                onRefresh = { loadHome(forceRefresh = true) },
+                modifier = Modifier.fillMaxSize().nestedScroll(headerNestedScroll)
+            ) {
+                if (isLoading && feedEvents.isEmpty() && calendar == null) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        MaxxingLoadingState(message = strings.loadingHome)
                     }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 84.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        calendar?.takeIf { it.weeks.isNotEmpty() }?.let { cal ->
+                            item(key = "contributions", contentType = "contribution_heatmap") {
+                                ContributionHeatmapCard(calendar = cal)
+                            }
+                        }
 
                     if (pinnedRepoNames.isNotEmpty()) {
                         item(key = "pinned_repos_strip", contentType = "pinned_repos") {
@@ -581,6 +588,14 @@ private fun HomeDashboardPane(
                         }
                     }
                 }
+            }
+        }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(16.dp)
+            ) {
+                accountSwitcherPill()
             }
         }
     }

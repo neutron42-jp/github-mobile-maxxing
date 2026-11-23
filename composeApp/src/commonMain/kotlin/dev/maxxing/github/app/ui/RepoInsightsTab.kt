@@ -54,7 +54,8 @@ internal fun RepoInsightsTabContent(
     isLoading: Boolean,
     errorMsg: String?,
     onRefresh: () -> Unit,
-    onOpenUser: (String) -> Unit
+    onOpenUser: (String) -> Unit,
+    showProviderNotice: Boolean = false
 ) {
     val strings = appStrings()
     when {
@@ -105,6 +106,34 @@ internal fun RepoInsightsTabContent(
                             Icon(Lucide.RefreshCw, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(Modifier.width(ButtonDefaults.IconSpacing))
                             Text(strings.refresh, maxLines = 1, softWrap = false)
+                        }
+                    }
+                }
+
+                if (showProviderNotice) {
+                    item(key = "insights_provider_notice") {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    Lucide.Activity,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = strings.featureRepoInsightsNotice,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
                     }
                 }

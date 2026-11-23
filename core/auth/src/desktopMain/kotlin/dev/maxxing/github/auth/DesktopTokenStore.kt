@@ -18,6 +18,7 @@ import java.util.concurrent.TimeUnit
 internal class LinuxDesktopTokenStore(
     dataDirOverride: File? = null
 ) : TokenStore {
+    override val supportsMultiAccountStorage: Boolean = true
     // Preference files stay pretty-printed for readability; sessions must be single-line compact JSON
     // because gnome-keyring plaintext .keyring files break when secret-tool stores embedded newlines.
     private val json = Json(from = TokenStoreJson) { prettyPrint = true }
@@ -29,6 +30,8 @@ internal class LinuxDesktopTokenStore(
     }
 
     private val sessionFile: File by lazy { File(dataDir, "session.json") }
+    private val accountsDir: File by lazy { File(dataDir, "accounts").apply { mkdirs() } }
+    private val accountIndexFile: File by lazy { File(dataDir, "accounts_index.json") }
     private val configFile: File by lazy { File(dataDir, "config.json") }
     private val themeFile: File by lazy { File(dataDir, "theme.json") }
     private val notifPrefsFile: File by lazy { File(dataDir, "notif_prefs.json") }
@@ -36,9 +39,18 @@ internal class LinuxDesktopTokenStore(
     private val seenNotifsFile: File by lazy { File(dataDir, "seen_notifs.json") }
     private val pinnedReposFile: File by lazy { File(dataDir, "pinned_repos.json") }
 
+    private fun accountFile(accountId: String): File =
+        File(accountsDir, "${sanitizeAccountStorageKey(accountId)}.json")
+
+    private fun seenNotifsFileFor(accountId: String): File =
+        File(accountsDir, "seen_notifs_${sanitizeAccountStorageKey(accountId)}.json")
+
+    private fun pinnedReposFileFor(accountId: String): File =
+        File(accountsDir, "pinned_repos_${sanitizeAccountStorageKey(accountId)}.json")
+
     override suspend fun saveSession(session: AuthSession) = withContext(Dispatchers.IO) {
         val encoded = encodeSessionForSecretStore(session)
-        if (!trySecretToolStore(encoded)) {
+        if (!trySecretToolStore("github", encoded)) {
             writeOwnerOnlyFileAtomically(sessionFile, encoded)
         } else if (sessionFile.exists()) {
             sessionFile.delete()
@@ -46,7 +58,7 @@ internal class LinuxDesktopTokenStore(
     }
 
     override suspend fun loadSession(): AuthSession? = withContext(Dispatchers.IO) {
-        val fromKeyring = trySecretToolLookup()
+        val fromKeyring = trySecretToolLookup("github")
         if (!fromKeyring.isNullOrBlank()) {
             return@withContext decodeSessionFromSecretStore(fromKeyring)
         }
@@ -55,10 +67,53 @@ internal class LinuxDesktopTokenStore(
     }
 
     override suspend fun clearSession() = withContext(Dispatchers.IO) {
-        trySecretToolClear()
+        trySecretToolClear("github")
         if (sessionFile.exists()) {
             sessionFile.delete()
         }
+    }
+
+    override suspend fun saveAccount(session: AuthSession) = withContext(Dispatchers.IO) {
+        val id = session.resolvedAccountId()
+        val normalized = if (session.accountId == id) session else session.copy(accountId = id)
+        val storageKey = sanitizeAccountStorageKey(id)
+        val encoded = encodeSessionForSecretStore(normalized)
+        val file = accountFile(id)
+        if (!trySecretToolStore(storageKey, encoded)) {
+            writeOwnerOnlyFileAtomically(file, encoded)
+        } else if (file.exists()) {
+            file.delete()
+        }
+    }
+
+    override suspend fun loadAccount(accountId: String): AuthSession? = withContext(Dispatchers.IO) {
+        val storageKey = sanitizeAccountStorageKey(accountId)
+        val fromKeyring = trySecretToolLookup(storageKey)
+        if (!fromKeyring.isNullOrBlank()) {
+            return@withContext decodeSessionFromSecretStore(fromKeyring)
+        }
+        val file = accountFile(accountId)
+        if (!file.exists()) return@withContext null
+        return@withContext decodeSessionFromSecretStore(file.readText())
+    }
+
+    override suspend fun deleteAccount(accountId: String) = withContext(Dispatchers.IO) {
+        val storageKey = sanitizeAccountStorageKey(accountId)
+        trySecretToolClear(storageKey)
+        val file = accountFile(accountId)
+        if (file.exists()) {
+            file.delete()
+        }
+        Unit
+    }
+
+    override suspend fun saveAccountIndex(index: AccountIndex) = withContext(Dispatchers.IO) {
+        accountIndexFile.writeText(json.encodeToString(index))
+    }
+
+    override suspend fun loadAccountIndex(): AccountIndex? = withContext(Dispatchers.IO) {
+        if (!accountIndexFile.exists()) return@withContext null
+        runCatching { json.decodeFromString<AccountIndex>(accountIndexFile.readText()) }.getOrNull()
     }
 
     override suspend fun saveClientId(clientId: String) = withContext(Dispatchers.IO) {
@@ -109,6 +164,25 @@ internal class LinuxDesktopTokenStore(
             .getOrDefault(emptyMap())
     }
 
+    override suspend fun saveSeenNotificationMarkersForAccount(accountId: String, markers: Map<String, String>) =
+        withContext(Dispatchers.IO) {
+            val file = seenNotifsFileFor(accountId)
+            if (markers.isEmpty()) {
+                if (file.exists()) file.delete()
+            } else {
+                file.writeText(json.encodeToString(markers))
+            }
+            Unit
+        }
+
+    override suspend fun loadSeenNotificationMarkersForAccount(accountId: String): Map<String, String> =
+        withContext(Dispatchers.IO) {
+            val file = seenNotifsFileFor(accountId)
+            if (!file.exists()) return@withContext emptyMap()
+            runCatching { json.decodeFromString<Map<String, String>>(file.readText()) }
+                .getOrDefault(emptyMap())
+        }
+
     override suspend fun savePinnedRepos(repos: List<String>) = withContext(Dispatchers.IO) {
         pinnedReposFile.writeText(json.encodeToString(repos))
     }
@@ -119,6 +193,25 @@ internal class LinuxDesktopTokenStore(
             .getOrDefault(emptyList())
     }
 
+    override suspend fun savePinnedReposForAccount(accountId: String, repos: List<String>) =
+        withContext(Dispatchers.IO) {
+            val file = pinnedReposFileFor(accountId)
+            if (repos.isEmpty()) {
+                if (file.exists()) file.delete()
+            } else {
+                file.writeText(json.encodeToString(repos))
+            }
+            Unit
+        }
+
+    override suspend fun loadPinnedReposForAccount(accountId: String): List<String> =
+        withContext(Dispatchers.IO) {
+            val file = pinnedReposFileFor(accountId)
+            if (!file.exists()) return@withContext emptyList()
+            runCatching { json.decodeFromString<List<String>>(file.readText()) }
+                .getOrDefault(emptyList())
+        }
+
     private fun restrictPermissions(file: File) {
         runCatching {
             val perms = setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)
@@ -126,35 +219,35 @@ internal class LinuxDesktopTokenStore(
         }
     }
 
-    private fun trySecretToolStore(secret: String): Boolean {
+    private fun trySecretToolStore(accountKey: String, secret: String): Boolean {
         if ('\n' in secret || '\r' in secret) return false
         return runCommandWithTimeout(
             command = listOf(
                 "secret-tool", "store",
-                "--label=github-mobile-maxxing GitHub Session",
+                "--label=github-mobile-maxxing Session ($accountKey)",
                 "service", "github-mobile-maxxing",
-                "account", "github"
+                "account", accountKey
             ),
             stdinText = secret
         ) != null
     }
 
-    private fun trySecretToolLookup(): String? =
+    private fun trySecretToolLookup(accountKey: String): String? =
         runCommandWithTimeout(
             command = listOf(
                 "secret-tool", "lookup",
                 "service", "github-mobile-maxxing",
-                "account", "github"
+                "account", accountKey
             ),
             captureStdout = true
         )?.trim()?.takeIf { it.isNotEmpty() }
 
-    private fun trySecretToolClear(): Boolean =
+    private fun trySecretToolClear(accountKey: String): Boolean =
         runCommandWithTimeout(
             command = listOf(
                 "secret-tool", "clear",
                 "service", "github-mobile-maxxing",
-                "account", "github"
+                "account", accountKey
             )
         ) != null
 }

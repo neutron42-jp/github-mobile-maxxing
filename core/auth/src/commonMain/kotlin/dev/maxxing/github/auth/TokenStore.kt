@@ -51,10 +51,38 @@ data class UpdatePreferences(
         includePrereleases ?: isCurrentBuildNightly
 }
 
+@Serializable
+data class AccountIndex(
+    val accountIds: List<String> = emptyList(),
+    val activeAccountId: String? = null
+)
+
 interface TokenStore {
+    val supportsMultiAccountStorage: Boolean get() = false
+
     suspend fun saveSession(session: AuthSession)
     suspend fun loadSession(): AuthSession?
     suspend fun clearSession()
+
+    suspend fun saveAccount(session: AuthSession) {
+        saveSession(session)
+    }
+
+    suspend fun loadAccount(accountId: String): AuthSession? {
+        val single = loadSession() ?: return null
+        return single.takeIf { it.resolvedAccountId() == accountId }
+    }
+
+    suspend fun deleteAccount(accountId: String) {
+        val single = loadSession()
+        if (single?.resolvedAccountId() == accountId) {
+            clearSession()
+        }
+    }
+
+    suspend fun saveAccountIndex(index: AccountIndex) {}
+    suspend fun loadAccountIndex(): AccountIndex? = null
+
     suspend fun saveClientId(clientId: String)
     suspend fun loadClientId(): String?
     suspend fun saveThemePreferences(prefs: ThemePreferences)
@@ -65,8 +93,18 @@ interface TokenStore {
     suspend fun loadUpdatePreferences(): UpdatePreferences = UpdatePreferences()
     suspend fun saveSeenNotificationMarkers(markers: Map<String, String>)
     suspend fun loadSeenNotificationMarkers(): Map<String, String>
+    suspend fun saveSeenNotificationMarkersForAccount(accountId: String, markers: Map<String, String>) {
+        saveSeenNotificationMarkers(markers)
+    }
+    suspend fun loadSeenNotificationMarkersForAccount(accountId: String): Map<String, String> =
+        loadSeenNotificationMarkers()
     suspend fun savePinnedRepos(repos: List<String>) {}
     suspend fun loadPinnedRepos(): List<String> = emptyList()
+    suspend fun savePinnedReposForAccount(accountId: String, repos: List<String>) {
+        savePinnedRepos(repos)
+    }
+    suspend fun loadPinnedReposForAccount(accountId: String): List<String> =
+        loadPinnedRepos()
 }
 
 expect fun createPlatformTokenStore(): TokenStore

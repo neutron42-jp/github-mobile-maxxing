@@ -30,21 +30,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,47 +46,28 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.composables.icons.lucide.Copy
-import com.composables.icons.lucide.ExternalLink
+import com.composables.icons.lucide.HardDrive
 import com.composables.icons.lucide.Lucide
-import com.composables.icons.lucide.ShieldCheck
 import dev.maxxing.github.app.resources.Res
 import dev.maxxing.github.app.resources.app_icon
-import dev.maxxing.github.app.catchingSecureStorage
 import dev.maxxing.github.app.platformCapabilities
-import dev.maxxing.github.app.secureStorageErrorDetail
 import dev.maxxing.github.auth.SessionManager
-import dev.maxxing.github.auth.openUrlInBrowser
 import dev.maxxing.github.model.AppBranding
-import dev.maxxing.github.model.DeviceCodeState
-import dev.maxxing.github.ui.components.MaxxingLoadingState
-import dev.maxxing.github.ui.components.MaxxingWavyProgress
+import dev.maxxing.github.model.ProviderType
+import dev.maxxing.github.ui.components.MaxxingConnectedButtonGroup
 import dev.maxxing.github.ui.components.expressiveAnimateContentSize
 import dev.maxxing.github.ui.i18n.appStrings
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.jetbrains.compose.resources.painterResource
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -102,35 +76,10 @@ fun SignInScreen(
     sessionManager: SessionManager,
     onSignedIn: () -> Unit
 ) {
-    val savedClientId by sessionManager.clientId.collectAsState()
-    val effectiveDefaultId = savedClientId.ifBlank { AppBranding.DEFAULT_OAUTH_CLIENT_ID }
-    var clientIdInput by remember(effectiveDefaultId) { mutableStateOf(effectiveDefaultId) }
-    var showCustomClientId by remember { mutableStateOf(false) }
-    var deviceState by remember { mutableStateOf<DeviceCodeState>(DeviceCodeState.Idle) }
+    var selectedProvider by remember { mutableStateOf(ProviderType.GITHUB) }
     val strings = appStrings()
-
     val scope = rememberCoroutineScope()
-    var pollingJob by remember { mutableStateOf<Job?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
-    val clipboard = LocalClipboardManager.current
-    val uriHandler = LocalUriHandler.current
-    val focusManager = LocalFocusManager.current
-    val customClientIdBringIntoView = remember { BringIntoViewRequester() }
-    var isCustomClientIdFocused by remember { mutableStateOf(false) }
-    val imeBottomPx = if (platformCapabilities.avoidsKeyboardOnSignIn) {
-        WindowInsets.ime.getBottom(LocalDensity.current)
-    } else {
-        0
-    }
-    val hasCustomClientIdOverride = clientIdInput != AppBranding.DEFAULT_OAUTH_CLIENT_ID
-
-    if (platformCapabilities.avoidsKeyboardOnSignIn) {
-        LaunchedEffect(isCustomClientIdFocused, imeBottomPx, hasCustomClientIdOverride) {
-            if (isCustomClientIdFocused && imeBottomPx > 0) {
-                customClientIdBringIntoView.bringIntoView()
-            }
-        }
-    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -141,7 +90,7 @@ fun SignInScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 // Only where the platform asks for it (iOS and Android), shrink the form to the
-                // space above the keyboard so the custom Client ID field stays reachable.
+                // space above the keyboard so input fields stay reachable.
                 // Desktop keeps its existing layout.
                 .then(if (platformCapabilities.avoidsKeyboardOnSignIn) Modifier.imePadding() else Modifier)
                 .verticalScroll(rememberScrollState())
@@ -181,286 +130,64 @@ fun SignInScreen(
                         textAlign = TextAlign.Center
                     )
 
-                    Spacer(Modifier.height(24.dp))
+                    Spacer(Modifier.height(20.dp))
 
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        when (val state = deviceState) {
-                            is DeviceCodeState.Idle,
-                            is DeviceCodeState.Error -> {
-                                if (state is DeviceCodeState.Error) {
-                                    Surface(
-                                        color = MaterialTheme.colorScheme.errorContainer,
-                                        shape = MaterialTheme.shapes.medium,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text(
-                                            text = strings.deviceFlowErrorText(state),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onErrorContainer,
-                                            modifier = Modifier.padding(12.dp)
-                                        )
-                                    }
-                                    Spacer(Modifier.height(14.dp))
-                                }
-
-                                Button(
-                                    onClick = {
-                                        val activeId = clientIdInput.trim().ifBlank { AppBranding.DEFAULT_OAUTH_CLIENT_ID }
-                                        pollingJob?.cancel()
-                                        pollingJob = scope.launch {
-                                            // Saving the session after authorization can throw on iOS.
-                                            catchingSecureStorage {
-                                                sessionManager.startDeviceFlow(activeId)
-                                                    .collect { next ->
-                                                        deviceState = next
-                                                        if (next is DeviceCodeState.Authenticated) {
-                                                            onSignedIn()
-                                                        }
-                                                    }
-                                            }.onFailure {
-                                                deviceState = DeviceCodeState.Error(
-                                                    strings.secureStorageSaveFailed(secureStorageErrorDetail(it))
-                                                )
-                                            }
-                                        }
-                                    },
-                                    enabled = clientIdInput.isNotBlank(),
-                                    modifier = Modifier.fillMaxWidth().height(52.dp)
-                                ) {
-                                    Text(strings.signInWithGitHubButton)
-                                }
-
-                                Spacer(Modifier.height(10.dp))
-
-                                TextButton(onClick = { showCustomClientId = !showCustomClientId }) {
-                                    Text(if (showCustomClientId) strings.signInHideCustomClientId else strings.signInUseCustomClientId)
-                                }
-
-                                AnimatedVisibility(visible = showCustomClientId) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .then(
-                                                if (platformCapabilities.avoidsKeyboardOnSignIn) {
-                                                    Modifier.bringIntoViewRequester(customClientIdBringIntoView)
-                                                } else {
-                                                    Modifier
-                                                }
-                                            )
-                                            .padding(top = 8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        OutlinedTextField(
-                                            value = clientIdInput,
-                                            onValueChange = { clientIdInput = it },
-                                            label = { Text(strings.signInClientIdLabel) },
-                                            placeholder = { Text(AppBranding.DEFAULT_OAUTH_CLIENT_ID) },
-                                            singleLine = true,
-                                            keyboardOptions = if (platformCapabilities.avoidsKeyboardOnSignIn) {
-                                                KeyboardOptions(imeAction = ImeAction.Done)
-                                            } else {
-                                                KeyboardOptions.Default
-                                            },
-                                            keyboardActions = if (platformCapabilities.avoidsKeyboardOnSignIn) {
-                                                KeyboardActions(onDone = { focusManager.clearFocus() })
-                                            } else {
-                                                KeyboardActions.Default
-                                            },
-                                            leadingIcon = {
-                                                Icon(Lucide.ShieldCheck, contentDescription = null)
-                                            },
-                                            supportingText = {
-                                                Text(strings.signInClientIdDefaultSupporting(AppBranding.DEFAULT_OAUTH_CLIENT_ID))
-                                            },
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .then(
-                                                    if (platformCapabilities.avoidsKeyboardOnSignIn) {
-                                                        Modifier.onFocusChanged { isCustomClientIdFocused = it.isFocused }
-                                                    } else {
-                                                        Modifier
-                                                    }
-                                                )
-                                        )
-                                        if (hasCustomClientIdOverride) {
-                                            TextButton(
-                                                onClick = { clientIdInput = AppBranding.DEFAULT_OAUTH_CLIENT_ID },
-                                                modifier = Modifier.align(Alignment.End)
-                                            ) {
-                                                Text(strings.signInResetClientId)
-                                            }
-                                        }
-                                    }
-                                }
+                    MaxxingConnectedButtonGroup(
+                        options = ProviderType.entries,
+                        selected = selectedProvider,
+                        onSelect = { selectedProvider = it },
+                        labelProvider = { type ->
+                            when (type) {
+                                ProviderType.GITHUB -> strings.providerGitHub
+                                ProviderType.FORGEJO_GITEA -> strings.providerOthers
+                                ProviderType.LOCAL -> strings.providerLocal
                             }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
-                            is DeviceCodeState.RequestingCode -> {
-                                MaxxingLoadingState(message = strings.signInRequestingCode)
-                            }
+                    Spacer(Modifier.height(18.dp))
 
-                            is DeviceCodeState.AwaitingUser -> {
-                                Text(
-                                    text = strings.signInEnterCode,
-                                    style = MaterialTheme.typography.titleMedium
+                    when (selectedProvider) {
+                        ProviderType.GITHUB -> GitHubDeviceFlowAuthBlock(
+                            sessionManager = sessionManager,
+                            onAuthenticated = { onSignedIn() },
+                            onMessage = { msg -> scope.launch { snackbarHostState.showSnackbar(msg) } }
+                        )
+
+                        ProviderType.FORGEJO_GITEA -> ForgejoPatAuthBlock(
+                            sessionManager = sessionManager,
+                            onAuthenticated = { onSignedIn() },
+                            onMessage = { msg -> scope.launch { snackbarHostState.showSnackbar(msg) } }
+                        )
+
+                        ProviderType.LOCAL -> Surface(
+                            shape = MaterialTheme.shapes.large,
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    Lucide.HardDrive,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(30.dp)
                                 )
-                                Spacer(Modifier.height(12.dp))
-
-                                Surface(
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    shape = MaterialTheme.shapes.large,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    SelectionContainer {
-                                        Text(
-                                            text = state.userCode,
-                                            style = MaterialTheme.typography.headlineMedium.copy(
-                                                fontFamily = FontFamily.Monospace,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                letterSpacing = 3.sp
-                                            ),
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier.padding(vertical = 18.dp, horizontal = 12.dp)
-                                        )
-                                    }
-                                }
-
-                                Spacer(Modifier.height(10.dp))
-
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                    shape = MaterialTheme.shapes.medium,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        SelectionContainer(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = state.verificationUri,
-                                                style = MaterialTheme.typography.bodySmall.copy(
-                                                    fontFamily = FontFamily.Monospace
-                                                ),
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                        IconButton(
-                                            onClick = {
-                                                runCatching {
-                                                    clipboard.setText(AnnotatedString(state.verificationUri))
-                                                }
-                                                scope.launch {
-                                                    snackbarHostState.showSnackbar(strings.signInCopiedValue(state.verificationUri))
-                                                }
-                                            },
-                                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
-                                        ) {
-                                            Icon(
-                                                Lucide.Copy,
-                                                contentDescription = strings.copyUrl,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-                                    }
-                                }
-
-                                Spacer(Modifier.height(14.dp))
-                                MaxxingWavyProgress()
-                                Spacer(Modifier.height(10.dp))
-
                                 Text(
-                                    text = strings.deviceFlowWaitingText(state),
+                                    text = strings.localWipTitle,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = strings.localWipBody,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center
                                 )
-
-                                Spacer(Modifier.height(16.dp))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    FilledTonalButton(
-                                        onClick = {
-                                            runCatching {
-                                                clipboard.setText(AnnotatedString(state.userCode))
-                                            }
-                                            scope.launch {
-                                                snackbarHostState.showSnackbar(strings.signInCopiedValue(state.userCode))
-                                            }
-                                        },
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .pointerHoverIcon(PointerIcon.Hand)
-                                    ) {
-                                        Icon(Lucide.Copy, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(strings.signInCopyCode, maxLines = 1, softWrap = false)
-                                    }
-
-                                    Button(
-                                        onClick = {
-                                            scope.launch {
-                                                runCatching {
-                                                    clipboard.setText(AnnotatedString(state.userCode))
-                                                }
-                                                val openedByPlatform = withContext(Dispatchers.IO) {
-                                                    openUrlInBrowser(state.verificationUri)
-                                                }
-                                                val opened = if (openedByPlatform) {
-                                                    true
-                                                } else {
-                                                    runCatching {
-                                                        uriHandler.openUri(state.verificationUri)
-                                                        true
-                                                    }.getOrDefault(false)
-                                                }
-                                                snackbarHostState.showSnackbar(
-                                                    if (opened) {
-                                                        strings.signInCodeCopiedOpening(state.userCode)
-                                                    } else {
-                                                        strings.signInCodeCopiedManual(state.userCode, state.verificationUri)
-                                                    }
-                                                )
-                                            }
-                                        },
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .pointerHoverIcon(PointerIcon.Hand)
-                                    ) {
-                                        Icon(Lucide.ExternalLink, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(strings.signInOpenGitHub, maxLines = 1, softWrap = false)
-                                    }
-                                }
-
-                                Spacer(Modifier.height(10.dp))
-                                OutlinedButton(
-                                    onClick = {
-                                        pollingJob?.cancel()
-                                        deviceState = DeviceCodeState.Idle
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .pointerHoverIcon(PointerIcon.Hand)
-                                ) {
-                                    Text(strings.cancel)
-                                }
-                            }
-
-                            is DeviceCodeState.Verifying -> {
-                                MaxxingLoadingState(message = strings.deviceFlowVerifyingText(state))
-                            }
-
-                            is DeviceCodeState.Authenticated -> {
-                                MaxxingLoadingState(message = strings.signInWelcome(state.session.userLogin ?: "developer"))
                             }
                         }
                     }

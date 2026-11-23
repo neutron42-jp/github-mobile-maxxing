@@ -1,3 +1,10 @@
+accountActiveBadge	Active
+accountReauthBanner	Authentication expired for @zqa1. Re-authenticate or switch accounts.
+accountReauthRequired	Session expired — re-authenticate
+accountsSummaryCount	7301 accounts
+accountsSummaryNone	No accounts signed in
+accountsSummarySingle	1 account
+accountsTitle	Accounts
 actionsAllRuns	All runs
 actionsBranchOrTagLabel	Branch or tag ref (e.g. zqa1)
 actionsCancelFailedError	Cancel failed
@@ -111,6 +118,7 @@ activityUnknown	zqa1 activity
 activityUnknownWithDetail	zqa1 zqb2
 activityWikiUpdated	zqa1 updated the wiki
 actorSubject	zqa1
+addAction	Add
 addReactionDesc	Add reaction
 addReviewerDesc	Add reviewer
 addedInlineDiffComment	Added inline diff comment
@@ -388,6 +396,7 @@ failedUpdateMilestone	Failed to update milestone
 fallbackFontDesc	Used for Japanese / CJK and glyphs missing in primary
 fallbackFontLabel	Fallback Font
 fallbackFontRequiresAndroid10	Requires Android 10 or later
+featureRepoInsightsNotice	Detailed contributor and commit graphs require GitHub; language breakdown is shown below.
 feedTabFollowing	Following
 feedTabMyActivity	My Activity
 fetchingIssuesAndPrs	Fetching your issues & PRs...
@@ -470,6 +479,7 @@ gistsAction	Gists
 gistsTabMine	My Gists
 gistsTabStarred	Starred
 gistsTitle	Gists
+githubNoAccounts	No GitHub accounts added yet.
 githubUserFallback	GitHub User
 hexColorLabel	Hex (#RRGGBB)
 importFontFileButton	Import font file (.ttf / .otf / .ttc)
@@ -603,6 +613,11 @@ loadingResults	Loading results...
 loadingSystemFonts	Loading system fonts...
 loadingTrending	Loading trending repositories...
 loadingUser	Loading @zqa1...
+localWipBody	Local repository management is work in progress and will be available in a future update.
+localWipTitle	WIP
+logoutAction	Logout
+manageAccountsTitle	Manage Accounts
+manageAction	Manage
 manageAppLinks	Manage App Links
 markAllReadAction	Mark all read
 markAllReadFailed	Failed
@@ -714,6 +729,16 @@ osNotifUrgentChannelDesc	High-priority GitHub mentions, review requests, and ass
 osNotifUrgentChannelName	Mentions & Review Requests
 osNotificationsBlockedWarning	Notifications are blocked by the system, so alerts won't appear.
 osNotificationsTitle	GitHub OS Notifications
+othersCodebergPreset	Codeberg
+othersInstanceUrlLabel	Instance URL
+othersInstanceUrlPlaceholder	https://codeberg.org
+othersNoAccounts	No Codeberg / Forgejo / Gitea accounts added yet.
+othersOpenTokenPage	Generate Token
+othersOpenTokenPageDesc	Opens zqa1 in your browser
+othersPatLabel	Personal Access Token
+othersPatPlaceholder	Paste your access token
+othersVerifyAndAdd	Verify & Add
+othersVerifying	Verifying token...
 pickCustomColorDesc	Pick custom color
 pinnedBookmarks	Pinned Bookmarks
 pinnedBookmarksShowAll	Show all (7301)
@@ -734,6 +759,10 @@ profileTabFollowers	Followers
 profileTabFollowing	Following
 profileTabRepos	Repos
 profileTabStarred	Starred
+providerGitHub	GitHub
+providerLocal	Local
+providerOthers	Others
+providerUnsupportedFeature	zqa1 is not available for this provider.
 publicRepo	Public repository
 reactedDesc	Reacted
 reactionConfused	confused
@@ -750,6 +779,7 @@ reasonAssigned	Assigned
 reasonCi	CI
 reasonMentions	Mentions
 reasonReviews	Review Req
+reauthAction	Re-authenticate
 recentRepositories	Recent Repositories
 refresh	Refresh
 refreshCommitsDesc	Refresh Commits
@@ -1050,6 +1080,7 @@ subjectNotification	Notification
 subjectPullRequest	Pull Request
 subjectRelease	Release
 swapBaseHeadDesc	Swap base and head
+switchAccountTitle	Switch Account
 syncedCount	Synced 7301 notifications
 syncedUnreadCount	Synced 7301 unread notifications
 syncingNotifications	Syncing notifications...

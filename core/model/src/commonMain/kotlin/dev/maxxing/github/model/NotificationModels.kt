@@ -68,16 +68,22 @@ data class NotificationThread(
         }
 
     val htmlFallbackUrl: String
-        get() = when (subjectType) {
-            NotificationSubjectType.ISSUE -> subjectNumber?.let { "https://github.com/$repoFullName/issues/$it" }
-                ?: "https://github.com/$repoFullName/issues"
-            NotificationSubjectType.PULL_REQUEST -> subjectNumber?.let { "https://github.com/$repoFullName/pull/$it" }
-                ?: "https://github.com/$repoFullName/pulls"
-            NotificationSubjectType.CHECK_SUITE -> "https://github.com/$repoFullName/actions"
-            NotificationSubjectType.COMMIT -> commitSha?.let { "https://github.com/$repoFullName/commit/$it" }
-                ?: "https://github.com/$repoFullName/commits"
-            NotificationSubjectType.RELEASE -> "https://github.com/$repoFullName/releases"
-            NotificationSubjectType.DISCUSSION -> "https://github.com/$repoFullName/discussions"
-            NotificationSubjectType.UNKNOWN -> "https://github.com/$repoFullName"
+        get() = htmlFallbackUrlFor(AuthSession.GITHUB_WEB_BASE_URL)
+
+    fun htmlFallbackUrlFor(baseUrl: String): String {
+        val cleanBase = normalizeInstanceBaseUrl(baseUrl) ?: AuthSession.GITHUB_WEB_BASE_URL
+        return when (subjectType) {
+            NotificationSubjectType.ISSUE -> subjectNumber?.let { "$cleanBase/$repoFullName/issues/$it" }
+                ?: "$cleanBase/$repoFullName/issues"
+            NotificationSubjectType.PULL_REQUEST -> subjectNumber?.let { "$cleanBase/$repoFullName/pulls/$it" }
+                ?.let { if (cleanBase == AuthSession.GITHUB_WEB_BASE_URL) "$cleanBase/$repoFullName/pull/$subjectNumber" else it }
+                ?: "$cleanBase/$repoFullName/pulls"
+            NotificationSubjectType.CHECK_SUITE -> "$cleanBase/$repoFullName/actions"
+            NotificationSubjectType.COMMIT -> commitSha?.let { "$cleanBase/$repoFullName/commit/$it" }
+                ?: "$cleanBase/$repoFullName/commits"
+            NotificationSubjectType.RELEASE -> "$cleanBase/$repoFullName/releases"
+            NotificationSubjectType.DISCUSSION -> "$cleanBase/$repoFullName/discussions"
+            NotificationSubjectType.UNKNOWN -> "$cleanBase/$repoFullName"
         }
+    }
 }

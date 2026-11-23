@@ -4,14 +4,19 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -55,6 +60,7 @@ import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.crossfade
 import coil3.svg.SvgDecoder
+import com.composables.icons.lucide.ShieldAlert
 import com.composables.icons.lucide.FolderGit2
 import com.composables.icons.lucide.GitPullRequest
 import com.composables.icons.lucide.House
@@ -68,6 +74,7 @@ import dev.maxxing.github.app.ui.GistsScreen
 import dev.maxxing.github.app.ui.HomeScreen
 import dev.maxxing.github.app.ui.IssuePullDetailPane
 import dev.maxxing.github.app.ui.IssuesPullsScreen
+import dev.maxxing.github.app.ui.ManageAccountsDialog
 import dev.maxxing.github.app.ui.NotificationsScreen
 import dev.maxxing.github.app.ui.RepoDetailScreen
 import dev.maxxing.github.app.ui.ReposScreen
@@ -78,8 +85,9 @@ import dev.maxxing.github.auth.openUrlInBrowser
 import dev.maxxing.github.model.AppBranding
 import dev.maxxing.github.model.AppLanguage
 import dev.maxxing.github.model.AuthSession
+import dev.maxxing.github.model.ProviderType
 import dev.maxxing.github.model.RepoSummary
-import dev.maxxing.github.network.createGitHubImageHttpClient
+import dev.maxxing.github.network.createProviderImageHttpClient
 import dev.maxxing.github.ui.components.MaxxingLoadingState
 import dev.maxxing.github.ui.components.MaxxingPredictiveBackContainer
 import dev.maxxing.github.ui.components.MaxxingPredictiveOverlayHost
@@ -111,11 +119,23 @@ private enum class AppDestination(
 
 /**
  * Stable session key for app-level side effects: stays equal across OAuth token refreshes
- * (which replace [AuthSession]), while still distinguishing signed-out (`false to null`) from
- * a signed-in session whose login has not been resolved yet (`true to null`).
+ * (which replace [AuthSession]), while distinguishing signed-out, unresolved login, different
+ * providers/instances, and different accounts.
  */
-internal fun sessionEffectKey(session: AuthSession?): Pair<Boolean, String?> =
-    (session != null) to session?.userLogin?.trim()?.lowercase()?.ifEmpty { null }
+internal fun sessionEffectKey(session: AuthSession?): Triple<Boolean, String?, String?> =
+    if (session == null) {
+        Triple(false, null, null)
+    } else {
+        val login = session.userLogin?.trim()?.lowercase()?.ifEmpty { null }
+        val scopeId = session.accountId.trim().ifEmpty {
+            session.userId?.toString().orEmpty()
+        }
+        Triple(
+            true,
+            login,
+            "${session.providerType.name}:${session.resolvedWebBaseUrl()}:$scopeId"
+        )
+    }
 
 @Composable
 fun GitHubMaxxingApp(
@@ -142,8 +162,8 @@ fun GitHubMaxxingApp(
     onLanguageChanged: (AppLanguage) -> Unit = {}
 ) {
     setSingletonImageLoaderFactory { context ->
-        val imageHttpClient = createGitHubImageHttpClient {
-            container.sessionManager.session.value?.accessToken
+        val imageHttpClient = createProviderImageHttpClient {
+            container.sessionManager.session.value
         }
         ImageLoader.Builder(context)
             .components {
@@ -373,10 +393,34 @@ private fun MainAuthenticatedShell(
     inboxRequest: Long?,
     onConsumeInboxRequest: () -> Unit
 ) {
+    val activeSession by container.sessionManager.session.collectAsState()
+    val accounts by container.sessionManager.accounts.collectAsState()
+    val activeAccountId by container.sessionManager.activeAccountId.collectAsState()
+    val reauthRequiredIds by container.sessionManager.reauthRequiredAccountIds.collectAsState()
+    val resolvedActiveId = activeAccountId ?: activeSession?.resolvedAccountId()
+
     var navState by rememberSaveable(stateSaver = ShellNavStateSaver) { mutableStateOf(ShellNavState()) }
     var visitedDestinations by remember { mutableStateOf(setOf(navState.currentDestination)) }
     var tabResetEpochs by remember { mutableStateOf(emptyMap<ShellDestination, Int>()) }
     var notificationDeepLinkTarget by remember { mutableStateOf<IssuePullTarget?>(null) }
+    var showManageAccounts by remember { mutableStateOf(false) }
+    var manageInitialCategory by remember { mutableStateOf(ProviderType.GITHUB) }
+    var lastAccountKey by remember { mutableStateOf(resolvedActiveId) }
+
+    LaunchedEffect(resolvedActiveId) {
+        if (resolvedActiveId != lastAccountKey) {
+            lastAccountKey = resolvedActiveId
+            navState = navState.copy(
+                profileBackStack = emptyList(),
+                repoBackStack = emptyList(),
+                repoBranchStack = emptyList(),
+                overlayRepo = null,
+                overlayIssue = null,
+                overlayGistsUser = null
+            )
+            visitedDestinations = setOf(navState.currentDestination)
+        }
+    }
 
     LaunchedEffect(navState.currentDestination) {
         visitedDestinations = visitedDestinations + navState.currentDestination
@@ -456,7 +500,27 @@ private fun MainAuthenticatedShell(
         }
     }
 
+    val onSwitchAccount: (String) -> Unit = { targetId ->
+        scope.launch {
+            container.switchAccount(targetId)
+        }
+    }
+    val onOpenManageAccounts: () -> Unit = {
+        manageInitialCategory = activeSession?.providerType ?: ProviderType.GITHUB
+        showManageAccounts = true
+    }
+
     val strings = appStrings()
+    val accountSwitcherPill: @Composable () -> Unit = {
+        val displayAccounts = if (accounts.isNotEmpty()) accounts else listOfNotNull(activeSession)
+        dev.maxxing.github.app.ui.AccountSwitcherFloatingPill(
+            activeAccount = activeSession,
+            accounts = displayAccounts,
+            reauthRequiredIds = reauthRequiredIds,
+            onSwitchAccount = onSwitchAccount,
+            onOpenManage = onOpenManageAccounts
+        )
+    }
 
     NavigationSuiteScaffold(
         containerColor = MaterialTheme.colorScheme.surface,
@@ -545,7 +609,7 @@ private fun MainAuthenticatedShell(
                                     }
                                 )
                             Box(modifier = tabModifier) {
-                                key(dest, tabResetEpochs[dest] ?: 0) {
+                                key(dest, resolvedActiveId ?: "_", tabResetEpochs[dest] ?: 0) {
                                     when (dest) {
                                         ShellDestination.HOME -> HomeScreen(
                                             container = container,
@@ -556,6 +620,7 @@ private fun MainAuthenticatedShell(
                                             onOpenGists = { navState = navState.copy(overlayGistsUser = "") },
                                             onOpenUser = openUserProfile,
                                             onOpenBranch = openBranch,
+                                            accountSwitcherPill = accountSwitcherPill,
                                             onMessage = showMessage
                                         )
                                         ShellDestination.INBOX -> NotificationsScreen(
@@ -567,12 +632,14 @@ private fun MainAuthenticatedShell(
                                             },
                                             isTabActive = isTabActive,
                                             onOpenBranch = openBranch,
+                                            accountSwitcherPill = accountSwitcherPill,
                                             onMessage = showMessage
                                         )
                                         ShellDestination.ISSUES_PRS -> IssuesPullsScreen(
                                             container = container,
                                             isTabActive = isTabActive,
                                             onOpenBranch = openBranch,
+                                            accountSwitcherPill = accountSwitcherPill,
                                             onMessage = showMessage
                                         )
                                         ShellDestination.REPOS -> ReposScreen(
@@ -580,6 +647,7 @@ private fun MainAuthenticatedShell(
                                             isTabActive = isTabActive,
                                             onOpenUser = openUserProfile,
                                             onOpenBranch = openBranch,
+                                            accountSwitcherPill = accountSwitcherPill,
                                             onMessage = showMessage
                                         )
                                         ShellDestination.SETTINGS -> SettingsScreen(
@@ -593,11 +661,50 @@ private fun MainAuthenticatedShell(
                                                 }
                                             },
                                             onOpenUser = openUserProfile,
+                                            onOpenManageAccounts = onOpenManageAccounts,
                                             onSignedOut = { navState = navState.selectBottomDestination(ShellDestination.HOME) },
                                             onMessage = showMessage
                                         )
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+
+                if (resolvedActiveId != null && resolvedActiveId in reauthRequiredIds && !navState.hasOverlay) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = MaterialTheme.shapes.large,
+                        tonalElevation = 4.dp,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .statusBarsPadding()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .zIndex(5f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                Lucide.ShieldAlert,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = strings.accountReauthBanner(activeSession?.userLogin ?: strings.unknownUser),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Button(
+                                onClick = onOpenManageAccounts,
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Text(strings.reauthAction, style = MaterialTheme.typography.labelMedium)
                             }
                         }
                     }
@@ -665,5 +772,36 @@ private fun MainAuthenticatedShell(
                 }
             }
         }
+    }
+
+    if (showManageAccounts) {
+        val displayAccounts = if (accounts.isNotEmpty()) accounts else listOfNotNull(activeSession)
+        ManageAccountsDialog(
+            container = container,
+            accounts = displayAccounts,
+            activeAccountId = resolvedActiveId,
+            reauthRequiredIds = reauthRequiredIds,
+            initialCategory = manageInitialCategory,
+            onDismiss = { showManageAccounts = false },
+            onSwitchAccount = { targetId ->
+                showManageAccounts = false
+                onSwitchAccount(targetId)
+            },
+            onLogoutAccount = { targetId ->
+                scope.launch {
+                    catchingSecureStorage { container.logoutAccount(targetId) }
+                        .onSuccess { remainingActive ->
+                            if (remainingActive == null) {
+                                showManageAccounts = false
+                                navState = navState.selectBottomDestination(ShellDestination.HOME)
+                            }
+                        }
+                        .onFailure {
+                            showMessage(strings.secureStorageSignOutFailed(secureStorageErrorDetail(it)))
+                        }
+                }
+            },
+            onMessage = showMessage
+        )
     }
 }

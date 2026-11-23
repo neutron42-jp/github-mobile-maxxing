@@ -38,9 +38,14 @@ object AndroidAuthContextHolder {
 private class AndroidKeystoreTokenStore(
     private val context: Context
 ) : TokenStore {
+    override val supportsMultiAccountStorage: Boolean = true
     private val json = TokenStoreJson
     private val prefs by lazy { context.getSharedPreferences("maxxing_prefs", Context.MODE_PRIVATE) }
     private val sessionFile by lazy { File(context.filesDir, "maxxing_session.enc") }
+    private val accountsDir by lazy { File(context.filesDir, "accounts").apply { mkdirs() } }
+
+    private fun accountFile(accountId: String): File =
+        File(accountsDir, "${sanitizeAccountStorageKey(accountId)}.enc")
 
     private fun getOrCreateAesKey(): SecretKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
@@ -61,39 +66,20 @@ private class AndroidKeystoreTokenStore(
         return generator.generateKey()
     }
 
-    override suspend fun saveSession(session: AuthSession) = withContext(Dispatchers.IO) {
+    private fun encryptSessionPayload(session: AuthSession): String {
         val plaintext = json.encodeToString(session).encodeToByteArray()
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateAesKey())
         val iv = cipher.iv
         val ciphertext = cipher.doFinal(plaintext)
-        val payload = "${Base64.encodeToString(iv, Base64.NO_WRAP)}:${Base64.encodeToString(ciphertext, Base64.NO_WRAP)}"
-        writeSessionFileAtomically(payload)
+        return "${Base64.encodeToString(iv, Base64.NO_WRAP)}:${Base64.encodeToString(ciphertext, Base64.NO_WRAP)}"
     }
 
-    // Atomic write: the ciphertext is written to a temp file next to the session file
-    // and renamed over it, so a reader never observes a partially written session.
-    private fun writeSessionFileAtomically(payload: String) {
-        val tmpFile = File.createTempFile("maxxing_session", ".tmp", context.filesDir)
-        try {
-            tmpFile.writeText(payload)
-            if (!tmpFile.renameTo(sessionFile)) {
-                // renameTo can refuse to replace an existing target on some filesystems;
-                // remove the old file and retry once before giving up.
-                if ((sessionFile.exists() && !sessionFile.delete()) || !tmpFile.renameTo(sessionFile)) {
-                    throw IOException("Failed to replace ${sessionFile.name} atomically")
-                }
-            }
-        } finally {
-            if (tmpFile.exists()) tmpFile.delete()
-        }
-    }
-
-    override suspend fun loadSession(): AuthSession? = withContext(Dispatchers.IO) {
-        if (!sessionFile.exists()) return@withContext null
-        return@withContext try {
-            val parts = sessionFile.readText().split(':')
-            if (parts.size != 2) return@withContext null
+    private fun decryptSessionFile(target: File): AuthSession? {
+        if (!target.exists()) return null
+        return try {
+            val parts = target.readText().split(':')
+            if (parts.size != 2) return null
             val iv = Base64.decode(parts[0], Base64.NO_WRAP)
             val ciphertext = Base64.decode(parts[1], Base64.NO_WRAP)
             val cipher = Cipher.getInstance(TRANSFORMATION)
@@ -105,10 +91,65 @@ private class AndroidKeystoreTokenStore(
         }
     }
 
+    override suspend fun saveSession(session: AuthSession) = withContext(Dispatchers.IO) {
+        writeFileAtomically(sessionFile, encryptSessionPayload(session))
+    }
+
+    // Atomic write: the ciphertext is written to a temp file next to the target file
+    // and renamed over it, so a reader never observes a partially written session.
+    private fun writeFileAtomically(targetFile: File, payload: String) {
+        val parent = targetFile.parentFile ?: context.filesDir
+        parent.mkdirs()
+        val tmpFile = File.createTempFile("maxxing_session", ".tmp", parent)
+        try {
+            tmpFile.writeText(payload)
+            if (!tmpFile.renameTo(targetFile)) {
+                // renameTo can refuse to replace an existing target on some filesystems;
+                // remove the old file and retry once before giving up.
+                if ((targetFile.exists() && !targetFile.delete()) || !tmpFile.renameTo(targetFile)) {
+                    throw IOException("Failed to replace ${targetFile.name} atomically")
+                }
+            }
+        } finally {
+            if (tmpFile.exists()) tmpFile.delete()
+        }
+    }
+
+    override suspend fun loadSession(): AuthSession? = withContext(Dispatchers.IO) {
+        decryptSessionFile(sessionFile)
+    }
+
     override suspend fun clearSession() = withContext(Dispatchers.IO) {
         if (sessionFile.exists()) {
             sessionFile.delete()
         }
+    }
+
+    override suspend fun saveAccount(session: AuthSession) = withContext(Dispatchers.IO) {
+        val id = session.resolvedAccountId()
+        val normalized = if (session.accountId == id) session else session.copy(accountId = id)
+        writeFileAtomically(accountFile(id), encryptSessionPayload(normalized))
+    }
+
+    override suspend fun loadAccount(accountId: String): AuthSession? = withContext(Dispatchers.IO) {
+        decryptSessionFile(accountFile(accountId))
+    }
+
+    override suspend fun deleteAccount(accountId: String) = withContext(Dispatchers.IO) {
+        val target = accountFile(accountId)
+        if (target.exists()) {
+            target.delete()
+        }
+        Unit
+    }
+
+    override suspend fun saveAccountIndex(index: AccountIndex) {
+        prefs.edit().putString(KEY_ACCOUNT_INDEX, json.encodeToString(index)).apply()
+    }
+
+    override suspend fun loadAccountIndex(): AccountIndex? {
+        val raw = prefs.getString(KEY_ACCOUNT_INDEX, null) ?: return null
+        return runCatching { json.decodeFromString<AccountIndex>(raw) }.getOrNull()
     }
 
     override suspend fun saveClientId(clientId: String) {
@@ -155,6 +196,17 @@ private class AndroidKeystoreTokenStore(
         return runCatching { json.decodeFromString<Map<String, String>>(raw) }.getOrDefault(emptyMap())
     }
 
+    override suspend fun saveSeenNotificationMarkersForAccount(accountId: String, markers: Map<String, String>) {
+        val key = "${KEY_SEEN_NOTIFS}_${sanitizeAccountStorageKey(accountId)}"
+        prefs.edit().putString(key, json.encodeToString(markers)).apply()
+    }
+
+    override suspend fun loadSeenNotificationMarkersForAccount(accountId: String): Map<String, String> {
+        val key = "${KEY_SEEN_NOTIFS}_${sanitizeAccountStorageKey(accountId)}"
+        val raw = prefs.getString(key, null) ?: return emptyMap()
+        return runCatching { json.decodeFromString<Map<String, String>>(raw) }.getOrDefault(emptyMap())
+    }
+
     override suspend fun savePinnedRepos(repos: List<String>) {
         prefs.edit().putString(KEY_PINNED_REPOS, json.encodeToString(repos)).apply()
     }
@@ -164,11 +216,23 @@ private class AndroidKeystoreTokenStore(
         return runCatching { json.decodeFromString<List<String>>(raw) }.getOrDefault(emptyList())
     }
 
+    override suspend fun savePinnedReposForAccount(accountId: String, repos: List<String>) {
+        val key = "${KEY_PINNED_REPOS}_${sanitizeAccountStorageKey(accountId)}"
+        prefs.edit().putString(key, json.encodeToString(repos)).apply()
+    }
+
+    override suspend fun loadPinnedReposForAccount(accountId: String): List<String> {
+        val key = "${KEY_PINNED_REPOS}_${sanitizeAccountStorageKey(accountId)}"
+        val raw = prefs.getString(key, null) ?: return emptyList()
+        return runCatching { json.decodeFromString<List<String>>(raw) }.getOrDefault(emptyList())
+    }
+
     companion object {
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val KEY_ALIAS = "maxxing_session_aes"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val KEY_CLIENT_ID = "github_client_id"
+        private const val KEY_ACCOUNT_INDEX = "account_index"
         private const val KEY_THEME_PREFS = "theme_prefs"
         private const val KEY_NOTIF_PREFS = "notif_prefs"
         private const val KEY_UPDATE_PREFS = "update_prefs"
