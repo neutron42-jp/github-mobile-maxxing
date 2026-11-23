@@ -41,12 +41,12 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         if: steps.check_up_to_date.outputs.skip != 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - name: Set up Gradle
         if: steps.check_up_to_date.outputs.skip != 'true'

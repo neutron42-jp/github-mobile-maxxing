@@ -38,6 +38,7 @@ A default Device Flow Client ID (`Ov23lihCAIZTj1Puaf9r`) is built in out of the 
 ### 2. Build & Run
 
 #### Linux Desktop
+Requires JDK 21+.
 ```bash
 ./gradlew :composeApp:run
 ```
@@ -60,7 +61,7 @@ Debug build (unminified, useful for profiling/debugging):
 Output APK: `androidApp/build/outputs/apk/debug/androidApp-debug.apk`.
 
 #### iOS
-Requires macOS, Xcode (with an iOS Simulator runtime), and JDK 17+.
+Requires macOS, Xcode (with an iOS Simulator runtime), and JDK 21+.
 
 - **Xcode JDK configuration (if needed)**: Copy `iosApp/Configuration/local.env.example` to `iosApp/Configuration/local.env` and set `JAVA_HOME` if building from the Xcode GUI cannot locate it via `/usr/libexec/java_home`.
 - **Device signing (optional)**: Simulator builds require no signing. For physical devices, copy `iosApp/Configuration/Local.xcconfig.example` to `iosApp/Configuration/Local.xcconfig` and set `TEAM_ID`.
