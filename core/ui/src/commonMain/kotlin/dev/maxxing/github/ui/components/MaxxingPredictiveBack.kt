@@ -2,22 +2,24 @@ package dev.maxxing.github.ui.components
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
-import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,20 +27,39 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.navigationevent.NavigationEvent
+import androidx.navigationevent.NavigationEventHandler
 import androidx.navigationevent.NavigationEventInfo
-import androidx.navigationevent.NavigationEventTransitionState
-import androidx.navigationevent.compose.NavigationBackHandler
-import androidx.navigationevent.compose.rememberNavigationEventState
+import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlin.math.sign
+
+private val PredictiveBackStandardDecelerate = CubicBezierEasing(0f, 0f, 0f, 1f)
+
+private val PredictiveBackCornerShapes: Array<Shape> = Array(33) { radius ->
+    if (radius == 0) RectangleShape else RoundedCornerShape(radius.dp)
+}
+
+/**
+ * Returns a pre-allocated card shape for [cornerRadiusDp] to avoid per-frame allocations during
+ * predictive back gestures.
+ */
+fun predictiveBackCardShape(cornerRadiusDp: Float): Shape =
+    PredictiveBackCornerShapes[cornerRadiusDp.roundToInt().coerceIn(0, 32)]
 
 data class PredictiveBackVisualState(
     val scale: Float = 1f,
@@ -57,40 +78,43 @@ fun calculatePredictiveBackVisualState(
     val clamped = progress.coerceIn(0f, 1f)
     if (clamped <= 0f) return PredictiveBackVisualState()
 
-    // Decelerate curve mirrors platform predictive back preview responsiveness.
-    val inverse = 1f - clamped
-    val eased = 1f - (inverse * inverse)
-    val directionSign = when (swipeEdge) {
-        NavigationEvent.EDGE_RIGHT -> -1f
-        else -> 1f
+    val eased = PredictiveBackStandardDecelerate.transform(clamped)
+    val txFraction = when (swipeEdge) {
+        NavigationEvent.EDGE_RIGHT -> 0f
+        else -> 0.055f * eased
     }
-    val backgroundShift = if (eased >= 1f) 0f else -directionSign * 0.04f * (1f - eased)
     return PredictiveBackVisualState(
-        scale = 1f - (0.10f * eased),
-        translationXFraction = directionSign * 0.10f * eased,
-        alpha = 1f - (0.08f * eased),
-        cornerRadiusDp = 28f * eased,
-        scrimAlpha = 0.22f * (1f - clamped),
-        backgroundScale = 0.96f + (0.04f * eased),
-        backgroundTranslationXFraction = backgroundShift
+        scale = 1f - (0.15f * eased),
+        translationXFraction = txFraction,
+        alpha = 1f,
+        cornerRadiusDp = 32f * eased,
+        scrimAlpha = 0.24f * (1f - clamped),
+        backgroundScale = 0.95f + (0.03f * eased),
+        backgroundTranslationXFraction = -0.05f * (1f - eased)
     )
 }
 
 /**
- * Live state for an in-app predictive back gesture. Callers that already compose both the
- * foreground screen and the destination screen (for example, bottom-navigation tabs returning
- * to Home) can observe [isTransforming] and [visual] to reveal the destination screen directly
- * underneath the shrinking foreground screen.
+ * Live state for an in-app predictive back gesture. Callers should read [isTransforming] and
+ * [visual] inside draw/graphicsLayer phases (`Modifier.graphicsLayer`, `Modifier.drawBehind`)
+ * so gesture updates avoid recomposing screen trees.
  */
 class MaxxingPredictiveBackState internal constructor(
-    private val progressAnimatable: Animatable<Float, AnimationVector1D>,
     initialSwipeEdge: Int = NavigationEvent.EDGE_LEFT
 ) {
     var swipeEdge by mutableIntStateOf(initialSwipeEdge)
         internal set
 
-    val progress: Float
-        get() = progressAnimatable.value
+    var progress by mutableFloatStateOf(0f)
+        internal set
+
+    var touchYDeltaPx by mutableFloatStateOf(0f)
+        internal set
+
+    internal var startTouchY: Float = 0f
+    internal var hasStartTouchY: Boolean = false
+    internal var cancelJob: Job? = null
+    internal var frozenByCompletion: Boolean = false
 
     val visual: PredictiveBackVisualState
         get() = calculatePredictiveBackVisualState(progress = progress, swipeEdge = swipeEdge)
@@ -100,12 +124,16 @@ class MaxxingPredictiveBackState internal constructor(
 }
 
 /**
- * Registers a [NavigationBackHandler] and exposes live predictive-back progress and visuals.
+ * Registers a [NavigationEventHandler] and exposes live predictive-back progress and visuals.
+ *
+ * Gesture progress is written synchronously on every input event with no per-event animation
+ * restart, avoiding start-of-gesture lag and allowing callers to observe state strictly in the
+ * draw/layer phase.
  *
  * When [freezeOnComplete] is true (used for dismissing overlays that play an exit transition),
  * completing a swipe preserves the shrunk gesture state so the exit animation continues smoothly
- * instead of snapping back to full size. Otherwise, progress snaps to `0f` on completion so the
- * newly revealed destination does not bounce back from the outgoing gesture's transform.
+ * instead of snapping back to full size. Otherwise, [onBack] runs before progress resets to `0f`,
+ * allowing callers to snapshot the pre-commit visual state for their own exit transition.
  */
 @Composable
 fun rememberMaxxingPredictiveBackState(
@@ -113,67 +141,205 @@ fun rememberMaxxingPredictiveBackState(
     onBack: () -> Unit,
     freezeOnComplete: Boolean = false
 ): MaxxingPredictiveBackState {
-    val navEventState = rememberNavigationEventState(NavigationEventInfo.None)
-    val progressAnimatable = remember { Animatable(0f) }
-    val state = remember(progressAnimatable) { MaxxingPredictiveBackState(progressAnimatable) }
+    val state = remember { MaxxingPredictiveBackState() }
     val scope = rememberCoroutineScope()
-    var frozenByCompletion by remember { mutableStateOf(false) }
     val currentOnBack by rememberUpdatedState(onBack)
+    val currentFreezeOnComplete by rememberUpdatedState(freezeOnComplete)
+    val dispatcher = LocalNavigationEventDispatcherOwner.current?.navigationEventDispatcher
+
+    val handler = remember(state, scope) {
+        object : NavigationEventHandler<NavigationEventInfo.None>(
+            initialInfo = NavigationEventInfo.None,
+            isBackEnabled = enabled
+        ) {
+            override fun onBackStarted(event: NavigationEvent) {
+                state.cancelJob?.cancel()
+                state.cancelJob = null
+                state.frozenByCompletion = false
+                state.swipeEdge = event.swipeEdge
+                state.startTouchY = event.touchY
+                state.hasStartTouchY = true
+                state.touchYDeltaPx = 0f
+                state.progress = event.progress.coerceIn(0f, 1f)
+            }
+
+            override fun onBackProgressed(event: NavigationEvent) {
+                state.cancelJob?.cancel()
+                state.cancelJob = null
+                state.frozenByCompletion = false
+                state.swipeEdge = event.swipeEdge
+                if (!state.hasStartTouchY) {
+                    state.startTouchY = event.touchY
+                    state.hasStartTouchY = true
+                }
+                state.touchYDeltaPx = event.touchY - state.startTouchY
+                state.progress = event.progress.coerceIn(0f, 1f)
+            }
+
+            override fun onBackCancelled() {
+                state.frozenByCompletion = false
+                state.hasStartTouchY = false
+                val startProgress = state.progress
+                val startTouchYDelta = state.touchYDeltaPx
+                state.cancelJob?.cancel()
+                if (startProgress > 0f || abs(startTouchYDelta) > 0.5f) {
+                    state.cancelJob = scope.launch {
+                        animate(
+                            initialValue = startProgress,
+                            targetValue = 0f,
+                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+                        ) { value, _ ->
+                            state.progress = value
+                            val ratio = if (startProgress > 0f) (value / startProgress).coerceIn(0f, 1f) else 0f
+                            state.touchYDeltaPx = startTouchYDelta * ratio
+                        }
+                        state.touchYDeltaPx = 0f
+                    }
+                } else {
+                    state.touchYDeltaPx = 0f
+                }
+            }
+
+            override fun onBackCompleted() {
+                state.cancelJob?.cancel()
+                state.cancelJob = null
+                state.hasStartTouchY = false
+                val shouldFreeze = currentFreezeOnComplete && state.progress > 0.005f
+                state.frozenByCompletion = shouldFreeze
+                currentOnBack()
+                if (!shouldFreeze) {
+                    state.progress = 0f
+                    state.touchYDeltaPx = 0f
+                }
+            }
+        }
+    }
+
+    SideEffect {
+        handler.isBackEnabled = enabled
+    }
 
     LaunchedEffect(enabled) {
-        if (enabled && frozenByCompletion) {
-            frozenByCompletion = false
-            progressAnimatable.snapTo(0f)
+        if (enabled && state.frozenByCompletion) {
+            state.frozenByCompletion = false
+            state.hasStartTouchY = false
+            state.cancelJob?.cancel()
+            state.cancelJob = null
+            state.progress = 0f
+            state.touchYDeltaPx = 0f
+        } else if (!enabled && !state.frozenByCompletion && (state.progress > 0f || state.touchYDeltaPx != 0f)) {
+            state.hasStartTouchY = false
+            state.cancelJob?.cancel()
+            state.cancelJob = null
+            state.progress = 0f
+            state.touchYDeltaPx = 0f
         }
     }
 
-    NavigationBackHandler(
-        state = navEventState,
-        isBackEnabled = enabled,
-        onBackCancelled = {
-            frozenByCompletion = false
-            scope.launch {
-                progressAnimatable.animateTo(
-                    targetValue = 0f,
-                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
-                )
-            }
-        },
-        onBackCompleted = {
-            if (freezeOnComplete && progressAnimatable.value > 0.005f) {
-                frozenByCompletion = true
-            } else {
-                frozenByCompletion = false
-                scope.launch { progressAnimatable.snapTo(0f) }
-            }
-            currentOnBack()
-        }
-    )
-
-    val inProgress = navEventState.transitionState as? NavigationEventTransitionState.InProgress
-    val inProgressValue = inProgress?.latestEvent?.progress?.coerceIn(0f, 1f)
-    val inProgressEdge = inProgress?.latestEvent?.swipeEdge
-
-    if (inProgressEdge != null) {
-        state.swipeEdge = inProgressEdge
-    }
-
-    LaunchedEffect(inProgressValue, frozenByCompletion) {
-        if (inProgressValue != null) {
-            frozenByCompletion = false
-            progressAnimatable.animateTo(
-                targetValue = inProgressValue,
-                animationSpec = spring(stiffness = Spring.StiffnessHigh)
-            )
-        } else if (!frozenByCompletion && progressAnimatable.value > 0f) {
-            progressAnimatable.animateTo(
-                targetValue = 0f,
-                animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
-            )
+    DisposableEffect(dispatcher, handler) {
+        dispatcher?.addHandler(handler)
+        onDispose {
+            state.cancelJob?.cancel()
+            state.cancelJob = null
+            handler.remove()
         }
     }
 
     return state
+}
+
+private fun GraphicsLayerScope.computeTouchYOffset(
+    scale: Float,
+    touchYDeltaPx: Float
+): Float {
+    if (touchYDeltaPx == 0f || size.height <= 0f) return 0f
+    val maxShiftY = ((size.height * (1f - scale) * 0.5f) - 8.dp.toPx()).coerceAtLeast(0f)
+    if (maxShiftY <= 0f) return 0f
+    val normalized = (touchYDeltaPx / (size.height * 0.4f)).coerceIn(-1f, 1f)
+    val eased = sign(normalized) * PredictiveBackStandardDecelerate.transform(abs(normalized))
+    return maxShiftY * eased
+}
+
+/**
+ * Applies predictive-back foreground transform (scale, centered-margin translation, vertical
+ * touch follow, rounded clipping, elevation) inside a `graphicsLayer` block so callers never
+ * recompose during gesture frames.
+ */
+fun GraphicsLayerScope.applyPredictiveBackForeground(
+    visual: PredictiveBackVisualState,
+    isTransforming: Boolean,
+    touchYDeltaPx: Float = 0f,
+    extraTranslationX: Float = 0f,
+    extraAlpha: Float = 1f,
+    extraScale: Float = 1f
+) {
+    val cardShape = if (isTransforming) predictiveBackCardShape(visual.cornerRadiusDp) else RectangleShape
+    shape = cardShape
+    clip = cardShape !== RectangleShape
+    shadowElevation = if (isTransforming) 14.dp.toPx() else 0f
+    val finalScale = visual.scale * extraScale
+    scaleX = finalScale
+    scaleY = finalScale
+    translationX = (size.width * visual.translationXFraction) + extraTranslationX
+    translationY = if (isTransforming) computeTouchYOffset(finalScale, touchYDeltaPx) else 0f
+    alpha = (visual.alpha * extraAlpha).coerceIn(0f, 1f)
+}
+
+/**
+ * Applies the post-commit exit animation for an outgoing screen or tab after releasing the
+ * predictive-back gesture (always gliding rightward while fading out in the first half, matching
+ * Android's DefaultCrossActivityBackAnimation).
+ */
+fun GraphicsLayerScope.applyPredictiveBackExit(
+    visual: PredictiveBackVisualState,
+    exitProgress: Float,
+    isTransforming: Boolean,
+    touchYDeltaPx: Float = 0f
+) {
+    val clampedExit = exitProgress.coerceIn(0f, 1f)
+    val exitAlpha = (1f - (clampedExit / 0.55f)).coerceIn(0f, 1f)
+    applyPredictiveBackForeground(
+        visual = visual,
+        isTransforming = isTransforming,
+        touchYDeltaPx = touchYDeltaPx * (1f - clampedExit),
+        extraTranslationX = size.width * 0.24f * clampedExit,
+        extraAlpha = exitAlpha,
+        extraScale = 1f - (0.04f * clampedExit)
+    )
+}
+
+/**
+ * Applies the destination reveal transform underneath an active or exiting foreground screen,
+ * interpolating smoothly back to `1f / 0f` during post-commit exit (`exitProgress`).
+ */
+fun GraphicsLayerScope.applyPredictiveBackBackground(
+    visual: PredictiveBackVisualState,
+    exitProgress: Float = 0f
+) {
+    val settle = 1f - exitProgress.coerceIn(0f, 1f)
+    shape = RectangleShape
+    clip = false
+    shadowElevation = 0f
+    val targetScale = 1f - ((1f - visual.backgroundScale) * settle)
+    scaleX = targetScale
+    scaleY = targetScale
+    translationX = size.width * visual.backgroundTranslationXFraction * settle
+    translationY = 0f
+    alpha = 1f
+}
+
+/**
+ * Resets predictive-back transform properties inside a `graphicsLayer` block.
+ */
+fun GraphicsLayerScope.resetPredictiveBackTransform(targetAlpha: Float = 1f) {
+    shape = RectangleShape
+    clip = false
+    shadowElevation = 0f
+    scaleX = 1f
+    scaleY = 1f
+    translationX = 0f
+    translationY = 0f
+    alpha = targetAlpha
 }
 
 /**
@@ -204,15 +370,40 @@ fun MaxxingPredictiveBackSurface(
 ) {
     Surface(
         color = containerColor,
-        shape = if (isTransforming) RoundedCornerShape(visual.cornerRadiusDp.dp) else RectangleShape,
-        shadowElevation = if (isTransforming) 10.dp else 0.dp,
+        shape = RectangleShape,
+        shadowElevation = 0.dp,
         modifier = modifier
             .fillMaxSize()
             .graphicsLayer {
-                scaleX = visual.scale
-                scaleY = visual.scale
-                translationX = size.width * visual.translationXFraction
-                alpha = visual.alpha
+                applyPredictiveBackForeground(
+                    visual = visual,
+                    isTransforming = isTransforming
+                )
+            }
+    ) {
+        content()
+    }
+}
+
+@Composable
+private fun MaxxingPredictiveBackSurface(
+    backState: MaxxingPredictiveBackState,
+    modifier: Modifier = Modifier,
+    containerColor: Color = MaterialTheme.colorScheme.surface,
+    content: @Composable () -> Unit
+) {
+    Surface(
+        color = containerColor,
+        shape = RectangleShape,
+        shadowElevation = 0.dp,
+        modifier = modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                applyPredictiveBackForeground(
+                    visual = backState.visual,
+                    isTransforming = backState.isTransforming,
+                    touchYDeltaPx = backState.touchYDeltaPx
+                )
             }
     ) {
         content()
@@ -223,8 +414,8 @@ fun MaxxingPredictiveBackSurface(
  * Attaches an in-app predictive back handler (Compose NavigationEvent API) and applies
  * real-time scale, translation, corner-rounding, and elevation feedback while swiping back.
  *
- * When [backgroundContent] is provided, it is revealed underneath the shrinking foreground
- * screen during the swipe so the destination screen is visible in real time.
+ * When [backgroundContent] is provided, it is kept composed underneath and revealed in the
+ * draw/layer phase during the swipe so the destination screen appears with zero layout delay.
  */
 @Composable
 fun MaxxingPredictiveBackContainer(
@@ -241,31 +432,42 @@ fun MaxxingPredictiveBackContainer(
         onBack = onBack,
         freezeOnComplete = freezeOnComplete
     )
-    val visual = backState.visual
-    val isTransforming = backState.isTransforming
 
     Box(modifier = modifier.fillMaxSize()) {
-        if (isTransforming && backgroundContent != null) {
+        if (backgroundContent != null) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .focusProperties { canFocus = false }
                     .clearAndSetSemantics {}
-                    .predictiveBackDestinationReveal(visual = visual, active = true)
+                    .graphicsLayer {
+                        if (backState.isTransforming) {
+                            applyPredictiveBackBackground(
+                                visual = backState.visual,
+                                exitProgress = 0f
+                            )
+                        } else {
+                            resetPredictiveBackTransform(targetAlpha = 0f)
+                        }
+                    }
             ) {
                 backgroundContent()
             }
         }
-        if (isTransforming) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = visual.scrimAlpha))
-            )
-        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .drawBehind {
+                    if (backState.isTransforming) {
+                        val scrimAlpha = backState.visual.scrimAlpha
+                        if (scrimAlpha > 0.002f) {
+                            drawRect(Color.Black.copy(alpha = scrimAlpha))
+                        }
+                    }
+                }
+        )
         MaxxingPredictiveBackSurface(
-            visual = visual,
-            isTransforming = isTransforming,
+            backState = backState,
             containerColor = containerColor,
             content = content
         )
@@ -302,6 +504,8 @@ private data class StackRenderEntry<T>(
 private class TopOverlayVisualHolder {
     var backState by mutableStateOf<MaxxingPredictiveBackState?>(null)
     var enterAnim by mutableStateOf<Animatable<Float, AnimationVector1D>?>(null)
+    var exitingBackState by mutableStateOf<MaxxingPredictiveBackState?>(null)
+    var exitingAnim by mutableStateOf<Animatable<Float, AnimationVector1D>?>(null)
 }
 
 /**
@@ -374,6 +578,12 @@ fun <T> MaxxingPredictiveStackHost(
 
     val topHolder = remember { TopOverlayVisualHolder() }
     val hasExiting = resolvedExiting != null
+    SideEffect {
+        if (!hasExiting && (topHolder.exitingBackState != null || topHolder.exitingAnim != null)) {
+            topHolder.exitingBackState = null
+            topHolder.exitingAnim = null
+        }
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         renderedEntries.forEach { entry ->
@@ -402,7 +612,7 @@ fun <T> MaxxingPredictiveStackHost(
                         exitAnim.snapTo(0f)
                         exitAnim.animateTo(
                             targetValue = 1f,
-                            animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing)
+                            animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
                         )
                         if (exitingEntry?.first == entry.key) {
                             exitingEntry = null
@@ -417,11 +627,12 @@ fun <T> MaxxingPredictiveStackHost(
                     onBack = onBack,
                     freezeOnComplete = true
                 )
-                val visual = backState.visual
-                val isTransforming = backState.isTransforming
 
                 SideEffect {
-                    if (isTopActive) {
+                    if (entry.isExiting) {
+                        if (topHolder.exitingBackState !== backState) topHolder.exitingBackState = backState
+                        if (topHolder.exitingAnim !== exitAnim) topHolder.exitingAnim = exitAnim
+                    } else if (isTopActive) {
                         if (topHolder.backState !== backState) topHolder.backState = backState
                         if (topHolder.enterAnim !== enterAnim) topHolder.enterAnim = enterAnim
                     }
@@ -454,27 +665,27 @@ fun <T> MaxxingPredictiveStackHost(
                         )
                     }
 
-                    val scrimAlpha = when {
-                        entry.isExiting -> visual.scrimAlpha * (1f - exitAnim.value)
-                        isTopActive && isTransforming -> visual.scrimAlpha
-                        else -> 0f
-                    }
-                    if (scrimAlpha > 0.002f) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = scrimAlpha))
-                        )
-                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .drawBehind {
+                                val alpha = when {
+                                    entry.isExiting -> backState.visual.scrimAlpha * (1f - (exitAnim.value / 0.7f).coerceIn(0f, 1f))
+                                    isTopActive && backState.isTransforming -> backState.visual.scrimAlpha
+                                    else -> 0f
+                                }
+                                if (alpha > 0.002f) {
+                                    drawRect(Color.Black.copy(alpha = alpha))
+                                }
+                            }
+                    )
 
                     val isInteractive = isTopActive && !entry.isExiting
-                    val directionSign = if (backState.swipeEdge == NavigationEvent.EDGE_RIGHT) -1f else 1f
-                    val showCardChrome = isTransforming
 
                     Surface(
                         color = containerColor,
-                        shape = if (showCardChrome) RoundedCornerShape(visual.cornerRadiusDp.dp) else RectangleShape,
-                        shadowElevation = if (showCardChrome) 10.dp else 0.dp,
+                        shape = RectangleShape,
+                        shadowElevation = 0.dp,
                         modifier = Modifier
                             .fillMaxSize()
                             .then(
@@ -488,39 +699,47 @@ fun <T> MaxxingPredictiveStackHost(
                             )
                             .graphicsLayer {
                                 if (entry.isExiting) {
-                                    val exitProgress = exitAnim.value
-                                    val exitScale = visual.scale * (1f - (0.04f * exitProgress))
-                                    scaleX = exitScale
-                                    scaleY = exitScale
-                                    translationX = size.width * (
-                                        visual.translationXFraction + (directionSign * 0.22f * exitProgress)
+                                    applyPredictiveBackExit(
+                                        visual = backState.visual,
+                                        exitProgress = exitAnim.value,
+                                        isTransforming = backState.isTransforming,
+                                        touchYDeltaPx = backState.touchYDeltaPx
                                     )
-                                    alpha = (visual.alpha * (1f - exitProgress)).coerceIn(0f, 1f)
                                 } else if (isTopActive) {
-                                    val enterFraction = enterAnim.value
-                                    val enterOffset = (1f - enterFraction) * (size.width / 6f)
-                                    scaleX = visual.scale
-                                    scaleY = visual.scale
-                                    translationX = (size.width * visual.translationXFraction) + enterOffset
-                                    alpha = (visual.alpha * enterFraction).coerceIn(0f, 1f)
+                                    val exitingBack = if (hasExiting) topHolder.exitingBackState else null
+                                    val exitingAnim = if (hasExiting) topHolder.exitingAnim else null
+                                    if (exitingBack != null && exitingBack.isTransforming && exitingAnim != null) {
+                                        applyPredictiveBackBackground(
+                                            visual = exitingBack.visual,
+                                            exitProgress = exitingAnim.value
+                                        )
+                                    } else {
+                                        val enterFraction = enterAnim.value
+                                        applyPredictiveBackForeground(
+                                            visual = backState.visual,
+                                            isTransforming = backState.isTransforming,
+                                            touchYDeltaPx = backState.touchYDeltaPx,
+                                            extraTranslationX = (1f - enterFraction) * (size.width / 6f),
+                                            extraAlpha = enterFraction
+                                        )
+                                    }
                                 } else if (isDestinationUnderTop) {
                                     val activeTopBack = topHolder.backState
                                     val activeTopEnter = topHolder.enterAnim?.value ?: 1f
                                     if (hasExiting) {
-                                        alpha = 1f
+                                        resetPredictiveBackTransform(targetAlpha = 1f)
                                     } else if (activeTopBack != null && activeTopBack.isTransforming) {
-                                        val topVis = activeTopBack.visual
-                                        scaleX = topVis.backgroundScale
-                                        scaleY = topVis.backgroundScale
-                                        translationX = size.width * topVis.backgroundTranslationXFraction
-                                        alpha = 1f
+                                        applyPredictiveBackBackground(
+                                            visual = activeTopBack.visual,
+                                            exitProgress = 0f
+                                        )
                                     } else if (activeTopEnter < 0.995f) {
-                                        alpha = 1f
+                                        resetPredictiveBackTransform(targetAlpha = 1f)
                                     } else {
-                                        alpha = 0f
+                                        resetPredictiveBackTransform(targetAlpha = 0f)
                                     }
                                 } else {
-                                    alpha = 0f
+                                    resetPredictiveBackTransform(targetAlpha = 0f)
                                 }
                             }
                     ) {

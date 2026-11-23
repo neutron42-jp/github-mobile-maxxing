@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -292,6 +293,238 @@ class PredictiveBackDestinationRenderTest {
                 }
             }
             assertEquals(false, popped)
+        } finally {
+            scene.close()
+        }
+    }
+
+    @Test
+    fun containerProgressedMovesWithinTwoFramesWithZeroRecomposition() {
+        val (owner, input) = createDispatcher()
+        var fgCompositions = 0
+        var bgCompositions = 0
+        val width = 360
+        val height = 640
+
+        val scene = ImageComposeScene(width = width, height = height, density = Density(1f)) {
+            CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides owner) {
+                MaxxingTheme(useDynamicColor = false, darkThemeOverride = false) {
+                    MaxxingPredictiveBackContainer(
+                        enabled = true,
+                        onBack = {},
+                        backgroundContent = {
+                            SideEffect { bgCompositions++ }
+                            Box(Modifier.fillMaxSize().background(Color(0xFFE11D48)))
+                        }
+                    ) {
+                        SideEffect { fgCompositions++ }
+                        Box(Modifier.fillMaxSize().background(Color(0xFF2563EB)))
+                    }
+                }
+            }
+        }
+        try {
+            var t = 0L
+            t = advanceFrames(scene, t, count = 4)
+
+            val fgBefore = fgCompositions
+            val bgBefore = bgCompositions
+
+            input.backStarted(NavigationEvent(swipeEdge = NavigationEvent.EDGE_LEFT, progress = 0.2f))
+            input.backProgressed(NavigationEvent(swipeEdge = NavigationEvent.EDGE_LEFT, progress = 0.8f))
+            t = advanceFrames(scene, t, count = 1)
+
+            scene.render(t).use { img ->
+                Bitmap.makeFromImage(img).use { bmp ->
+                    val left = bmp.getColor(8, height / 2)
+                    val center = bmp.getColor(width / 2, height / 2)
+                    assertTrue(
+                        red(left) > blue(left) + 60,
+                        "Expected red destination immediately on left edge within 2 frames, got #${left.toUInt().toString(16)}"
+                    )
+                    assertTrue(
+                        blue(center) > red(center) + 60,
+                        "Expected blue foreground opaque at center, got #${center.toUInt().toString(16)}"
+                    )
+                }
+            }
+
+            listOf(0.35f, 0.55f, 0.75f, 0.9f).forEach { p ->
+                input.backProgressed(NavigationEvent(swipeEdge = NavigationEvent.EDGE_LEFT, progress = p))
+                t = advanceFrames(scene, t, count = 1)
+            }
+
+            assertEquals(fgBefore, fgCompositions, "Container foreground must not recompose during swipe")
+            assertEquals(bgBefore, bgCompositions, "Container background must not recompose during swipe")
+        } finally {
+            scene.close()
+        }
+    }
+
+    @Test
+    fun stackHostProgressedMovesWithinTwoFramesWithZeroRecomposition() {
+        val (owner, input) = createDispatcher()
+        var stackACompositions = 0
+        var stackBCompositions = 0
+        val width = 360
+        val height = 640
+
+        val scene = ImageComposeScene(width = width, height = height, density = Density(1f)) {
+            CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides owner) {
+                MaxxingTheme(useDynamicColor = false, darkThemeOverride = false) {
+                    Box(Modifier.fillMaxSize().background(Color(0xFF111111))) {
+                        MaxxingPredictiveStackHost(
+                            stack = listOf("A", "B"),
+                            onBack = {},
+                            contentKey = { it }
+                        ) { item, _ ->
+                            SideEffect {
+                                if (item == "A") stackACompositions++ else stackBCompositions++
+                            }
+                            val bg = if (item == "A") Color(0xFF16A34A) else Color(0xFF2563EB)
+                            Box(Modifier.fillMaxSize().background(bg))
+                        }
+                    }
+                }
+            }
+        }
+        try {
+            var t = 0L
+            t = advanceFrames(scene, t, count = 4)
+
+            val aBefore = stackACompositions
+            val bBefore = stackBCompositions
+
+            input.backStarted(NavigationEvent(swipeEdge = NavigationEvent.EDGE_LEFT, progress = 0.2f))
+            input.backProgressed(NavigationEvent(swipeEdge = NavigationEvent.EDGE_LEFT, progress = 0.8f))
+            t = advanceFrames(scene, t, count = 1)
+
+            scene.render(t).use { img ->
+                Bitmap.makeFromImage(img).use { bmp ->
+                    val left = bmp.getColor(8, height / 2)
+                    val center = bmp.getColor(width / 2, height / 2)
+                    assertTrue(
+                        green(left) > blue(left) + 60,
+                        "Expected green destination A immediately on left edge within 2 frames, got #${left.toUInt().toString(16)}"
+                    )
+                    assertTrue(
+                        blue(center) > green(center) + 60,
+                        "Expected blue foreground B opaque at center, got #${center.toUInt().toString(16)}"
+                    )
+                }
+            }
+
+            listOf(0.35f, 0.55f, 0.75f, 0.9f).forEach { p ->
+                input.backProgressed(NavigationEvent(swipeEdge = NavigationEvent.EDGE_LEFT, progress = p))
+                t = advanceFrames(scene, t, count = 1)
+            }
+
+            assertEquals(aBefore, stackACompositions, "Stack background entry A must not recompose during swipe")
+            assertEquals(bBefore, stackBCompositions, "Stack foreground entry B must not recompose during swipe")
+        } finally {
+            scene.close()
+        }
+    }
+
+    @Test
+    fun leftSwipeCardLeavesOppositeEdgeMarginRevealingBackgroundOnBothSides() {
+        val (owner, input) = createDispatcher()
+        val width = 360
+        val height = 640
+        val scene = ImageComposeScene(width = width, height = height, density = Density(1f)) {
+            CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides owner) {
+                MaxxingTheme(useDynamicColor = false, darkThemeOverride = false) {
+                    MaxxingPredictiveBackContainer(
+                        enabled = true,
+                        onBack = {},
+                        backgroundContent = {
+                            Box(Modifier.fillMaxSize().background(Color(0xFFE11D48))) // Red destination
+                        }
+                    ) {
+                        Box(Modifier.fillMaxSize().background(Color(0xFF2563EB))) // Blue foreground
+                    }
+                }
+            }
+        }
+        try {
+            var t = 0L
+            t = advanceFrames(scene, t, count = 4)
+
+            input.backStarted(NavigationEvent(swipeEdge = NavigationEvent.EDGE_LEFT, progress = 0.2f))
+            input.backProgressed(NavigationEvent(swipeEdge = NavigationEvent.EDGE_LEFT, progress = 0.85f))
+            t = advanceFrames(scene, t, count = 2)
+
+            scene.render(t).use { img ->
+                Bitmap.makeFromImage(img).use { bmp ->
+                    val leftMargin = bmp.getColor(8, height / 2)
+                    val center = bmp.getColor(width / 2, height / 2)
+                    val rightMargin = bmp.getColor(width - 4, height / 2)
+                    assertTrue(
+                        red(leftMargin) > blue(leftMargin) + 60,
+                        "Expected red background visible on left margin, got #${leftMargin.toUInt().toString(16)}"
+                    )
+                    assertTrue(
+                        blue(center) > red(center) + 60,
+                        "Expected blue foreground card centered, got #${center.toUInt().toString(16)}"
+                    )
+                    assertTrue(
+                        red(rightMargin) > blue(rightMargin) + 60,
+                        "Expected red background visible on right margin (card stays centered without clipping), got #${rightMargin.toUInt().toString(16)}"
+                    )
+                }
+            }
+        } finally {
+            scene.close()
+        }
+    }
+
+    @Test
+    fun rightEdgeSwipeCentersCardSymmetricallyWithinViewport() {
+        val (owner, input) = createDispatcher()
+        val width = 360
+        val height = 640
+        val scene = ImageComposeScene(width = width, height = height, density = Density(1f)) {
+            CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides owner) {
+                MaxxingTheme(useDynamicColor = false, darkThemeOverride = false) {
+                    MaxxingPredictiveBackContainer(
+                        enabled = true,
+                        onBack = {},
+                        backgroundContent = {
+                            Box(Modifier.fillMaxSize().background(Color(0xFFE11D48))) // Red destination
+                        }
+                    ) {
+                        Box(Modifier.fillMaxSize().background(Color(0xFF2563EB))) // Blue foreground
+                    }
+                }
+            }
+        }
+        try {
+            var t = 0L
+            t = advanceFrames(scene, t, count = 4)
+
+            input.backStarted(NavigationEvent(swipeEdge = NavigationEvent.EDGE_RIGHT, progress = 0.2f))
+            input.backProgressed(NavigationEvent(swipeEdge = NavigationEvent.EDGE_RIGHT, progress = 0.85f))
+            t = advanceFrames(scene, t, count = 2)
+
+            scene.render(t).use { img ->
+                Bitmap.makeFromImage(img).use { bmp ->
+                    val leftMargin = bmp.getColor(8, height / 2)
+                    val center = bmp.getColor(width / 2, height / 2)
+                    val rightMargin = bmp.getColor(width - 8, height / 2)
+                    assertTrue(
+                        red(leftMargin) > blue(leftMargin) + 60,
+                        "Expected red background visible symmetrically on left margin during right swipe, got #${leftMargin.toUInt().toString(16)}"
+                    )
+                    assertTrue(
+                        blue(center) > red(center) + 60,
+                        "Expected blue foreground card centered during right swipe, got #${center.toUInt().toString(16)}"
+                    )
+                    assertTrue(
+                        red(rightMargin) > blue(rightMargin) + 60,
+                        "Expected red background visible symmetrically on right margin during right swipe, got #${rightMargin.toUInt().toString(16)}"
+                    )
+                }
+            }
         } finally {
             scene.close()
         }

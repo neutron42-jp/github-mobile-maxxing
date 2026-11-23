@@ -1,6 +1,8 @@
 package dev.maxxing.github.app
 
-import androidx.compose.foundation.background
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,7 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -36,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -47,6 +49,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
@@ -93,9 +96,15 @@ import dev.maxxing.github.model.ProviderType
 import dev.maxxing.github.model.RepoSummary
 import dev.maxxing.github.network.createProviderImageHttpClient
 import dev.maxxing.github.ui.components.MaxxingLoadingState
+import dev.maxxing.github.ui.components.MaxxingPredictiveBackState
 import dev.maxxing.github.ui.components.MaxxingPredictiveOverlayHost
 import dev.maxxing.github.ui.components.MaxxingPredictiveStackHost
+import dev.maxxing.github.ui.components.PredictiveBackVisualState
+import dev.maxxing.github.ui.components.applyPredictiveBackBackground
+import dev.maxxing.github.ui.components.applyPredictiveBackExit
+import dev.maxxing.github.ui.components.applyPredictiveBackForeground
 import dev.maxxing.github.ui.components.rememberMaxxingPredictiveBackState
+import dev.maxxing.github.ui.components.resetPredictiveBackTransform
 import dev.maxxing.github.ui.i18n.AppStrings
 import dev.maxxing.github.ui.i18n.appStrings
 import dev.maxxing.github.ui.theme.MaxxingTheme
@@ -412,9 +421,35 @@ private fun MainAuthenticatedShell(
     var manageInitialCategory by remember { mutableStateOf(ProviderType.GITHUB) }
     var lastAccountKey by remember { mutableStateOf(resolvedActiveId) }
 
+    var exitingTab by remember { mutableStateOf<ShellDestination?>(null) }
+    var exitingTabVisual by remember { mutableStateOf(PredictiveBackVisualState()) }
+    var exitingTabTouchYDeltaPx by remember { mutableFloatStateOf(0f) }
+    var exitingTabWasTransforming by remember { mutableStateOf(false) }
+    val tabExitAnim = remember { Animatable(0f) }
+
+    LaunchedEffect(exitingTab) {
+        if (exitingTab != null) {
+            tabExitAnim.snapTo(0f)
+            tabExitAnim.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
+            )
+            exitingTab = null
+        } else if (tabExitAnim.value != 0f) {
+            tabExitAnim.snapTo(0f)
+        }
+    }
+
+    LaunchedEffect(navState.currentDestination, navState.hasOverlay, resolvedActiveId) {
+        if (exitingTab != null && (navState.currentDestination != ShellDestination.HOME || navState.hasOverlay)) {
+            exitingTab = null
+        }
+    }
+
     LaunchedEffect(resolvedActiveId) {
         if (resolvedActiveId != lastAccountKey) {
             lastAccountKey = resolvedActiveId
+            exitingTab = null
             navState = navState.copy(
                 profileBackStack = emptyList(),
                 repoBackStack = emptyList(),
@@ -558,6 +593,7 @@ private fun MainAuthenticatedShell(
                     },
                     selected = !navState.hasOverlay && navState.currentDestination == dest.shell,
                     onClick = {
+                        exitingTab = null
                         val wasSameActiveTab = !navState.hasOverlay && navState.currentDestination == dest.shell
                         navState = navState.selectBottomDestination(dest.shell)
                         if (wasSameActiveTab) {
@@ -574,18 +610,26 @@ private fun MainAuthenticatedShell(
             snackbarHost = { SnackbarHost(snackbarHostState) }
         ) { innerPadding ->
             Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-                val tabBackState = rememberMaxxingPredictiveBackState(
+                val isHomeTab = navState.currentDestination == ShellDestination.HOME
+                lateinit var tabBackState: MaxxingPredictiveBackState
+                tabBackState = rememberMaxxingPredictiveBackState(
                     enabled = !navState.hasOverlay &&
-                        navState.currentDestination != ShellDestination.HOME &&
+                        !isHomeTab &&
                         navState.settingsSection == null,
-                    onBack = { navState = navState.popBackOrReturnHome() }
+                    onBack = {
+                        val outgoing = navState.currentDestination
+                        if (outgoing != ShellDestination.HOME) {
+                            exitingTabVisual = tabBackState.visual
+                            exitingTabTouchYDeltaPx = tabBackState.touchYDeltaPx
+                            exitingTabWasTransforming = tabBackState.isTransforming
+                            exitingTab = outgoing
+                        }
+                        navState = navState.popBackOrReturnHome()
+                    }
                 )
-                val tabBackVisual = tabBackState.visual
-                val isTabReturningHome = tabBackState.isTransforming &&
-                    navState.currentDestination != ShellDestination.HOME
 
                 Box(modifier = Modifier.fillMaxSize()) {
-                    val renderedDestinations = visitedDestinations + ShellDestination.HOME + navState.currentDestination
+                    val renderedDestinations = visitedDestinations + ShellDestination.HOME + navState.currentDestination + listOfNotNull(exitingTab)
                     if (renderedDestinations.size > 1) {
                         Box(
                             modifier = Modifier
@@ -600,46 +644,70 @@ private fun MainAuthenticatedShell(
                                 }
                         )
                     }
-                    if (isTabReturningHome) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .zIndex(0.75f)
-                                .background(Color.Black.copy(alpha = tabBackVisual.scrimAlpha))
-                        )
-                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .zIndex(if (exitingTab != null) 1.25f else 0.75f)
+                            .drawBehind {
+                                val scrimAlpha = when {
+                                    exitingTab != null -> exitingTabVisual.scrimAlpha * (1f - (tabExitAnim.value / 0.7f).coerceIn(0f, 1f))
+                                    !isHomeTab && tabBackState.isTransforming -> tabBackState.visual.scrimAlpha
+                                    else -> 0f
+                                }
+                                if (scrimAlpha > 0.002f) {
+                                    drawRect(Color.Black.copy(alpha = scrimAlpha))
+                                }
+                            }
+                    )
                     renderedDestinations.forEach { dest ->
                         val isCurrentTab = dest == navState.currentDestination
-                        val isHomeDestinationPreview = isTabReturningHome && dest == ShellDestination.HOME
+                        val isExitingTab = exitingTab == dest && !isCurrentTab
+                        val isHomeCandidate = !isHomeTab && dest == ShellDestination.HOME
                         val isTabActive = isCurrentTab && !navState.hasOverlay
-                        val isForegroundTransforming = isCurrentTab && isTabReturningHome
                         val tabZ = when {
+                            isExitingTab -> 1.5f
                             isCurrentTab -> 1f
-                            isHomeDestinationPreview -> 0.25f
+                            isHomeCandidate -> 0.25f
                             else -> 0f
                         }
                         val tabModifier = Modifier
                             .fillMaxSize()
                             .zIndex(tabZ)
                             .graphicsLayer {
+                                val isReturningHome = !isHomeTab && tabBackState.isTransforming
                                 when {
-                                    isForegroundTransforming -> {
-                                        scaleX = tabBackVisual.scale
-                                        scaleY = tabBackVisual.scale
-                                        translationX = size.width * tabBackVisual.translationXFraction
-                                        alpha = tabBackVisual.alpha
+                                    isExitingTab -> {
+                                        applyPredictiveBackExit(
+                                            visual = exitingTabVisual,
+                                            exitProgress = tabExitAnim.value,
+                                            isTransforming = exitingTabWasTransforming,
+                                            touchYDeltaPx = exitingTabTouchYDeltaPx
+                                        )
+                                    }
+                                    isCurrentTab && exitingTab != null -> {
+                                        applyPredictiveBackBackground(
+                                            visual = exitingTabVisual,
+                                            exitProgress = tabExitAnim.value
+                                        )
+                                    }
+                                    isCurrentTab && isReturningHome -> {
+                                        applyPredictiveBackForeground(
+                                            visual = tabBackState.visual,
+                                            isTransforming = true,
+                                            touchYDeltaPx = tabBackState.touchYDeltaPx
+                                        )
                                     }
                                     isCurrentTab -> {
-                                        alpha = 1f
+                                        resetPredictiveBackTransform(targetAlpha = 1f)
                                     }
-                                    isHomeDestinationPreview -> {
-                                        scaleX = tabBackVisual.backgroundScale
-                                        scaleY = tabBackVisual.backgroundScale
-                                        translationX = size.width * tabBackVisual.backgroundTranslationXFraction
-                                        alpha = 1f
+                                    isHomeCandidate && isReturningHome -> {
+                                        applyPredictiveBackBackground(
+                                            visual = tabBackState.visual,
+                                            exitProgress = 0f
+                                        )
                                     }
                                     else -> {
-                                        alpha = 0f
+                                        resetPredictiveBackTransform(targetAlpha = 0f)
                                     }
                                 }
                             }
@@ -654,8 +722,8 @@ private fun MainAuthenticatedShell(
                             )
                         Surface(
                             color = MaterialTheme.colorScheme.surface,
-                            shape = if (isForegroundTransforming) RoundedCornerShape(tabBackVisual.cornerRadiusDp.dp) else RectangleShape,
-                            shadowElevation = if (isForegroundTransforming) 10.dp else 0.dp,
+                            shape = RectangleShape,
+                            shadowElevation = 0.dp,
                             modifier = tabModifier
                         ) {
                             key(dest, resolvedActiveId ?: "_", tabResetEpochs[dest] ?: 0) {
