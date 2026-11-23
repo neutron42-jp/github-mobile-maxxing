@@ -6,6 +6,8 @@ import dev.maxxing.github.model.AuthSession
 import dev.maxxing.github.model.DeviceCodeState
 import dev.maxxing.github.model.DeviceFlowErrorKind
 import dev.maxxing.github.model.DeviceFlowWaitReason
+import dev.maxxing.github.model.ProviderType
+import dev.maxxing.github.model.normalizeInstanceBaseUrl
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
@@ -70,8 +72,14 @@ class RefreshTokenRejectedException(
 
 @Serializable
 private data class PatUserCheckDto(
-    val login: String
-)
+    val id: Long? = null,
+    val login: String? = null,
+    val username: String? = null,
+    @SerialName("avatar_url") val avatarUrl: String = ""
+) {
+    fun resolvedLogin(): String? = login?.trim()?.takeIf { it.isNotEmpty() }
+        ?: username?.trim()?.takeIf { it.isNotEmpty() }
+}
 
 class DeviceFlowClient(
     private val httpClient: HttpClient = defaultAuthHttpClient(),
@@ -185,13 +193,17 @@ class DeviceFlowClient(
 
             if (!tokenRes.accessToken.isNullOrBlank()) {
                 emit(DeviceCodeState.Verifying("Fetching profile..."))
-                val login = fetchUserLogin(tokenRes.accessToken)
-                val session = tokenRes.toSession(
+                val userInfo = fetchUserInfo(tokenRes.accessToken)
+                val resolvedLogin = userInfo?.resolvedLogin()
+                val rawSession = tokenRes.toSession(
                     accessToken = tokenRes.accessToken,
                     resolvedScope = tokenRes.scope ?: scope,
                     clientId = trimmedId,
-                    userLogin = login
+                    userLogin = resolvedLogin,
+                    userId = userInfo?.id,
+                    avatarUrl = userInfo?.avatarUrl.orEmpty()
                 )
+                val session = rawSession.copy(accountId = rawSession.resolvedAccountId())
                 emit(DeviceCodeState.Authenticated(session))
                 return@flow
             }
@@ -266,15 +278,65 @@ class DeviceFlowClient(
                     ?.trim()
                     ?.takeIf { it.isNotEmpty() }
                     ?: "pat"
-                Result.success(
-                    AuthSession(
-                        accessToken = token,
-                        tokenType = "bearer",
-                        scope = resolvedScope,
-                        authMethod = AuthMethod.PERSONAL_ACCESS_TOKEN,
-                        userLogin = user.login
-                    )
+                val rawSession = AuthSession(
+                    accessToken = token,
+                    tokenType = "bearer",
+                    scope = resolvedScope,
+                    authMethod = AuthMethod.PERSONAL_ACCESS_TOKEN,
+                    userLogin = user.resolvedLogin(),
+                    providerType = ProviderType.GITHUB,
+                    baseUrl = AuthSession.GITHUB_WEB_BASE_URL,
+                    apiBaseUrl = AuthSession.GITHUB_API_BASE_URL,
+                    userId = user.id,
+                    avatarUrl = user.avatarUrl
                 )
+                Result.success(rawSession.copy(accountId = rawSession.resolvedAccountId()))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Verifies a Forgejo / Gitea / Codeberg Personal Access Token by calling `{baseUrl}/api/v1/user`
+     * with `Authorization: token <PAT>` and fetches the user's username and avatar URL.
+     */
+    suspend fun verifyForgejoPat(rawBaseUrl: String, rawToken: String): Result<AuthSession> {
+        val normalizedBase = normalizeInstanceBaseUrl(rawBaseUrl)
+            ?: return Result.failure(IllegalArgumentException("Please enter a valid instance URL (e.g. https://codeberg.org)."))
+        val token = rawToken.trim()
+        if (token.isEmpty()) {
+            return Result.failure(IllegalArgumentException("Personal Access Token cannot be empty."))
+        }
+        val instanceApiBase = "$normalizedBase/api/v1"
+        return try {
+            val response = httpClient.get("$instanceApiBase/user") {
+                header(HttpHeaders.Authorization, "token $token")
+                header(HttpHeaders.Accept, "application/json")
+            }
+            if (response.status != HttpStatusCode.OK) {
+                Result.failure(
+                    IllegalStateException("Instance returned HTTP ${response.status.value}. Check the URL and token.")
+                )
+            } else {
+                val user = response.body<PatUserCheckDto>()
+                val resolvedLogin = user.resolvedLogin()
+                    ?: return Result.failure(IllegalStateException("Instance returned an empty username."))
+                val rawSession = AuthSession(
+                    accessToken = token,
+                    tokenType = "token",
+                    scope = "pat",
+                    authMethod = AuthMethod.PERSONAL_ACCESS_TOKEN,
+                    userLogin = resolvedLogin,
+                    providerType = ProviderType.FORGEJO_GITEA,
+                    baseUrl = normalizedBase,
+                    apiBaseUrl = instanceApiBase,
+                    userId = user.id,
+                    avatarUrl = user.avatarUrl
+                )
+                Result.success(rawSession.copy(accountId = rawSession.resolvedAccountId()))
             }
         } catch (e: CancellationException) {
             throw e
@@ -337,7 +399,13 @@ class DeviceFlowClient(
                         clientId = clientId,
                         userLogin = session.userLogin,
                         authMethod = session.authMethod,
-                        fallbackTokenType = session.tokenType
+                        fallbackTokenType = session.tokenType,
+                        accountId = session.resolvedAccountId(),
+                        providerType = session.providerType,
+                        baseUrl = session.baseUrl,
+                        apiBaseUrl = session.apiBaseUrl,
+                        userId = session.userId,
+                        avatarUrl = session.avatarUrl
                     )
                 )
             }
@@ -354,7 +422,13 @@ class DeviceFlowClient(
         clientId: String,
         userLogin: String?,
         authMethod: AuthMethod = AuthMethod.DEVICE_FLOW,
-        fallbackTokenType: String = "bearer"
+        fallbackTokenType: String = "bearer",
+        accountId: String = "",
+        providerType: ProviderType = ProviderType.GITHUB,
+        baseUrl: String = AuthSession.GITHUB_WEB_BASE_URL,
+        apiBaseUrl: String = AuthSession.GITHUB_API_BASE_URL,
+        userId: Long? = null,
+        avatarUrl: String = ""
     ): AuthSession {
         val now = nowEpochSeconds()
         return AuthSession(
@@ -366,17 +440,23 @@ class DeviceFlowClient(
             refreshToken = refreshToken?.takeIf { it.isNotBlank() },
             accessTokenExpiresAtEpochSeconds = expiresIn?.takeIf { it > 0 }?.let { now + it },
             refreshTokenExpiresAtEpochSeconds = refreshTokenExpiresIn?.takeIf { it > 0 }?.let { now + it },
-            clientId = clientId
+            clientId = clientId,
+            accountId = accountId,
+            providerType = providerType,
+            baseUrl = baseUrl,
+            apiBaseUrl = apiBaseUrl,
+            userId = userId,
+            avatarUrl = avatarUrl
         )
     }
 
-    private suspend fun fetchUserLogin(token: String): String? {
+    private suspend fun fetchUserInfo(token: String): PatUserCheckDto? {
         return try {
             val res = httpClient.get("$apiBaseUrl/user") {
                 header(HttpHeaders.Authorization, "Bearer $token")
                 header(HttpHeaders.Accept, "application/vnd.github+json")
             }
-            if (res.status == HttpStatusCode.OK) res.body<PatUserCheckDto>().login else null
+            if (res.status == HttpStatusCode.OK) res.body<PatUserCheckDto>() else null
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {

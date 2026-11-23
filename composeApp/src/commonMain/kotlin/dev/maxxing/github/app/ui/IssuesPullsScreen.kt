@@ -97,6 +97,7 @@ fun IssuesPullsScreen(
     container: AppContainer,
     isTabActive: Boolean = true,
     onOpenBranch: ((owner: String, repo: String, branch: String) -> Unit)? = null,
+    accountSwitcherPill: @Composable () -> Unit = {},
     onMessage: (String) -> Unit
 ) {
     // String content keys keep the navigator saveable into the Android Bundle; IssuePullTarget is not.
@@ -208,6 +209,7 @@ fun IssuesPullsScreen(
         value = navigator.scaffoldValue,
         listPane = {
             AnimatedPane {
+                Box(modifier = Modifier.fillMaxSize()) {
                 Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
                     Column(modifier = Modifier.padding(horizontal = MaxxingTopHeaderDefaults.HorizontalPadding, vertical = headerVerticalPadding)) {
                         Row(
@@ -331,7 +333,7 @@ fun IssuesPullsScreen(
                                 else -> {
                                     LazyColumn(
                                         modifier = Modifier.fillMaxSize(),
-                                        contentPadding = PaddingValues(16.dp),
+                                        contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 84.dp),
                                         verticalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
                                         items(
@@ -364,6 +366,14 @@ fun IssuesPullsScreen(
                             }
                         }
                     }
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(16.dp)
+                ) {
+                    accountSwitcherPill()
+                }
                 }
             }
         },

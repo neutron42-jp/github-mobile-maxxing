@@ -31,7 +31,10 @@ class AppStringsCompletenessTest {
         "fileDefaultDeleteCommitMsg",
         "checkRollupLabel",            // "CI: {0}"
         "editorMetricsLabel",          // "{0} · {1}" joins the line and character counts
-        "timelineUnrecognized"         // "{0} {1}": actor + GitHub's own phrase
+        "timelineUnrecognized",        // "{0} {1}": actor + GitHub's own phrase
+        "providerGitHub",              // "GitHub" (product name)
+        "othersCodebergPreset",        // "Codeberg" (product name)
+        "othersInstanceUrlPlaceholder" // "https://codeberg.org" (URL placeholder)
     )
 
     private val stringSentinels = listOf("zqa1", "zqb2", "zqc3")

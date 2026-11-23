@@ -8,11 +8,13 @@ import dev.maxxing.github.app.update.selectAvailableUpdate
 import dev.maxxing.github.auth.SessionManager
 import dev.maxxing.github.auth.openUrlInBrowser
 import dev.maxxing.github.model.AppBranding
+import dev.maxxing.github.model.AuthSession
 import dev.maxxing.github.model.IssueFilterPreset
 import dev.maxxing.github.model.IssueOrPullKind
 import dev.maxxing.github.model.IssueStateFilter
 import dev.maxxing.github.model.NotificationSubjectType
 import dev.maxxing.github.model.NotificationThread
+import dev.maxxing.github.model.ProviderType
 import dev.maxxing.github.model.ViewerProfile
 import dev.maxxing.github.network.GitHubRepository
 import dev.maxxing.github.network.NotificationCheckResult
@@ -263,12 +265,16 @@ class AppContainer(
     }
 
     fun warmUpWorkspace(login: String?) {
+        val activeSession = sessionManager.session.value
+        val provider = activeSession?.providerType ?: ProviderType.GITHUB
+        if (provider == ProviderType.LOCAL) return
         val cleanLogin = login?.trim()?.takeIf { it.isNotEmpty() }
-        if (warmUpJob?.isActive == true && warmUpLogin.equals(cleanLogin, ignoreCase = true)) {
+        val targetScopeKey = "${activeSession?.resolvedAccountId().orEmpty()}:${cleanLogin.orEmpty()}"
+        if (warmUpJob?.isActive == true && warmUpLogin.equals(targetScopeKey, ignoreCase = true)) {
             return
         }
         warmUpJob?.cancel()
-        warmUpLogin = cleanLogin
+        warmUpLogin = targetScopeKey
         warmUpJob = backgroundScope.launch {
             val gate = Semaphore(permits = 4)
             suspend fun throttled(block: suspend () -> Unit) {
@@ -336,8 +342,72 @@ class AppContainer(
     }
 
     suspend fun refreshViewerProfile(): ViewerProfile? {
-        return repository.getViewerProfile().getOrNull()?.also {
-            _viewerProfile.value = it
+        val activeId = sessionManager.session.value?.resolvedAccountId()
+        return repository.getViewerProfile().getOrNull()?.also { loaded ->
+            _viewerProfile.value = loaded
+            if (!activeId.isNullOrBlank()) {
+                runCatching {
+                    sessionManager.updateAccountProfileMetadata(
+                        accountId = activeId,
+                        userLogin = loaded.login,
+                        avatarUrl = loaded.avatarUrl
+                    )
+                }
+            }
+        }
+    }
+
+    suspend fun switchAccount(accountId: String): Boolean {
+        val switched = sessionManager.switchAccount(accountId)
+        if (!switched) return false
+        resetActiveSessionState(clearDisk = false)
+        val active = sessionManager.session.value
+        val login = active?.userLogin
+        hydrateFromDisk(login)
+        backgroundScope.launch {
+            refreshViewerProfile()
+            syncNotifications(suppressOsAlerts = true)
+            warmUpWorkspace(login)
+        }
+        return true
+    }
+
+    suspend fun onExternalAccountAdded(newSession: AuthSession) {
+        resetActiveSessionState(clearDisk = false)
+        val login = newSession.userLogin
+        hydrateFromDisk(login)
+        backgroundScope.launch {
+            refreshViewerProfile()
+            syncNotifications(suppressOsAlerts = true)
+            warmUpWorkspace(login)
+        }
+    }
+
+    suspend fun logoutAccount(accountId: String): AuthSession? {
+        val nextActive = sessionManager.removeAccount(accountId)
+        resetActiveSessionState(clearDisk = nextActive == null)
+        if (nextActive != null) {
+            val login = nextActive.userLogin
+            hydrateFromDisk(login)
+            backgroundScope.launch {
+                refreshViewerProfile()
+                syncNotifications(suppressOsAlerts = true)
+                warmUpWorkspace(login)
+            }
+        }
+        return nextActive
+    }
+
+    private suspend fun resetActiveSessionState(clearDisk: Boolean) {
+        warmUpJob?.cancel()
+        warmUpJob = null
+        warmUpLogin = null
+        _viewerProfile.value = null
+        updateTracker { UnreadNotificationTrackerState() }
+        if (clearDisk) {
+            repository.clearCache()
+        } else {
+            repository.clearMemoryCaches()
         }
     }
 

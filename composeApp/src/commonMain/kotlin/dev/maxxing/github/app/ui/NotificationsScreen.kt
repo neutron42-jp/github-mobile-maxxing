@@ -168,6 +168,7 @@ fun NotificationsScreen(
     onConsumeDeepLink: () -> Unit = {},
     isTabActive: Boolean = true,
     onOpenBranch: ((owner: String, repo: String, branch: String) -> Unit)? = null,
+    accountSwitcherPill: @Composable () -> Unit = {},
     onMessage: (String) -> Unit
 ) {
     val navigator = rememberListDetailPaneScaffoldNavigator<String>()
@@ -703,37 +704,46 @@ fun NotificationsScreen(
                         }
                     }
 
-                    MaxxingFloatingToolbar(
-                        expanded = true,
-                        vibrant = true,
+                    Row(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(16.dp)
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        FilledTonalIconButton(onClick = { loadNotifications(forceRefresh = true, showRefreshFeedback = true) }) {
-                            Icon(Lucide.RefreshCw, contentDescription = strings.refresh)
-                        }
-                        Spacer(Modifier.width(6.dp))
-                        FilledTonalIconButton(
-                            onClick = {
-                                threads = threads.map { it.copy(unread = false) }
-                                container.markAllNotificationsRead(
-                                    onSuccess = {
-                                        scope.launch {
-                                            onMessage(strings.allNotificationsMarkedRead)
-                                        }
-                                    },
-                                    onFailure = { err ->
-                                        scope.launch {
-                                            onMessage(strings.errorMessage(err, strings.markAllReadFailed))
-                                            loadNotifications(forceRefresh = true)
-                                        }
-                                    }
-                                )
-                            }
+                        accountSwitcherPill()
+                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.weight(1f))
+                        MaxxingFloatingToolbar(
+                            expanded = true,
+                            vibrant = true
                         ) {
-                            Icon(Lucide.CheckCheck, contentDescription = strings.markAllReadAction)
+                            FilledTonalIconButton(onClick = { loadNotifications(forceRefresh = true, showRefreshFeedback = true) }) {
+                                Icon(Lucide.RefreshCw, contentDescription = strings.refresh)
+                            }
+                            Spacer(Modifier.width(6.dp))
+                            FilledTonalIconButton(
+                                onClick = {
+                                    threads = threads.map { it.copy(unread = false) }
+                                    container.markAllNotificationsRead(
+                                        onSuccess = {
+                                            scope.launch {
+                                                onMessage(strings.allNotificationsMarkedRead)
+                                            }
+                                        },
+                                        onFailure = { err ->
+                                            scope.launch {
+                                                onMessage(strings.errorMessage(err, strings.markAllReadFailed))
+                                                loadNotifications(forceRefresh = true)
+                                            }
+                                        }
+                                    )
+                                }
+                            ) {
+                                Icon(Lucide.CheckCheck, contentDescription = strings.markAllReadAction)
+                            }
                         }
+                        Spacer(Modifier.weight(1f))
                     }
                 }
             }

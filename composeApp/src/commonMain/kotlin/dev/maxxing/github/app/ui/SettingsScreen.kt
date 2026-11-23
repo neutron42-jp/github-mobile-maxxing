@@ -83,6 +83,7 @@ import com.composables.icons.lucide.LogOut
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Palette
 import com.composables.icons.lucide.RefreshCw
+import com.composables.icons.lucide.Settings2
 import com.composables.icons.lucide.Shield
 import com.composables.icons.lucide.SlidersHorizontal
 import com.composables.icons.lucide.Type
@@ -166,10 +167,12 @@ fun SettingsScreen(
     activeSection: SettingsSection? = null,
     onSelectSection: (SettingsSection?) -> Unit = {},
     onOpenUser: (String) -> Unit = {},
+    onOpenManageAccounts: () -> Unit = {},
     onSignedOut: () -> Unit,
     onMessage: (String) -> Unit
 ) {
     val session by container.sessionManager.session.collectAsState()
+    val accounts by container.sessionManager.accounts.collectAsState()
     val profile by container.viewerProfile.collectAsState()
     val rateLimit by container.repository.rateLimit.collectAsState()
     val themePrefs by container.sessionManager.themePreferences.collectAsState()
@@ -219,24 +222,24 @@ fun SettingsScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        val displayAccounts = remember(accounts, session, profile) {
+            val base = if (accounts.isNotEmpty()) accounts else listOfNotNull(session)
+            val activeId = session?.resolvedAccountId()
+            base.map { acc ->
+                if (acc.resolvedAccountId() == activeId && acc.avatarUrl.isBlank() && !profile?.avatarUrl.isNullOrBlank()) {
+                    acc.copy(avatarUrl = profile?.avatarUrl.orEmpty())
+                } else {
+                    acc
+                }
+            }
+        }
         SettingsHubContent(
             session = session,
+            accounts = displayAccounts,
             profile = profile,
             categoryItems = categoryItems,
             onOpenUser = onOpenUser,
-            onSignOut = {
-                scope.launch {
-                    // Clearing the Keychain item can fail on iOS; stay signed in and report.
-                    catchingSecureStorage { container.sessionManager.signOut() }
-                        .onSuccess {
-                            container.clearCachedProfile()
-                            onSignedOut()
-                        }
-                        .onFailure {
-                            onMessage(strings.secureStorageSignOutFailed(secureStorageErrorDetail(it)))
-                        }
-                }
-            },
+            onOpenManageAccounts = onOpenManageAccounts,
             onSelectSection = { section -> onSelectSection(section) }
         )
 
@@ -400,10 +403,11 @@ fun SettingsScreen(
 @Composable
 private fun SettingsHubContent(
     session: AuthSession?,
+    accounts: List<AuthSession>,
     profile: ViewerProfile?,
     categoryItems: List<SettingsCategoryItem>,
     onOpenUser: (String) -> Unit,
-    onSignOut: () -> Unit,
+    onOpenManageAccounts: () -> Unit,
     onSelectSection: (SettingsSection) -> Unit
 ) {
     val strings = appStrings()
@@ -432,73 +436,65 @@ private fun SettingsHubContent(
                 ),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // The sign-out button sits below the profile so the name column keeps the full width
-                // (a long button label next to it squeezed names into 1–2 characters per line).
                 Column(modifier = Modifier.padding(20.dp)) {
                     val loginTarget = profile?.login ?: session?.userLogin
-                    val profileClickable = !loginTarget.isNullOrBlank()
+                    val activeHost = session?.instanceHostLabel()
+                    val countSummary = when (accounts.size) {
+                        0 -> strings.accountsSummaryNone
+                        1 -> strings.accountsSummarySingle
+                        else -> strings.accountsSummaryCount(accounts.size)
+                    }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(MaterialTheme.shapes.medium)
-                            .clickable(enabled = profileClickable) {
-                                if (!loginTarget.isNullOrBlank()) onOpenUser(loginTarget)
-                            }
+                            .clickable(onClick = onOpenManageAccounts)
                             .padding(vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        UserAvatar(
-                            avatarUrl = profile?.avatarUrl.orEmpty(),
-                            login = loginTarget ?: "?",
+                        AccountAvatarCluster(
+                            accounts = accounts,
                             sizeDp = 56
                         )
                         Spacer(Modifier.width(16.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = profile?.name ?: "@${loginTarget ?: strings.githubUserFallback}",
+                                text = strings.accountsTitle,
                                 style = MaterialTheme.typography.titleLarge,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = "@${loginTarget ?: strings.unknownUser} • ${session?.authMethod?.let { strings.authMethodLabel(it) } ?: ""}",
+                                text = if (!loginTarget.isNullOrBlank()) {
+                                    "@$loginTarget · ${activeHost ?: ""} · $countSummary"
+                                } else {
+                                    countSummary
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
+                                maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            if (!profile?.bio.isNullOrBlank()) {
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    text = profile.bio.orEmpty(),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
+                        }
+                        if (!loginTarget.isNullOrBlank()) {
+                            IconButton(onClick = { onOpenUser(loginTarget) }) {
+                                Icon(
+                                    imageVector = Lucide.ChevronRight,
+                                    contentDescription = loginTarget,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
-                        if (profileClickable) {
-                            Spacer(Modifier.width(8.dp))
-                            Icon(
-                                imageVector = Lucide.ChevronRight,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
                     }
                     Spacer(Modifier.height(12.dp))
-                    OutlinedButton(
-                        onClick = onSignOut,
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error
-                        ),
+                    FilledTonalButton(
+                        onClick = onOpenManageAccounts,
                         modifier = Modifier.align(Alignment.End)
                     ) {
-                        Icon(Lucide.LogOut, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(Lucide.Settings2, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(strings.signOut)
+                        Text(strings.manageAction)
                     }
                 }
             }

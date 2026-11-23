@@ -306,6 +306,7 @@ fun ReposScreen(
     isTabActive: Boolean = true,
     onOpenUser: (String) -> Unit = {},
     onOpenBranch: ((owner: String, repo: String, branch: String) -> Unit)? = null,
+    accountSwitcherPill: @Composable () -> Unit = {},
     onMessage: (String) -> Unit
 ) {
     var repoStack by remember { mutableStateOf<List<Pair<RepoSummary, String?>>>(emptyList()) }
@@ -337,6 +338,7 @@ fun ReposScreen(
             },
             onSelectIssuePull = { selectedIssueTarget = it },
             onSelectUser = onOpenUser,
+            accountSwitcherPill = accountSwitcherPill,
             onMessage = onMessage
         )
 
@@ -384,8 +386,10 @@ private fun RepoListPane(
     onSelectCodeHit: (CodeSearchHit) -> Unit,
     onSelectIssuePull: (IssuePullTarget) -> Unit,
     onSelectUser: (String) -> Unit,
+    accountSwitcherPill: @Composable () -> Unit,
     onMessage: (String) -> Unit
 ) {
+    val providerCapabilities = container.repository.activeCapabilities()
     var activeTab by remember { mutableStateOf(RepoListTab.MINE) }
     var searchKind by remember { mutableStateOf(GlobalSearchKind.REPOSITORIES) }
     var searchQuery by remember { mutableStateOf("") }
@@ -414,6 +418,16 @@ private fun RepoListPane(
     var createRepoBusy by remember { mutableStateOf(false) }
     var isSearchFocused by remember { mutableStateOf(false) }
     val strings = appStrings()
+    val visibleRepoTabs = remember(providerCapabilities) {
+        RepoDetailTab.entries.filter { tab ->
+            when (tab) {
+                RepoDetailTab.ACTIONS -> providerCapabilities.supportsActions
+                RepoDetailTab.DISCUSSIONS -> providerCapabilities.supportsDiscussions
+                RepoDetailTab.SECURITY -> providerCapabilities.supportsSecurity
+                else -> true
+            }
+        }
+    }
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val headerTracker = remember { RepoHeaderCollapseTracker() }
@@ -573,6 +587,7 @@ private fun RepoListPane(
         else -> false
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
         Column(modifier = Modifier.padding(horizontal = MaxxingTopHeaderDefaults.HorizontalPadding, vertical = headerVerticalPadding)) {
             Row(
@@ -617,7 +632,10 @@ private fun RepoListPane(
                                 modifier = Modifier.weight(1f)
                             )
                             MaxxingDropdownSelector(
-                                options = GlobalSearchKind.entries,
+                                options = remember(providerCapabilities) {
+                                    if (providerCapabilities.supportsGraphQl) GlobalSearchKind.entries
+                                    else GlobalSearchKind.entries.filter { it != GlobalSearchKind.CODE }
+                                },
                                 selected = searchKind,
                                 onSelect = { searchKind = it },
                                 labelProvider = { strings.searchKindLabel(it) },
@@ -845,7 +863,7 @@ private fun RepoListPane(
                     pageTab == RepoListTab.SEARCH && submittedSearchQuery.isBlank() -> {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(16.dp),
+                            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 84.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             items(
@@ -861,7 +879,7 @@ private fun RepoListPane(
                     pageTab == RepoListTab.SEARCH && searchKind == GlobalSearchKind.ISSUES_PRS -> {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(16.dp),
+                            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 84.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             items(
@@ -891,7 +909,7 @@ private fun RepoListPane(
                     pageTab == RepoListTab.SEARCH && searchKind == GlobalSearchKind.CODE -> {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(16.dp),
+                            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 84.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             items(
@@ -907,7 +925,7 @@ private fun RepoListPane(
                     pageTab == RepoListTab.SEARCH && searchKind == GlobalSearchKind.USERS -> {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(16.dp),
+                            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 84.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             items(
@@ -923,7 +941,7 @@ private fun RepoListPane(
                     else -> {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(16.dp),
+                            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 84.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             items(
@@ -937,6 +955,14 @@ private fun RepoListPane(
                     }
                 }
             }
+        }
+    }
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(16.dp)
+        ) {
+            accountSwitcherPill()
         }
     }
 
@@ -1296,6 +1322,17 @@ fun RepoDetailScreen(
     onMessage: (String) -> Unit
 ) {
     val strings = appStrings()
+    val providerCapabilities = container.repository.activeCapabilities()
+    val visibleRepoTabs = remember(providerCapabilities) {
+        RepoDetailTab.entries.filter { tab ->
+            when (tab) {
+                RepoDetailTab.ACTIONS -> providerCapabilities.supportsActions
+                RepoDetailTab.DISCUSSIONS -> providerCapabilities.supportsDiscussions
+                RepoDetailTab.SECURITY -> providerCapabilities.supportsSecurity
+                else -> true
+            }
+        }
+    }
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
     val viewerProfile by container.viewerProfile.collectAsState()
@@ -2485,7 +2522,7 @@ fun RepoDetailScreen(
                                     Spacer(Modifier.width(4.dp))
                                     Text(strings.share, maxLines = 1, softWrap = false)
                                 }
-                                val repoUrl = resolveRepoWebUrl(repo.owner, repo.name)
+                                val repoUrl = resolveRepoWebUrl(repo.owner, repo.name, container.repository.activeWebBaseUrl())
                                 DropdownMenu(
                                     expanded = showShareMenu,
                                     onDismissRequest = { showShareMenu = false }
@@ -2609,6 +2646,7 @@ fun RepoDetailScreen(
                                 }
                             }
 
+                            if (providerCapabilities.supportsRepoCompare) {
                             FilledTonalButton(
                                 shape = RoundedCornerShape(10.dp),
                                 onClick = {
@@ -2645,6 +2683,7 @@ fun RepoDetailScreen(
                                 Spacer(Modifier.width(5.dp))
                                 Text(strings.repoCompare, maxLines = 1, softWrap = false)
                             }
+                            }
                         }
                     }
                 }
@@ -2664,11 +2703,11 @@ fun RepoDetailScreen(
                     else -> null
                 }
                 PrimaryScrollableTabRow(
-                    selectedTabIndex = RepoDetailTab.entries.indexOf(activeTab),
+                    selectedTabIndex = visibleRepoTabs.indexOf(activeTab).coerceAtLeast(0),
                     containerColor = Color.Transparent,
                     edgePadding = 0.dp
                 ) {
-                    RepoDetailTab.entries.forEach { tab ->
+                    visibleRepoTabs.forEach { tab ->
                         val icon = when (tab) {
                             RepoDetailTab.CODE -> Lucide.Folder
                             RepoDetailTab.ISSUES -> Lucide.CircleDot
@@ -2716,7 +2755,7 @@ fun RepoDetailScreen(
                 .nestedScroll(headerNestedScroll)
         ) {
             MaxxingSwipeableTabPager(
-                tabs = RepoDetailTab.entries,
+                tabs = visibleRepoTabs,
                 selectedTab = activeTab,
                 onSelectTab = { selectRepoDetailTab(it) },
                 swipeEnabled = !isInInnerRepoDetailView && !hasOpenEditor,
@@ -3313,7 +3352,8 @@ fun RepoDetailScreen(
                     isLoading = insightsLoading || (!isPageActive && insightsData == null && insightsError == null),
                     errorMsg = insightsError,
                     onRefresh = { loadInsights(forceRefresh = true) },
-                    onOpenUser = onOpenUser
+                    onOpenUser = onOpenUser,
+                    showProviderNotice = !providerCapabilities.supportsGraphQl
                 )
             }
 

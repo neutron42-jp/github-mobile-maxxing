@@ -399,6 +399,7 @@ private fun IssuePullDetailPaneContent(
 
     val scope = rememberCoroutineScope()
     val strings = appStrings()
+    val capabilities = container.repository.activeCapabilities()
     val attachmentController = rememberEditorAttachmentController(container, target.owner, target.repo, onMessage)
     val graphitePalette = LocalGraphitePalette.current
 
@@ -745,12 +746,22 @@ private fun IssuePullDetailPaneContent(
                                         }
                                     }
                                 }
+                                val availableDetailTabs = if (capabilities.supportsActions) {
+                                    DetailTab.entries
+                                } else {
+                                    listOf(DetailTab.CONVERSATION, DetailTab.FILES)
+                                }
+                                LaunchedEffect(capabilities.supportsActions) {
+                                    if (!capabilities.supportsActions && selectedTab == DetailTab.CHECKS) {
+                                        selectedTab = DetailTab.CONVERSATION
+                                    }
+                                }
                                 PrimaryScrollableTabRow(
-                                    selectedTabIndex = DetailTab.entries.indexOf(selectedTab).coerceAtLeast(0),
+                                    selectedTabIndex = availableDetailTabs.indexOf(selectedTab).coerceAtLeast(0),
                                     containerColor = Color.Transparent,
                                     edgePadding = 0.dp
                                 ) {
-                                    DetailTab.entries.forEach { tab ->
+                                    availableDetailTabs.forEach { tab ->
                                         val label = when (tab) {
                                             DetailTab.FILES -> "${strings.issueDetailTabFiles} (${item.changedFilesCount})"
                                             DetailTab.CHECKS -> checkRuns?.let { "${strings.issueDetailTabChecks} (${it.size})" } ?: strings.issueDetailTabChecks
@@ -838,7 +849,8 @@ private fun IssuePullDetailPaneContent(
                                             }
                                         }
                                     },
-                                    onToggleDraft = toggleDraft
+                                    onToggleDraft = toggleDraft,
+                                    supportsDraftToggle = capabilities.supportsDraftToggle
                                 )
                             }
 
@@ -876,23 +888,25 @@ private fun IssuePullDetailPaneContent(
                                                 Spacer(Modifier.height(12.dp))
                                                 GitHubMarkdown(item.body)
                                             }
-                                            Spacer(Modifier.height(10.dp))
-                                            ReactionsBar(
-                                                reactions = item.reactions,
-                                                enabled = !actionBusy,
-                                                onToggleReaction = { content, currentlyReacted ->
-                                                    scope.launch {
-                                                        container.repository.toggleReaction(
-                                                            target.owner, target.repo, target.number,
-                                                            item.id, content, currentlyReacted
-                                                        ).onSuccess {
-                                                            loadDetail(forceRefresh = true)
-                                                        }.onFailure {
-                                                            onMessage(strings.errorMessage(it, strings.reactionFailed))
+                                            if (capabilities.supportsReactions || item.reactions.isNotEmpty()) {
+                                                Spacer(Modifier.height(10.dp))
+                                                ReactionsBar(
+                                                    reactions = item.reactions,
+                                                    enabled = !actionBusy && capabilities.supportsReactions,
+                                                    onToggleReaction = { content, currentlyReacted ->
+                                                        scope.launch {
+                                                            container.repository.toggleReaction(
+                                                                target.owner, target.repo, target.number,
+                                                                item.id, content, currentlyReacted
+                                                            ).onSuccess {
+                                                                loadDetail(forceRefresh = true)
+                                                            }.onFailure {
+                                                                onMessage(strings.errorMessage(it, strings.reactionFailed))
+                                                            }
                                                         }
                                                     }
-                                                }
-                                            )
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -906,6 +920,7 @@ private fun IssuePullDetailPaneContent(
                                 TimelineItemCard(
                                     event = event,
                                     actionBusy = actionBusy,
+                                    supportsReactions = capabilities.supportsReactions,
                                     onToggleReaction = { subjectId, content, reacted ->
                                         scope.launch {
                                             container.repository.toggleReaction(
@@ -1279,7 +1294,7 @@ private fun IssuePullDetailPaneContent(
                 val primaryAction = prPrimaryAction(
                     isPr = isPr,
                     state = item.state,
-                    isDraft = item.isDraft,
+                    isDraft = if (capabilities.supportsDraftToggle) item.isDraft else false,
                     canMerge = item.viewerCanMerge,
                     canUpdate = item.viewerCanUpdate,
                     hasConflicts = isPullConflicting(item.mergeable, item.mergeStateStatus)
@@ -2513,7 +2528,8 @@ internal fun DetailHeaderCard(
     onEditAssignees: () -> Unit,
     onEditMilestone: () -> Unit,
     onRequestReviewers: () -> Unit,
-    onToggleDraft: () -> Unit
+    onToggleDraft: () -> Unit,
+    supportsDraftToggle: Boolean = true
 ) {
     val strings = appStrings()
     val graphitePalette = LocalGraphitePalette.current
@@ -2699,7 +2715,7 @@ internal fun DetailHeaderCard(
                             leadingIcon = { Icon(Lucide.Users, contentDescription = null, modifier = Modifier.size(14.dp)) },
                             label = { Text(strings.issueReviewersCount(item.requestedReviewers.size)) }
                         )
-                        if (item.viewerCanUpdate) {
+                        if (item.viewerCanUpdate && supportsDraftToggle) {
                             AssistChip(
                                 onClick = onToggleDraft,
                                 leadingIcon = { Icon(Lucide.Pencil, contentDescription = null, modifier = Modifier.size(14.dp)) },
@@ -2824,6 +2840,7 @@ private fun ReactionsBar(
 private fun TimelineItemCard(
     event: TimelineEvent,
     actionBusy: Boolean = false,
+    supportsReactions: Boolean = true,
     onToggleReaction: (subjectId: String, content: String, currentlyReacted: Boolean) -> Unit = { _, _, _ -> },
     onEditComment: (TimelineEvent.CommentEvent) -> Unit = {},
     onDeleteComment: (TimelineEvent.CommentEvent) -> Unit = {}
@@ -2884,14 +2901,16 @@ private fun TimelineItemCard(
                     }
                     Spacer(Modifier.height(10.dp))
                     GitHubMarkdown(event.body)
-                    Spacer(Modifier.height(8.dp))
-                    ReactionsBar(
-                        reactions = event.reactions,
-                        enabled = !actionBusy,
-                        onToggleReaction = { content, reacted ->
-                            onToggleReaction(event.id, content, reacted)
-                        }
-                    )
+                    if (supportsReactions || event.reactions.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        ReactionsBar(
+                            reactions = event.reactions,
+                            enabled = !actionBusy && supportsReactions,
+                            onToggleReaction = { content, reacted ->
+                                onToggleReaction(event.id, content, reacted)
+                            }
+                        )
+                    }
                 }
             }
         }

@@ -257,8 +257,10 @@ fun UserProfileScreen(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-                    IconButton(onClick = { onOpenGists(if (selfLogin.equals(login, ignoreCase = true)) "" else login) }) {
-                        Icon(Lucide.FileCode, contentDescription = strings.gistsAction, modifier = Modifier.size(18.dp))
+                    if (container.repository.activeCapabilities().supportsGists) {
+                        IconButton(onClick = { onOpenGists(if (selfLogin.equals(login, ignoreCase = true)) "" else login) }) {
+                            Icon(Lucide.FileCode, contentDescription = strings.gistsAction, modifier = Modifier.size(18.dp))
+                        }
                     }
                     IconButton(onClick = { loadProfile(forceRefresh = true) }) {
                         Icon(Lucide.RefreshCw, contentDescription = strings.refresh, modifier = Modifier.size(18.dp))

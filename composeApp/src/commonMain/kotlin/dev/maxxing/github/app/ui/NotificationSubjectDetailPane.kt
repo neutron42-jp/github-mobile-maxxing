@@ -217,7 +217,7 @@ internal fun NotificationSubjectDetailPane(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(onClick = { openUrlInBrowser(thread.htmlFallbackUrl) }) {
+            IconButton(onClick = { openUrlInBrowser(thread.htmlFallbackUrlFor(container.repository.activeWebBaseUrl())) }) {
                 Icon(Lucide.ExternalLink, contentDescription = strings.openInBrowser, modifier = Modifier.size(18.dp))
             }
             IconButton(
@@ -328,7 +328,7 @@ internal fun NotificationSubjectDetailPane(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        FilledTonalButton(onClick = { openUrlInBrowser(thread.htmlFallbackUrl) }) {
+                        FilledTonalButton(onClick = { openUrlInBrowser(thread.htmlFallbackUrlFor(container.repository.activeWebBaseUrl())) }) {
                             Icon(Lucide.ExternalLink, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(Modifier.width(6.dp))
                             Text(strings.notifOpenOnGitHub)

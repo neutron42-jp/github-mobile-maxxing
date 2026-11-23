@@ -100,6 +100,7 @@ internal class IosTokenStore(
     private val service: String,
     private val userDefaults: NSUserDefaults,
 ) : TokenStore {
+    override val supportsMultiAccountStorage: Boolean = true
 
     constructor() : this(
         service = resolveService(),
@@ -114,9 +115,10 @@ internal class IosTokenStore(
         keychainMutex.withLock {
             if (!firstLaunchChecked) {
                 if (!userDefaults.boolForKey(KEY_HAS_LAUNCHED_BEFORE)) {
-                    // Reinstall: NSUserDefaults was wiped but the Keychain item
-                    // may have survived. Delete any stale item before use.
-                    deleteSessionItem()
+                    // Reinstall: NSUserDefaults was wiped but Keychain items
+                    // may have survived. Delete any stale items before use.
+                    deleteSessionItem(KEYCHAIN_ACCOUNT)
+                    deleteAllItemsForService()
                     userDefaults.setBool(true, forKey = KEY_HAS_LAUNCHED_BEFORE)
                 }
                 firstLaunchChecked = true
@@ -127,12 +129,41 @@ internal class IosTokenStore(
     // ---- (A) AuthSession in Keychain ------------------------------------
 
     override suspend fun saveSession(session: AuthSession) = withKeychain {
+        saveSessionForAccountKey(KEYCHAIN_ACCOUNT, session)
+    }
+
+    override suspend fun loadSession(): AuthSession? = withKeychain {
+        loadSessionForAccountKey(KEYCHAIN_ACCOUNT)
+    }
+
+    override suspend fun clearSession() = withKeychain {
+        deleteSessionItem(KEYCHAIN_ACCOUNT)
+    }
+
+    override suspend fun saveAccount(session: AuthSession) = withKeychain {
+        val id = session.resolvedAccountId()
+        val normalized = if (session.accountId == id) session else session.copy(accountId = id)
+        saveSessionForAccountKey(accountKeychainKey(id), normalized)
+    }
+
+    override suspend fun loadAccount(accountId: String): AuthSession? = withKeychain {
+        loadSessionForAccountKey(accountKeychainKey(accountId))
+    }
+
+    override suspend fun deleteAccount(accountId: String) = withKeychain {
+        deleteSessionItem(accountKeychainKey(accountId))
+    }
+
+    private fun accountKeychainKey(accountId: String): String =
+        "account_${sanitizeAccountStorageKey(accountId)}"
+
+    private fun saveSessionForAccountKey(accountKey: String, session: AuthSession) {
         val data = json.encodeToString(session).encodeToByteArray()
         // Fail fast if any CF allocation fails: a missing service/account would
         // silently widen the query to every generic-password item.
         withCFRefs {
             val cfService = keep(createCFString(service), "CFStringCreateWithCString failed")
-            val cfAccount = keep(createCFString(KEYCHAIN_ACCOUNT), "CFStringCreateWithCString failed")
+            val cfAccount = keep(createCFString(accountKey), "CFStringCreateWithCString failed")
             val cfData = keep(createCFData(data), "CFDataCreate failed")
 
             val addStatus = cfDictionaryOf(
@@ -165,10 +196,10 @@ internal class IosTokenStore(
         }
     }
 
-    override suspend fun loadSession(): AuthSession? = withKeychain {
+    private fun loadSessionForAccountKey(accountKey: String): AuthSession? =
         withCFRefs {
             val cfService = keep(createCFString(service), "CFStringCreateWithCString failed")
-            val cfAccount = keep(createCFString(KEYCHAIN_ACCOUNT), "CFStringCreateWithCString failed")
+            val cfAccount = keep(createCFString(accountKey), "CFStringCreateWithCString failed")
             memScoped {
                 val result = alloc<CFTypeRefVar>()
                 val status = cfDictionaryOf(
@@ -180,7 +211,7 @@ internal class IosTokenStore(
                 ) { query -> IosKeychainOps.secItemCopyMatching(query, result.ptr) }
 
                 when (status) {
-                    errSecSuccess -> decodeSessionOrNull(result.value)
+                    errSecSuccess -> decodeSessionOrNull(accountKey, result.value)
                     errSecItemNotFound -> null
                     // errSecInteractionNotAllowed and any other unexpected OSStatus:
                     // throw WITHOUT deleting the Keychain item.
@@ -188,18 +219,13 @@ internal class IosTokenStore(
                 }
             }
         }
-    }
 
-    override suspend fun clearSession() = withKeychain {
-        deleteSessionItem()
-    }
-
-    private fun decodeSessionOrNull(cfType: CFTypeRef?): AuthSession? {
+    private fun decodeSessionOrNull(accountKey: String, cfType: CFTypeRef?): AuthSession? {
         if (cfType == null) return null
         val nsData = CFBridgingRelease(cfType) as? NSData
         if (nsData == null) {
             // Unexpected type in the Keychain item: treat as corrupt.
-            deleteSessionItem()
+            deleteSessionItem(accountKey)
             return null
         }
         val len = nsData.length.toInt()
@@ -216,22 +242,22 @@ internal class IosTokenStore(
             bytes.decodeToString(throwOnInvalidSequence = true)
         } catch (_: Exception) {
             // Non-UTF8 data: treat as corrupt.
-            deleteSessionItem()
+            deleteSessionItem(accountKey)
             return null
         }
         return try {
             json.decodeFromString<AuthSession>(text)
         } catch (_: Exception) {
             // Corrupted JSON: delete and report as signed-out.
-            deleteSessionItem()
+            deleteSessionItem(accountKey)
             null
         }
     }
 
-    private fun deleteSessionItem() {
+    private fun deleteSessionItem(accountKey: String) {
         withCFRefs {
             val cfService = keep(createCFString(service), "CFStringCreateWithCString failed")
-            val cfAccount = keep(createCFString(KEYCHAIN_ACCOUNT), "CFStringCreateWithCString failed")
+            val cfAccount = keep(createCFString(accountKey), "CFStringCreateWithCString failed")
             val status = cfDictionaryOf(
                 kSecClass to kSecClassGenericPassword,
                 kSecAttrService to cfService,
@@ -244,7 +270,29 @@ internal class IosTokenStore(
         }
     }
 
+    private fun deleteAllItemsForService() {
+        withCFRefs {
+            val cfService = keep(createCFString(service), "CFStringCreateWithCString failed")
+            val status = cfDictionaryOf(
+                kSecClass to kSecClassGenericPassword,
+                kSecAttrService to cfService,
+            ) { query -> IosKeychainOps.secItemDelete(query) }
+            if (status != errSecSuccess && status != errSecItemNotFound) {
+                throw IllegalStateException("SecItemDelete failed with OSStatus $status")
+            }
+        }
+    }
+
     // ---- (B) Non-sensitive settings in NSUserDefaults -------------------
+
+    override suspend fun saveAccountIndex(index: AccountIndex) {
+        userDefaults.setObject(json.encodeToString(index), forKey = KEY_ACCOUNT_INDEX)
+    }
+
+    override suspend fun loadAccountIndex(): AccountIndex? {
+        val raw = userDefaults.stringForKey(KEY_ACCOUNT_INDEX) ?: return null
+        return runCatching { json.decodeFromString<AccountIndex>(raw) }.getOrNull()
+    }
 
     override suspend fun saveClientId(clientId: String) {
         userDefaults.setObject(clientId, forKey = KEY_CLIENT_ID)
@@ -291,6 +339,21 @@ internal class IosTokenStore(
         return runCatching { json.decodeFromString<Map<String, String>>(raw) }.getOrDefault(emptyMap())
     }
 
+    override suspend fun saveSeenNotificationMarkersForAccount(accountId: String, markers: Map<String, String>) {
+        val key = "${KEY_SEEN_NOTIFS}_${sanitizeAccountStorageKey(accountId)}"
+        if (markers.isEmpty()) {
+            userDefaults.removeObjectForKey(key)
+        } else {
+            userDefaults.setObject(json.encodeToString(markers), forKey = key)
+        }
+    }
+
+    override suspend fun loadSeenNotificationMarkersForAccount(accountId: String): Map<String, String> {
+        val key = "${KEY_SEEN_NOTIFS}_${sanitizeAccountStorageKey(accountId)}"
+        val raw = userDefaults.stringForKey(key) ?: return emptyMap()
+        return runCatching { json.decodeFromString<Map<String, String>>(raw) }.getOrDefault(emptyMap())
+    }
+
     override suspend fun savePinnedRepos(repos: List<String>) {
         userDefaults.setObject(json.encodeToString(repos), forKey = KEY_PINNED_REPOS)
     }
@@ -300,11 +363,27 @@ internal class IosTokenStore(
         return runCatching { json.decodeFromString<List<String>>(raw) }.getOrDefault(emptyList())
     }
 
+    override suspend fun savePinnedReposForAccount(accountId: String, repos: List<String>) {
+        val key = "${KEY_PINNED_REPOS}_${sanitizeAccountStorageKey(accountId)}"
+        if (repos.isEmpty()) {
+            userDefaults.removeObjectForKey(key)
+        } else {
+            userDefaults.setObject(json.encodeToString(repos), forKey = key)
+        }
+    }
+
+    override suspend fun loadPinnedReposForAccount(accountId: String): List<String> {
+        val key = "${KEY_PINNED_REPOS}_${sanitizeAccountStorageKey(accountId)}"
+        val raw = userDefaults.stringForKey(key) ?: return emptyList()
+        return runCatching { json.decodeFromString<List<String>>(raw) }.getOrDefault(emptyList())
+    }
+
     companion object {
         private const val KEYCHAIN_ACCOUNT = "github_auth_session"
         private const val DEFAULT_BUNDLE_ID = "io.github.neutron42-jp.gitmax"
 
         private const val KEY_CLIENT_ID = "github_client_id"
+        private const val KEY_ACCOUNT_INDEX = "account_index"
         private const val KEY_THEME_PREFS = "theme_prefs"
         private const val KEY_NOTIF_PREFS = "notif_prefs"
         private const val KEY_UPDATE_PREFS = "update_prefs"

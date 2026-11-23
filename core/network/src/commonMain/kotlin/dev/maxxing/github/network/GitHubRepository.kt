@@ -2,6 +2,7 @@ package dev.maxxing.github.network
 
 import dev.maxxing.github.auth.SessionManager
 import dev.maxxing.github.model.ActivityEvent
+import dev.maxxing.github.model.AuthSession
 import dev.maxxing.github.model.BranchCompareResult
 import dev.maxxing.github.model.BranchRef
 import dev.maxxing.github.model.CheckRunSummary
@@ -31,6 +32,8 @@ import dev.maxxing.github.model.MilestoneSummary
 import dev.maxxing.github.model.NotificationThread
 import dev.maxxing.github.model.OrganizationSummary
 import dev.maxxing.github.model.PendingPullReview
+import dev.maxxing.github.model.ProviderCapabilities
+import dev.maxxing.github.model.ProviderType
 import dev.maxxing.github.model.PullFileChange
 import dev.maxxing.github.model.PullReviewComment
 import dev.maxxing.github.model.PullReviewSyncState
@@ -51,6 +54,7 @@ import dev.maxxing.github.model.WeeklyCommitActivity
 import dev.maxxing.github.model.WorkflowJobSummary
 import dev.maxxing.github.model.WorkflowRunSummary
 import dev.maxxing.github.model.WorkflowSummary
+import dev.maxxing.github.model.capabilities
 import dev.maxxing.github.model.computeLanguageShares
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.CancellationException
@@ -380,10 +384,25 @@ class GitHubRepository(
     private val httpClient: HttpClient = networkConfig.createHttpClient(),
     private val restService: GitHubRestService = GitHubRestService(httpClient, networkConfig.baseUrl),
     private val graphQlService: GitHubGraphQlService = GitHubGraphQlService(httpClient, networkConfig.baseUrl),
+    private val forgejoService: ForgejoGiteaService = ForgejoGiteaService(httpClient),
     private val diskCache: PersistentCacheStore = NoOpPersistentCacheStore,
     private val diskPersistScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) {
     val rateLimit: StateFlow<RateLimitInfo> = networkConfig.rateLimit
+
+    fun activeProviderType(): ProviderType =
+        sessionManager.session.value?.providerType ?: ProviderType.GITHUB
+
+    fun activeCapabilities(): ProviderCapabilities =
+        activeProviderType().capabilities()
+
+    fun activeWebBaseUrl(): String =
+        sessionManager.session.value?.resolvedWebBaseUrl() ?: AuthSession.GITHUB_WEB_BASE_URL
+
+    private fun activeForgejoApiBaseUrl(): String =
+        sessionManager.session.value?.resolvedApiBaseUrl()
+            ?.takeIf { it.isNotBlank() }
+            ?: error("No Forgejo/Gitea instance base URL configured for active account")
 
     /** Releases the underlying HttpClient. Only for short-lived instances that own their client. */
     fun close() {
@@ -394,8 +413,11 @@ class GitHubRepository(
     @Volatile
     private var cacheGeneration: Long = 0L
 
-    private fun currentAccountScope(): String =
-        sessionManager.session.value?.userLogin?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: "_viewer"
+    private fun currentAccountScope(): String {
+        val active = sessionManager.session.value ?: return "_viewer"
+        val raw = active.resolvedAccountId()
+        return raw.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+    }
 
     private fun diskKey(namespace: String, id: String = "default"): String =
         "${currentAccountScope()}__${namespace}__$id"
@@ -561,9 +583,14 @@ class GitHubRepository(
     private val gistDetailCache = LruMemoryCache<String, GistDetail>(ttl = 60.seconds, maxEntries = 32)
 
     suspend fun clearCache() {
+        clearMemoryCaches()
+        diskCache.clearAll()
+    }
+
+    /** Clears only in-memory caches and conditional ETags (used on account switch without wiping other accounts' disk SWR). */
+    suspend fun clearMemoryCaches() {
         cacheGeneration += 1L
         restService.clearConditionalCache()
-        diskCache.clearAll()
         profileCache.clear()
         notificationsCache.clear()
         myIssuesCache.clear()
@@ -697,7 +724,11 @@ class GitHubRepository(
             forceRefresh = forceRefresh,
             onCached = { persistToDiskAsync("viewer_profile", value = it) }
         ) {
-            graphQlService.fetchViewerProfile()
+            when (activeProviderType()) {
+                ProviderType.GITHUB -> graphQlService.fetchViewerProfile()
+                ProviderType.FORGEJO_GITEA -> forgejoService.fetchViewerProfile(activeForgejoApiBaseUrl())
+                ProviderType.LOCAL -> ViewerProfile(login = sessionManager.session.value?.userLogin ?: "local")
+            }
         }
 
     suspend fun getNotifications(
@@ -716,21 +747,42 @@ class GitHubRepository(
             }
         }
     ) {
-        restService.fetchNotifications(all = all, participating = participating, page = page)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchNotifications(all = all, participating = participating, page = page)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchNotifications(
+                apiBaseUrl = activeForgejoApiBaseUrl(),
+                all = all,
+                participating = participating,
+                page = page
+            )
+            ProviderType.LOCAL -> emptyList()
+        }
     }
 
     suspend fun markNotificationRead(threadId: String): Result<Unit> = runMutationCancellable {
-        restService.markNotificationRead(threadId)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.markNotificationRead(threadId)
+            ProviderType.FORGEJO_GITEA -> forgejoService.markNotificationRead(activeForgejoApiBaseUrl(), threadId)
+            ProviderType.LOCAL -> Unit
+        }
         notificationsCache.clear()
     }
 
     suspend fun markNotificationDone(threadId: String): Result<Unit> = runMutationCancellable {
-        restService.markNotificationDone(threadId)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.markNotificationDone(threadId)
+            ProviderType.FORGEJO_GITEA -> forgejoService.markNotificationRead(activeForgejoApiBaseUrl(), threadId)
+            ProviderType.LOCAL -> Unit
+        }
         notificationsCache.clear()
     }
 
     suspend fun markAllNotificationsRead(): Result<Unit> = runMutationCancellable {
-        restService.markAllNotificationsRead()
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.markAllNotificationsRead()
+            ProviderType.FORGEJO_GITEA -> forgejoService.markAllNotificationsRead(activeForgejoApiBaseUrl())
+            ProviderType.LOCAL -> Unit
+        }
         notificationsCache.clear()
     }
 
@@ -883,7 +935,11 @@ class GitHubRepository(
             }
         }
     ) {
-        val fetched = graphQlService.fetchIssuesAndPulls(preset, viewerLogin, stateFilter)
+        val fetched = when (activeProviderType()) {
+            ProviderType.GITHUB -> graphQlService.fetchIssuesAndPulls(preset, viewerLogin, stateFilter)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchMyIssuesAndPulls(activeForgejoApiBaseUrl(), preset, stateFilter)
+            ProviderType.LOCAL -> emptyList()
+        }
         reconcileMyIssues(preset, viewerLogin, stateFilter, fetched)
     }
 
@@ -898,7 +954,11 @@ class GitHubRepository(
         flightNamespace = "issueDetail",
         forceRefresh = forceRefresh
     ) {
-        graphQlService.fetchIssueOrPullDetail(owner, repo, number)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> graphQlService.fetchIssueOrPullDetail(owner, repo, number)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchIssueOrPullDetail(activeForgejoApiBaseUrl(), owner, repo, number)
+            ProviderType.LOCAL -> throw GitHubApiException(501, "Not supported in local mode", isSyntheticStatus = true)
+        }
     }
 
     suspend fun getPullFiles(
@@ -912,7 +972,11 @@ class GitHubRepository(
         flightNamespace = "pullFiles",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchPullFiles(owner, repo, number)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchPullFiles(owner, repo, number)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchPullFiles(activeForgejoApiBaseUrl(), owner, repo, number)
+            ProviderType.LOCAL -> emptyList()
+        }
     }
 
     suspend fun getPullReviewSyncState(
@@ -926,7 +990,10 @@ class GitHubRepository(
         flightNamespace = "pullReviewSync",
         forceRefresh = forceRefresh
     ) {
-        graphQlService.fetchPullReviewSyncState(owner, repo, number)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> graphQlService.fetchPullReviewSyncState(owner, repo, number)
+            ProviderType.FORGEJO_GITEA, ProviderType.LOCAL -> PullReviewSyncState()
+        }
     }
 
     suspend fun setPullFileViewed(
@@ -1038,7 +1105,11 @@ class GitHubRepository(
         number: Int,
         body: String
     ): Result<Unit> = runMutationCancellable {
-        restService.postComment(owner, repo, number, body)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.postComment(owner, repo, number, body)
+            ProviderType.FORGEJO_GITEA -> forgejoService.postComment(activeForgejoApiBaseUrl(), owner, repo, number, body)
+            ProviderType.LOCAL -> Unit
+        }
         issueDetailCache.invalidate(issuePullKey(owner, repo, number))
     }
 
@@ -1048,7 +1119,11 @@ class GitHubRepository(
         number: Int,
         open: Boolean
     ): Result<Unit> = runMutationCancellable {
-        restService.setIssueOrPullState(owner, repo, number, open)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.setIssueOrPullState(owner, repo, number, open)
+            ProviderType.FORGEJO_GITEA -> forgejoService.setIssueOrPullState(activeForgejoApiBaseUrl(), owner, repo, number, open)
+            ProviderType.LOCAL -> Unit
+        }
         val nextState = if (open) IssueOrPullState.OPEN else IssueOrPullState.CLOSED
         recordIssueStateTransition(owner, repo, number, nextState)
         issueDetailCache.invalidate(issuePullKey(owner, repo, number))
@@ -1061,7 +1136,12 @@ class GitHubRepository(
         body: String,
         labels: List<String> = emptyList()
     ): Result<Int> = runMutationCancellable {
-        restService.createIssue(owner, repo, title, body, labels).also {
+        val number = when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.createIssue(owner, repo, title, body, labels)
+            ProviderType.FORGEJO_GITEA -> forgejoService.createIssue(activeForgejoApiBaseUrl(), owner, repo, title, body)
+            ProviderType.LOCAL -> throw GitHubApiException(501, "Not supported in local mode", isSyntheticStatus = true)
+        }
+        number.also {
             val key = repoKey(owner, repo)
             myIssuesCache.clear()
             repoIssuesCache.invalidateWhere { it.owner == key.owner && it.repo == key.repo && !it.pullRequests }
@@ -1078,10 +1158,16 @@ class GitHubRepository(
         body: String,
         pendingReviewId: String? = null
     ): Result<Unit> = runMutationCancellable {
-        if (!pendingReviewId.isNullOrBlank()) {
-            graphQlService.submitPullRequestReview(pendingReviewId, event, body)
-        } else {
-            restService.submitPullReview(owner, repo, number, event, body)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> {
+                if (!pendingReviewId.isNullOrBlank()) {
+                    graphQlService.submitPullRequestReview(pendingReviewId, event, body)
+                } else {
+                    restService.submitPullReview(owner, repo, number, event, body)
+                }
+            }
+            ProviderType.FORGEJO_GITEA -> forgejoService.submitPullReview(activeForgejoApiBaseUrl(), owner, repo, number, event, body)
+            ProviderType.LOCAL -> Unit
         }
         pullReviewSyncCache.invalidate(issuePullKey(owner, repo, number))
         issueDetailCache.invalidate(issuePullKey(owner, repo, number))
@@ -1095,7 +1181,11 @@ class GitHubRepository(
         method: MergeMethod,
         commitTitle: String? = null
     ): Result<Unit> = runMutationCancellable {
-        restService.mergePullRequest(owner, repo, number, method, commitTitle)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.mergePullRequest(owner, repo, number, method, commitTitle)
+            ProviderType.FORGEJO_GITEA -> forgejoService.mergePullRequest(activeForgejoApiBaseUrl(), owner, repo, number, method, commitTitle)
+            ProviderType.LOCAL -> Unit
+        }
         recordIssueStateTransition(owner, repo, number, IssueOrPullState.MERGED)
         issueDetailCache.invalidate(issuePullKey(owner, repo, number))
     }
@@ -1108,12 +1198,16 @@ class GitHubRepository(
             forceRefresh = forceRefresh,
             onCached = { persistToDiskAsync("viewer_repos", "MY", it) }
         ) {
-            try {
-                graphQlService.fetchViewerRepositories()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                restService.fetchViewerRepositoriesRest()
+            when (activeProviderType()) {
+                ProviderType.GITHUB -> try {
+                    graphQlService.fetchViewerRepositories()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    restService.fetchViewerRepositoriesRest()
+                }
+                ProviderType.FORGEJO_GITEA -> forgejoService.fetchViewerRepositories(activeForgejoApiBaseUrl())
+                ProviderType.LOCAL -> emptyList()
             }
         }
 
@@ -1125,12 +1219,16 @@ class GitHubRepository(
             forceRefresh = forceRefresh,
             onCached = { persistToDiskAsync("viewer_repos", "STARRED", it) }
         ) {
-            try {
-                graphQlService.fetchStarredRepositories()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                restService.fetchStarredRepositoriesRest()
+            when (activeProviderType()) {
+                ProviderType.GITHUB -> try {
+                    graphQlService.fetchStarredRepositories()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    restService.fetchStarredRepositoriesRest()
+                }
+                ProviderType.FORGEJO_GITEA -> forgejoService.fetchStarredRepositories(activeForgejoApiBaseUrl())
+                ProviderType.LOCAL -> emptyList()
             }
         }
 
@@ -1143,12 +1241,16 @@ class GitHubRepository(
             flightNamespace = "searchRepos",
             forceRefresh = forceRefresh
         ) {
-            try {
-                graphQlService.searchRepositories(trimmed)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                restService.searchRepositoriesRest(trimmed)
+            when (activeProviderType()) {
+                ProviderType.GITHUB -> try {
+                    graphQlService.searchRepositories(trimmed)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    restService.searchRepositoriesRest(trimmed)
+                }
+                ProviderType.FORGEJO_GITEA -> forgejoService.searchRepositories(activeForgejoApiBaseUrl(), trimmed)
+                ProviderType.LOCAL -> emptyList()
             }
         }
     }
@@ -1163,10 +1265,14 @@ class GitHubRepository(
         flightNamespace = "repoDetail",
         forceRefresh = forceRefresh
     ) {
-        coroutineScope {
-            val detailDeferred = async { graphQlService.fetchRepoDetail(owner, repo) }
-            val branchesDeferred = async { runCatchingCancellable { restService.fetchBranches(owner, repo) }.getOrDefault(emptyList()) }
-            detailDeferred.await().copy(branches = branchesDeferred.await())
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> coroutineScope {
+                val detailDeferred = async { graphQlService.fetchRepoDetail(owner, repo) }
+                val branchesDeferred = async { runCatchingCancellable { restService.fetchBranches(owner, repo) }.getOrDefault(emptyList()) }
+                detailDeferred.await().copy(branches = branchesDeferred.await())
+            }
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchRepoDetail(activeForgejoApiBaseUrl(), owner, repo)
+            ProviderType.LOCAL -> throw GitHubApiException(501, "Not supported in local mode", isSyntheticStatus = true)
         }
     }
 
@@ -1182,12 +1288,26 @@ class GitHubRepository(
         flightNamespace = "repoIssues",
         forceRefresh = forceRefresh
     ) {
-        val fetched = graphQlService.fetchRepoIssuesAndPulls(owner, repo, pullRequests, stateFilter)
+        val fetched = when (activeProviderType()) {
+            ProviderType.GITHUB -> graphQlService.fetchRepoIssuesAndPulls(owner, repo, pullRequests, stateFilter)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchRepoIssuesOrPulls(
+                activeForgejoApiBaseUrl(),
+                owner,
+                repo,
+                pullRequests,
+                stateFilter
+            )
+            ProviderType.LOCAL -> emptyList()
+        }
         reconcileRepoIssues(owner, repo, pullRequests, stateFilter, fetched)
     }
 
     suspend fun getBranches(owner: String, repo: String): Result<List<BranchRef>> = runCatchingCancellable {
-        restService.fetchBranches(owner, repo)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchBranches(owner, repo)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchBranches(activeForgejoApiBaseUrl(), owner, repo)
+            ProviderType.LOCAL -> emptyList()
+        }
     }
 
     suspend fun getDirectoryContents(
@@ -1202,7 +1322,11 @@ class GitHubRepository(
         flightNamespace = "dir",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchDirectoryContents(owner, repo, path, ref)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchDirectoryContents(owner, repo, path, ref)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchDirectoryContents(activeForgejoApiBaseUrl(), owner, repo, path, ref)
+            ProviderType.LOCAL -> emptyList()
+        }
     }
 
     suspend fun getFileContent(
@@ -1217,7 +1341,11 @@ class GitHubRepository(
         flightNamespace = "file",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchFileContent(owner, repo, path, ref)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchFileContent(owner, repo, path, ref)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchFileContent(activeForgejoApiBaseUrl(), owner, repo, path, ref)
+            ProviderType.LOCAL -> throw GitHubApiException(501, "Not supported in local mode", isSyntheticStatus = true)
+        }
     }
 
     suspend fun getReadme(
@@ -1231,7 +1359,11 @@ class GitHubRepository(
         flightNamespace = "readme",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchReadme(owner, repo, ref)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchReadme(owner, repo, ref)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchReadme(activeForgejoApiBaseUrl(), owner, repo, ref)
+            ProviderType.LOCAL -> null
+        }
     }
 
     suspend fun upsertRepoFile(
@@ -1243,9 +1375,12 @@ class GitHubRepository(
         branch: String? = null,
         existingSha: String? = null
     ): Result<String> = runMutationCancellable {
-        restService.upsertRepoFile(owner, repo, path, content, message, branch, existingSha).also {
-            invalidateRepoTreeCaches(owner, repo)
+        val sha = when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.upsertRepoFile(owner, repo, path, content, message, branch, existingSha)
+            ProviderType.FORGEJO_GITEA -> forgejoService.upsertRepoFile(activeForgejoApiBaseUrl(), owner, repo, path, content, message, branch, existingSha)
+            ProviderType.LOCAL -> ""
         }
+        sha.also { invalidateRepoTreeCaches(owner, repo) }
     }
 
     /**
@@ -1276,9 +1411,12 @@ class GitHubRepository(
         message: String,
         branch: String? = null
     ): Result<String> = runMutationCancellable {
-        restService.deleteRepoFile(owner, repo, path, sha, message, branch).also {
-            invalidateRepoTreeCaches(owner, repo)
+        val resultSha = when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.deleteRepoFile(owner, repo, path, sha, message, branch)
+            ProviderType.FORGEJO_GITEA -> forgejoService.deleteRepoFile(activeForgejoApiBaseUrl(), owner, repo, path, sha, message, branch)
+            ProviderType.LOCAL -> ""
         }
+        resultSha.also { invalidateRepoTreeCaches(owner, repo) }
     }
 
     private suspend fun invalidateRepoTreeCaches(owner: String, repo: String) {
@@ -1292,7 +1430,11 @@ class GitHubRepository(
     }
 
     suspend fun setStarred(owner: String, repo: String, starred: Boolean): Result<Unit> = runMutationCancellable {
-        restService.setStarred(owner, repo, starred)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.setStarred(owner, repo, starred)
+            ProviderType.FORGEJO_GITEA -> forgejoService.setStarred(activeForgejoApiBaseUrl(), owner, repo, starred)
+            ProviderType.LOCAL -> Unit
+        }
         repoDetailCache.invalidate(repoKey(owner, repo))
         viewerReposCache.invalidate("STARRED")
         viewerReposCache.invalidate("MY")
@@ -1310,7 +1452,11 @@ class GitHubRepository(
         forceRefresh = forceRefresh,
         onCached = { persistToDiskAsync("calendar", login.lowercase(), it) }
     ) {
-        graphQlService.fetchContributionCalendar(login)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> graphQlService.fetchContributionCalendar(login)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchContributionCalendar(activeForgejoApiBaseUrl(), login)
+            ProviderType.LOCAL -> ContributionCalendar(0, emptyList())
+        }
     }
 
     suspend fun getReceivedEvents(
@@ -1323,7 +1469,11 @@ class GitHubRepository(
         forceRefresh = forceRefresh,
         onCached = { persistToDiskAsync("received_events", login.lowercase(), it) }
     ) {
-        restService.fetchReceivedEvents(login)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchReceivedEvents(login)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchUserActivityEvents(activeForgejoApiBaseUrl(), login)
+            ProviderType.LOCAL -> emptyList()
+        }
     }
 
     suspend fun getUserEvents(
@@ -1336,7 +1486,11 @@ class GitHubRepository(
         forceRefresh = forceRefresh,
         onCached = { persistToDiskAsync("user_events", login.lowercase(), it) }
     ) {
-        restService.fetchUserEvents(login)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchUserEvents(login)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchUserActivityEvents(activeForgejoApiBaseUrl(), login)
+            ProviderType.LOCAL -> emptyList()
+        }
     }
 
     suspend fun getUserProfile(
@@ -1348,11 +1502,19 @@ class GitHubRepository(
         flightNamespace = "userProfile",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchUserProfileRest(login)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchUserProfileRest(login)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchUserProfile(activeForgejoApiBaseUrl(), login)
+            ProviderType.LOCAL -> UserProfile(login = login)
+        }
     }
 
     suspend fun setFollowingUser(login: String, follow: Boolean): Result<Unit> = runMutationCancellable {
-        restService.setFollowingUser(login, follow)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.setFollowingUser(login, follow)
+            ProviderType.FORGEJO_GITEA -> forgejoService.setFollowingUser(activeForgejoApiBaseUrl(), login, follow)
+            ProviderType.LOCAL -> Unit
+        }
         userProfileCache.invalidate(login)
         profileCache.clear()
     }
@@ -1367,7 +1529,11 @@ class GitHubRepository(
         flightNamespace = "userRepos",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchUserRepositories(login, isOrganization = isOrganization)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchUserRepositories(login, isOrganization = isOrganization)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchUserRepositories(activeForgejoApiBaseUrl(), login, isOrganization)
+            ProviderType.LOCAL -> emptyList()
+        }
     }
 
     suspend fun getUserStarredRepositories(
@@ -1379,7 +1545,11 @@ class GitHubRepository(
         flightNamespace = "userStarred",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchUserStarredRepositories(login)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchUserStarredRepositories(login)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchUserStarredRepositories(activeForgejoApiBaseUrl(), login)
+            ProviderType.LOCAL -> emptyList()
+        }
     }
 
     suspend fun getUserOrganizations(
@@ -1391,7 +1561,11 @@ class GitHubRepository(
         flightNamespace = "userOrgs",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchUserOrganizations(login)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchUserOrganizations(login)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchUserOrganizations(activeForgejoApiBaseUrl(), login)
+            ProviderType.LOCAL -> emptyList()
+        }
     }
 
     suspend fun getUserFollowers(
@@ -1403,7 +1577,11 @@ class GitHubRepository(
         flightNamespace = "userFollowers",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchUserFollowers(login)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchUserFollowers(login)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchUserFollowers(activeForgejoApiBaseUrl(), login)
+            ProviderType.LOCAL -> emptyList()
+        }
     }
 
     suspend fun getUserFollowing(
@@ -1415,7 +1593,11 @@ class GitHubRepository(
         flightNamespace = "userFollowing",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchUserFollowing(login)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchUserFollowing(login)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchUserFollowing(activeForgejoApiBaseUrl(), login)
+            ProviderType.LOCAL -> emptyList()
+        }
     }
 
     suspend fun searchIssuesAndPullsGlobal(
@@ -1430,7 +1612,11 @@ class GitHubRepository(
             flightNamespace = "searchIssues",
             forceRefresh = forceRefresh
         ) {
-            restService.searchIssuesAndPullsRest(trimmed)
+            when (activeProviderType()) {
+                ProviderType.GITHUB -> restService.searchIssuesAndPullsRest(trimmed)
+                ProviderType.FORGEJO_GITEA -> forgejoService.searchIssuesAndPulls(activeForgejoApiBaseUrl(), trimmed)
+                ProviderType.LOCAL -> emptyList()
+            }
         }
     }
 
@@ -1446,7 +1632,10 @@ class GitHubRepository(
             flightNamespace = "searchCode",
             forceRefresh = forceRefresh
         ) {
-            restService.searchCodeRest(trimmed)
+            when (activeProviderType()) {
+                ProviderType.GITHUB -> restService.searchCodeRest(trimmed)
+                ProviderType.FORGEJO_GITEA, ProviderType.LOCAL -> emptyList()
+            }
         }
     }
 
@@ -1462,7 +1651,11 @@ class GitHubRepository(
             flightNamespace = "searchUsers",
             forceRefresh = forceRefresh
         ) {
-            restService.searchUsersRest(trimmed)
+            when (activeProviderType()) {
+                ProviderType.GITHUB -> restService.searchUsersRest(trimmed)
+                ProviderType.FORGEJO_GITEA -> forgejoService.searchUsers(activeForgejoApiBaseUrl(), trimmed)
+                ProviderType.LOCAL -> emptyList()
+            }
         }
     }
 
@@ -1492,7 +1685,11 @@ class GitHubRepository(
                 if (key.isEmpty()) persistToDiskAsync("trending_repos", "all", it)
             }
         ) {
-            restService.fetchTrendingRepositories(key.takeIf(String::isNotEmpty))
+            when (activeProviderType()) {
+                ProviderType.GITHUB -> restService.fetchTrendingRepositories(key.takeIf(String::isNotEmpty))
+                ProviderType.FORGEJO_GITEA -> forgejoService.fetchTrendingRepositories(activeForgejoApiBaseUrl(), key.takeIf(String::isNotEmpty))
+                ProviderType.LOCAL -> emptyList()
+            }
         }
     }
 
@@ -1502,14 +1699,24 @@ class GitHubRepository(
         isPrivate: Boolean = false,
         autoInit: Boolean = true
     ): Result<RepoSummary> = runMutationCancellable {
-        restService.createRepositoryRest(name, description, isPrivate, autoInit).also {
+        val created = when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.createRepositoryRest(name, description, isPrivate, autoInit)
+            ProviderType.FORGEJO_GITEA -> forgejoService.createRepository(activeForgejoApiBaseUrl(), name, description, isPrivate, autoInit)
+            ProviderType.LOCAL -> throw GitHubApiException(501, "Not supported in local mode", isSyntheticStatus = true)
+        }
+        created.also {
             viewerReposCache.invalidate("MY")
             userReposCache.clear()
         }
     }
 
     suspend fun forkRepository(owner: String, repo: String): Result<RepoSummary> = runMutationCancellable {
-        restService.forkRepositoryRest(owner, repo).also { forked ->
+        val forked = when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.forkRepositoryRest(owner, repo)
+            ProviderType.FORGEJO_GITEA -> forgejoService.forkRepository(activeForgejoApiBaseUrl(), owner, repo)
+            ProviderType.LOCAL -> throw GitHubApiException(501, "Not supported in local mode", isSyntheticStatus = true)
+        }
+        forked.also {
             viewerReposCache.invalidate("MY")
             userReposCache.clear()
             repoDetailCache.invalidate(repoKey(owner, repo))
@@ -1530,7 +1737,11 @@ class GitHubRepository(
             repoSubscriptionCache.peekIfFresh(key)?.let { return Result.success(it) }
         }
         return runCatchingCancellable {
-            restService.fetchRepoSubscription(owner, repo)
+            when (activeProviderType()) {
+                ProviderType.GITHUB -> restService.fetchRepoSubscription(owner, repo)
+                ProviderType.FORGEJO_GITEA -> forgejoService.fetchRepoSubscription(activeForgejoApiBaseUrl(), owner, repo)
+                ProviderType.LOCAL -> false
+            }
         }.onSuccess {
             repoSubscriptionCache.put(key, it)
         }
@@ -1541,7 +1752,11 @@ class GitHubRepository(
         repo: String,
         subscribed: Boolean
     ): Result<Unit> = runMutationCancellable {
-        restService.setRepoSubscription(owner, repo, subscribed)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.setRepoSubscription(owner, repo, subscribed)
+            ProviderType.FORGEJO_GITEA -> forgejoService.setRepoSubscription(activeForgejoApiBaseUrl(), owner, repo, subscribed)
+            ProviderType.LOCAL -> Unit
+        }
         val key = repoKey(owner, repo)
         repoSubscriptionCache.put(key, subscribed)
         repoDetailCache.invalidate(key)
@@ -1594,7 +1809,11 @@ class GitHubRepository(
         flightNamespace = "repoLabels",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchRepoLabels(owner, repo)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchRepoLabels(owner, repo)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchRepoLabels(activeForgejoApiBaseUrl(), owner, repo)
+            ProviderType.LOCAL -> emptyList()
+        }
     }
 
     suspend fun createRepoLabel(
@@ -1652,7 +1871,11 @@ class GitHubRepository(
         flightNamespace = "repoMilestones",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchRepoMilestones(owner, repo, state = state)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchRepoMilestones(owner, repo, state = state)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchRepoMilestones(activeForgejoApiBaseUrl(), owner, repo, state)
+            ProviderType.LOCAL -> emptyList()
+        }
     }
 
     suspend fun createRepoMilestone(
@@ -1753,7 +1976,11 @@ class GitHubRepository(
         flightNamespace = "commits",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchRepoCommits(owner, repo, ref, path.takeIf(String::isNotBlank))
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchRepoCommits(owner, repo, ref, path.takeIf(String::isNotBlank))
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchRepoCommits(activeForgejoApiBaseUrl(), owner, repo, ref, path.takeIf(String::isNotBlank))
+            ProviderType.LOCAL -> emptyList()
+        }
     }
 
     suspend fun getCommitDetail(
@@ -1767,7 +1994,11 @@ class GitHubRepository(
         flightNamespace = "commitDetail",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchCommitDetail(owner, repo, sha)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchCommitDetail(owner, repo, sha)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchCommitDetail(activeForgejoApiBaseUrl(), owner, repo, sha)
+            ProviderType.LOCAL -> throw GitHubApiException(501, "Not supported in local mode", isSyntheticStatus = true)
+        }
     }
 
     suspend fun getRepoTags(
@@ -1780,7 +2011,11 @@ class GitHubRepository(
         flightNamespace = "tags",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchRepoTags(owner, repo)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchRepoTags(owner, repo)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchRepoTags(activeForgejoApiBaseUrl(), owner, repo)
+            ProviderType.LOCAL -> emptyList()
+        }
     }
 
     suspend fun compareRefs(
@@ -1811,7 +2046,10 @@ class GitHubRepository(
         flightNamespace = "workflows",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchWorkflows(owner, repo)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchWorkflows(owner, repo)
+            ProviderType.FORGEJO_GITEA, ProviderType.LOCAL -> emptyList()
+        }
     }
 
     suspend fun getWorkflowRuns(
@@ -1825,7 +2063,10 @@ class GitHubRepository(
         flightNamespace = "workflowRuns",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchWorkflowRuns(owner, repo, workflowId)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchWorkflowRuns(owner, repo, workflowId)
+            ProviderType.FORGEJO_GITEA, ProviderType.LOCAL -> emptyList()
+        }
     }
 
     suspend fun getWorkflowRun(
@@ -1909,7 +2150,10 @@ class GitHubRepository(
         flightNamespace = "checkRuns",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchCheckRunsForRef(owner, repo, ref)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchCheckRunsForRef(owner, repo, ref)
+            ProviderType.FORGEJO_GITEA, ProviderType.LOCAL -> emptyList()
+        }
     }
 
     suspend fun getCheckRunsForCheckSuite(
@@ -1923,7 +2167,10 @@ class GitHubRepository(
         flightNamespace = "checkRuns",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchCheckRunsForCheckSuite(owner, repo, checkSuiteId)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchCheckRunsForCheckSuite(owner, repo, checkSuiteId)
+            ProviderType.FORGEJO_GITEA, ProviderType.LOCAL -> emptyList()
+        }
     }
 
     fun peekReleases(owner: String, repo: String): List<ReleaseSummary>? =
@@ -1939,7 +2186,11 @@ class GitHubRepository(
         flightNamespace = "releases",
         forceRefresh = forceRefresh
     ) {
-        restService.fetchReleases(owner, repo)
+        when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.fetchReleases(owner, repo)
+            ProviderType.FORGEJO_GITEA -> forgejoService.fetchReleases(activeForgejoApiBaseUrl(), owner, repo)
+            ProviderType.LOCAL -> emptyList()
+        }
     }
 
     suspend fun createRelease(
@@ -1953,17 +2204,32 @@ class GitHubRepository(
         isPrerelease: Boolean = false,
         generateReleaseNotes: Boolean = true
     ): Result<ReleaseSummary> = runMutationCancellable {
-        restService.createRelease(
-            owner = owner,
-            repo = repo,
-            tagName = tagName,
-            name = name,
-            body = body,
-            targetCommitish = targetCommitish,
-            isDraft = isDraft,
-            isPrerelease = isPrerelease,
-            generateReleaseNotes = generateReleaseNotes
-        ).also {
+        val created = when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.createRelease(
+                owner = owner,
+                repo = repo,
+                tagName = tagName,
+                name = name,
+                body = body,
+                targetCommitish = targetCommitish,
+                isDraft = isDraft,
+                isPrerelease = isPrerelease,
+                generateReleaseNotes = generateReleaseNotes
+            )
+            ProviderType.FORGEJO_GITEA -> forgejoService.createRelease(
+                apiBaseUrl = activeForgejoApiBaseUrl(),
+                owner = owner,
+                repo = repo,
+                tagName = tagName,
+                name = name,
+                body = body,
+                targetCommitish = targetCommitish,
+                isDraft = isDraft,
+                isPrerelease = isPrerelease
+            )
+            ProviderType.LOCAL -> throw GitHubApiException(501, "Not supported in local mode", isSyntheticStatus = true)
+        }
+        created.also {
             val key = repoKey(owner, repo)
             releasesCache.invalidate(key)
             tagsCache.invalidate(key)
@@ -2109,7 +2375,12 @@ class GitHubRepository(
         base: String,
         draft: Boolean = false
     ): Result<Int> = runMutationCancellable {
-        restService.createPullRequest(owner, repo, title, body, head, base, draft).also {
+        val number = when (activeProviderType()) {
+            ProviderType.GITHUB -> restService.createPullRequest(owner, repo, title, body, head, base, draft)
+            ProviderType.FORGEJO_GITEA -> forgejoService.createPullRequest(activeForgejoApiBaseUrl(), owner, repo, title, body, head, base)
+            ProviderType.LOCAL -> throw GitHubApiException(501, "Not supported in local mode", isSyntheticStatus = true)
+        }
+        number.also {
             val key = repoKey(owner, repo)
             repoIssuesCache.invalidateWhere { it.owner == key.owner && it.repo == key.repo }
             myIssuesCache.clear()
@@ -2276,45 +2547,49 @@ class GitHubRepository(
             forceRefresh = forceRefresh,
             shouldCache = { !it.statsComputing }
         ) {
-            coroutineScope {
-                val langJob = async { runCatchingCancellable { restService.fetchRepoLanguages(cleanOwner, cleanRepo) } }
-                val activityJob = async { runCatchingCancellable { restService.fetchRepoCommitActivity(cleanOwner, cleanRepo) } }
-                val contribJob = async { runCatchingCancellable { restService.fetchRepoContributorStats(cleanOwner, cleanRepo) } }
+            when (activeProviderType()) {
+                ProviderType.FORGEJO_GITEA -> forgejoService.fetchRepoInsights(activeForgejoApiBaseUrl(), cleanOwner, cleanRepo)
+                ProviderType.LOCAL -> RepoInsightsData(emptyList(), 0L, emptyList(), emptyList(), statsComputing = false)
+                ProviderType.GITHUB -> coroutineScope {
+                    val langJob = async { runCatchingCancellable { restService.fetchRepoLanguages(cleanOwner, cleanRepo) } }
+                    val activityJob = async { runCatchingCancellable { restService.fetchRepoCommitActivity(cleanOwner, cleanRepo) } }
+                    val contribJob = async { runCatchingCancellable { restService.fetchRepoContributorStats(cleanOwner, cleanRepo) } }
 
-                val langRes = langJob.await()
-                val actRes = activityJob.await()
-                val contribRes = contribJob.await()
+                    val langRes = langJob.await()
+                    val actRes = activityJob.await()
+                    val contribRes = contribJob.await()
 
-                val firstFatal = listOf(langRes, actRes, contribRes).firstOrNull { it.isFailure }?.exceptionOrNull()
-                if (langRes.isFailure && actRes.isFailure && contribRes.isFailure) {
-                    throw firstFatal ?: IllegalStateException("Failed to load repository insights")
+                    val firstFatal = listOf(langRes, actRes, contribRes).firstOrNull { it.isFailure }?.exceptionOrNull()
+                    if (langRes.isFailure && actRes.isFailure && contribRes.isFailure) {
+                        throw firstFatal ?: IllegalStateException("Failed to load repository insights")
+                    }
+
+                    val langMap = langRes.getOrElse { emptyMap() }
+                    val (weekly, actComputing) = actRes.getOrElse { emptyList<WeeklyCommitActivity>() to false }
+                    val (contributors, contribComputing) = contribRes.getOrElse { emptyList<ContributorStat>() to false }
+                    val finalContributors = if (contributors.isEmpty() && contribComputing) {
+                        runCatchingCancellable {
+                            restService.fetchRepoContributors(cleanOwner, cleanRepo, perPage = 10).map { user ->
+                                ContributorStat(
+                                    login = user.login,
+                                    avatarUrl = user.avatarUrl,
+                                    htmlUrl = user.htmlUrl,
+                                    totalCommits = 0
+                                )
+                            }
+                        }.getOrDefault(emptyList())
+                    } else {
+                        contributors
+                    }
+
+                    RepoInsightsData(
+                        languages = computeLanguageShares(langMap),
+                        totalLanguageBytes = langMap.values.filter { it > 0L }.sum(),
+                        weeklyActivity = weekly,
+                        contributors = finalContributors,
+                        statsComputing = actComputing || contribComputing
+                    )
                 }
-
-                val langMap = langRes.getOrElse { emptyMap() }
-                val (weekly, actComputing) = actRes.getOrElse { emptyList<WeeklyCommitActivity>() to false }
-                val (contributors, contribComputing) = contribRes.getOrElse { emptyList<ContributorStat>() to false }
-                val finalContributors = if (contributors.isEmpty() && contribComputing) {
-                    runCatchingCancellable {
-                        restService.fetchRepoContributors(cleanOwner, cleanRepo, perPage = 10).map { user ->
-                            ContributorStat(
-                                login = user.login,
-                                avatarUrl = user.avatarUrl,
-                                htmlUrl = user.htmlUrl,
-                                totalCommits = 0
-                            )
-                        }
-                    }.getOrDefault(emptyList())
-                } else {
-                    contributors
-                }
-
-                RepoInsightsData(
-                    languages = computeLanguageShares(langMap),
-                    totalLanguageBytes = langMap.values.filter { it > 0L }.sum(),
-                    weeklyActivity = weekly,
-                    contributors = finalContributors,
-                    statsComputing = actComputing || contribComputing
-                )
             }
         }
     }

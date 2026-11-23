@@ -41,8 +41,10 @@ class NotificationMonitor(
     private val checkMutex = Mutex()
 
     suspend fun markThreadsSeen(threads: List<NotificationThread>) = checkMutex.withLock {
-        if (sessionManager.session.value == null || threads.isEmpty()) return@withLock
-        val previousMarkers = sessionManager.loadSeenNotificationMarkers()
+        val activeSession = sessionManager.session.value ?: return@withLock
+        if (threads.isEmpty()) return@withLock
+        val accountId = activeSession.resolvedAccountId()
+        val previousMarkers = sessionManager.loadSeenNotificationMarkers(accountId)
         val nextMarkers = previousMarkers.toMutableMap()
         var changed = previousMarkers[BASELINE_MARKER_KEY] != "1"
         for (thread in threads) {
@@ -55,18 +57,20 @@ class NotificationMonitor(
         nextMarkers[BASELINE_MARKER_KEY] = "1"
         val activeIds = threads.mapTo(HashSet()) { it.id }
         val trimmed = trimMarkers(nextMarkers, protectedIds = activeIds)
-        sessionManager.saveSeenNotificationMarkers(trimmed)
+        sessionManager.saveSeenNotificationMarkers(trimmed, accountId)
     }
 
     suspend fun checkForNewNotifications(
         suppressOsAlerts: Boolean = false
     ): Result<NotificationCheckResult> = checkMutex.withLock {
-        if (sessionManager.session.value == null) {
+        val activeSession = sessionManager.session.value
+        if (activeSession == null) {
             return@withLock Result.success(NotificationCheckResult(emptyList(), emptyList()))
         }
+        val accountId = activeSession.resolvedAccountId()
 
         val prefs = sessionManager.notificationPreferences.value
-        val previousMarkers = sessionManager.loadSeenNotificationMarkers()
+        val previousMarkers = sessionManager.loadSeenNotificationMarkers(accountId)
 
         repository.getNotifications(all = false, participating = false).map { unread ->
             val nextMarkers = previousMarkers.toMutableMap()
@@ -108,7 +112,7 @@ class NotificationMonitor(
             // Keep map bounded to MAX_SEEN_MARKERS + baseline sentinel without dropping unrelated seen threads
             val activeIds = unread.mapTo(HashSet()) { it.id }
             val trimmedMarkers = trimMarkers(nextMarkers, protectedIds = activeIds)
-            sessionManager.saveSeenNotificationMarkers(trimmedMarkers)
+            sessionManager.saveSeenNotificationMarkers(trimmedMarkers, accountId)
 
             NotificationCheckResult(
                 allUnread = unread,

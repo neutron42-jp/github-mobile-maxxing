@@ -3,6 +3,7 @@ package dev.maxxing.github.network
 import dev.maxxing.github.auth.SessionManager
 import dev.maxxing.github.model.AppBranding
 import dev.maxxing.github.model.HttpStatusError
+import dev.maxxing.github.model.ProviderType
 import dev.maxxing.github.model.RateLimitInfo
 import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
@@ -95,32 +96,84 @@ class GitHubNetworkConfig(
 
     private fun HttpClient.installAuthorization() {
         plugin(HttpSend).intercept { request ->
-            if (!request.url.isAuthorizedGithubRequest(request.method)) {
-                // Never send the token to other hosts (e.g. a redirect to a log download URL) or
-                // to an endpoint outside the one user-attachment upload path.
+            val active = sessionManager.session.value
+            if (active == null) {
                 request.headers.remove(HttpHeaders.Authorization)
                 return@intercept execute(request)
             }
-            val token = sessionManager.refreshSessionIfExpiringSoon()?.accessToken
-            request.setBearerToken(token)
-            val call = execute(request)
-            if (token == null || call.response.status != HttpStatusCode.Unauthorized) return@intercept call
+            val accountId = active.resolvedAccountId()
+            when (active.providerType) {
+                ProviderType.GITHUB -> {
+                    if (!request.url.isAuthorizedGithubRequest(request.method)) {
+                        // Never send the token to other hosts (e.g. a redirect to a log download URL) or
+                        // to an endpoint outside the one user-attachment upload path.
+                        request.headers.remove(HttpHeaders.Authorization)
+                        return@intercept execute(request)
+                    }
+                    val token = sessionManager.refreshSessionIfExpiringSoon(accountId)?.accessToken
+                    request.setAuthHeader("Bearer", token)
+                    val call = execute(request)
+                    if (token == null || call.response.status != HttpStatusCode.Unauthorized) return@intercept call
 
-            // The token may have expired or been replaced by another SessionManager; retry once with a new one.
-            val refreshedToken = sessionManager.refreshAfterUnauthorized(token)?.accessToken
-            if (refreshedToken == null || refreshedToken == token) return@intercept call
-            request.setBearerToken(refreshedToken)
-            execute(request)
+                    // The token may have expired or been replaced by another SessionManager; retry once with a new one.
+                    val refreshedToken = sessionManager.refreshAfterUnauthorized(token, accountId)?.accessToken
+                    if (refreshedToken == null || refreshedToken == token) {
+                        sessionManager.markReauthRequired(accountId)
+                        return@intercept call
+                    }
+                    request.setAuthHeader("Bearer", refreshedToken)
+                    val retryCall = execute(request)
+                    if (retryCall.response.status == HttpStatusCode.Unauthorized) {
+                        sessionManager.markReauthRequired(accountId)
+                    }
+                    retryCall
+                }
+                ProviderType.FORGEJO_GITEA -> {
+                    if (!request.url.isAuthorizedForgejoRequest(active.resolvedWebBaseUrl(), active.resolvedApiBaseUrl())) {
+                        request.headers.remove(HttpHeaders.Authorization)
+                        return@intercept execute(request)
+                    }
+                    request.headers.remove("X-GitHub-Api-Version")
+                    request.headers[HttpHeaders.Accept] = "application/json"
+                    val scheme = if (active.tokenType.equals("token", ignoreCase = true) ||
+                        active.authMethod == dev.maxxing.github.model.AuthMethod.PERSONAL_ACCESS_TOKEN
+                    ) "token" else "Bearer"
+                    request.setAuthHeader(scheme, active.accessToken)
+                    val call = execute(request)
+                    if (call.response.status == HttpStatusCode.Unauthorized) {
+                        sessionManager.markReauthRequired(accountId)
+                    }
+                    call
+                }
+                ProviderType.LOCAL -> {
+                    request.headers.remove(HttpHeaders.Authorization)
+                    execute(request)
+                }
+            }
         }
     }
 
-    private fun HttpRequestBuilder.setBearerToken(token: String?) {
+    private fun HttpRequestBuilder.setAuthHeader(scheme: String, token: String?) {
         headers.remove(HttpHeaders.Authorization)
-        if (token != null) headers.append(HttpHeaders.Authorization, "Bearer $token")
+        if (!token.isNullOrBlank()) headers.append(HttpHeaders.Authorization, "$scheme $token")
     }
 
     private fun URLBuilder.isAuthorizedGithubRequest(method: HttpMethod): Boolean =
         isApiUrl() || isUserAttachmentUpload(method)
+
+    private fun URLBuilder.isAuthorizedForgejoRequest(webBaseUrl: String, apiBaseUrl: String): Boolean {
+        val apiParsed = runCatching { Url(apiBaseUrl) }.getOrNull()
+        val webParsed = runCatching { Url(webBaseUrl) }.getOrNull()
+        val matchesApi = apiParsed != null &&
+            protocol == apiParsed.protocol &&
+            host.equals(apiParsed.host, ignoreCase = true) &&
+            port.effectivePort(protocol.defaultPort) == apiParsed.port.effectivePort(apiParsed.protocol.defaultPort)
+        val matchesWeb = webParsed != null &&
+            protocol == webParsed.protocol &&
+            host.equals(webParsed.host, ignoreCase = true) &&
+            port.effectivePort(protocol.defaultPort) == webParsed.port.effectivePort(webParsed.protocol.defaultPort)
+        return matchesApi || matchesWeb
+    }
 
     private fun URLBuilder.isApiUrl(): Boolean =
         protocol == apiUrl.protocol &&

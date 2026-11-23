@@ -20,6 +20,23 @@ internal const val KEY_THEME_SEED_COLOR_HEX = "seedColorHex"
 internal const val KEY_THEME_MONOCHROME_PRESET_SELECTED = "monochromePresetSelected"
 
 /**
+ * Turns an arbitrary account ID (for example `forgejo:codeberg.org:42`) into a safe,
+ * collision-resistant filename / Keychain account key.
+ */
+internal fun sanitizeAccountStorageKey(accountId: String): String {
+    val sb = StringBuilder(accountId.length + 12)
+    for (ch in accountId) {
+        if (ch in 'a'..'z' || ch in 'A'..'Z' || ch in '0'..'9' || ch == '_' || ch == '-') {
+            sb.append(ch)
+        } else {
+            sb.append('_')
+            sb.append(ch.code.toString(16))
+        }
+    }
+    return sb.toString().ifEmpty { "default" }
+}
+
+/**
  * Decodes a saved [ThemePreferences] value from any platform store.
  *
  * This version always writes both [KEY_THEME_SEED_COLOR_HEX] and
