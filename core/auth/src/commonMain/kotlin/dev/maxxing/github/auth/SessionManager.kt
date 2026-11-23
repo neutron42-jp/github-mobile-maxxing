@@ -48,6 +48,9 @@ class SessionManager(
     private val _pinnedRepos = MutableStateFlow<List<String>>(emptyList())
     val pinnedRepos: StateFlow<List<String>> = _pinnedRepos.asStateFlow()
 
+    private val _localRepos = MutableStateFlow<List<String>>(emptyList())
+    val localRepos: StateFlow<List<String>> = _localRepos.asStateFlow()
+
     private val _isInitialized = MutableStateFlow(false)
     val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
 
@@ -110,6 +113,11 @@ class SessionManager(
             } else {
                 emptyList()
             }
+            _localRepos.value = if (resolvedActiveId != null) {
+                loadNormalizedLocalRepos(resolvedActiveId)
+            } else {
+                emptyList()
+            }
         }
         _isInitialized.value = true
     }
@@ -124,6 +132,18 @@ class SessionManager(
         val perAccount = tokenStore.loadPinnedReposForAccount(accountId)
         val source = if (perAccount.isNotEmpty()) perAccount else tokenStore.loadPinnedRepos()
         return source.map { it.trim() }.filter { '/' in it }.distinct()
+    }
+
+    private suspend fun loadNormalizedLocalRepos(accountId: String): List<String> =
+        tokenStore.loadLocalReposForAccount(accountId)
+            .map { normalizeLocalRepoPath(it) }
+            .filter { it.isNotEmpty() }
+            .distinct()
+
+    private fun normalizeLocalRepoPath(raw: String): String {
+        val trimmed = raw.trim().replace('\\', '/')
+        if (trimmed == ".") return "."
+        return trimmed.trim('/')
     }
 
     suspend fun updateClientId(newClientId: String) {
@@ -161,6 +181,36 @@ class SessionManager(
         }
     }
 
+    suspend fun getOrCreateLocalIdentitySecret(generator: () -> String): String = refreshMutex.withLock {
+        val existing = tokenStore.loadLocalIdentitySecret()?.trim()?.takeIf { it.isNotEmpty() }
+        if (existing != null) return@withLock existing
+        val generated = generator().trim()
+        tokenStore.saveLocalIdentitySecret(generated)
+        generated
+    }
+
+    suspend fun addLocalAccount(
+        hostName: String,
+        rootName: String,
+        endpointId: String,
+        endpointTicket: String,
+        makeActive: Boolean = true
+    ): AuthSession {
+        val cleanEndpointId = endpointId.trim()
+        val session = AuthSession(
+            accessToken = rootName.trim().ifEmpty { "root" },
+            tokenType = "iroh",
+            scope = rootName.trim(),
+            authMethod = dev.maxxing.github.model.AuthMethod.PERSONAL_ACCESS_TOKEN,
+            userLogin = hostName.trim().ifEmpty { "Local PC" },
+            accountId = "local:$cleanEndpointId",
+            providerType = ProviderType.LOCAL,
+            baseUrl = endpointTicket.trim(),
+            apiBaseUrl = cleanEndpointId
+        )
+        return addOrUpdateAccount(session, makeActive = makeActive)
+    }
+
     /**
      * Adds a new account or updates an existing entry with the same [AuthSession.resolvedAccountId]
      * without overwriting any other stored accounts.
@@ -193,6 +243,7 @@ class SessionManager(
         val activeId = _activeAccountId.value
         if (activeId == id) {
             _pinnedRepos.value = loadNormalizedPinnedRepos(id)
+            _localRepos.value = loadNormalizedLocalRepos(id)
         }
         return normalized
     }
@@ -206,6 +257,7 @@ class SessionManager(
             _session.value = target
         }
         _pinnedRepos.value = loadNormalizedPinnedRepos(accountId)
+        _localRepos.value = loadNormalizedLocalRepos(accountId)
         return true
     }
 
@@ -298,6 +350,29 @@ class SessionManager(
             tokenStore.savePinnedRepos(next)
         }
         return nowPinned
+    }
+
+    suspend fun addLocalRepoPath(repoPath: String): Boolean {
+        val activeId = _activeAccountId.value ?: return false
+        val normalized = normalizeLocalRepoPath(repoPath)
+        if (normalized.isEmpty()) return false
+        val current = _localRepos.value
+        if (current.any { it == normalized }) return false
+        val next = listOf(normalized) + current
+        _localRepos.value = next
+        tokenStore.saveLocalReposForAccount(activeId, next)
+        return true
+    }
+
+    suspend fun removeLocalRepoPath(repoPath: String): Boolean {
+        val activeId = _activeAccountId.value ?: return false
+        val normalized = normalizeLocalRepoPath(repoPath)
+        val current = _localRepos.value
+        val next = current.filterNot { it == normalized }
+        if (next.size == current.size) return false
+        _localRepos.value = next
+        tokenStore.saveLocalReposForAccount(activeId, next)
+        return true
     }
 
     /**
@@ -467,6 +542,7 @@ class SessionManager(
             tokenStore.deleteAccount(accountId)
             tokenStore.saveSeenNotificationMarkersForAccount(accountId, emptyMap())
             tokenStore.savePinnedReposForAccount(accountId, emptyList())
+            tokenStore.saveLocalReposForAccount(accountId, emptyList())
 
             val remaining = _accounts.value.filterNot { it.resolvedAccountId() == accountId }
             val nextActiveId = if (_activeAccountId.value == accountId) {
@@ -496,6 +572,11 @@ class SessionManager(
         } else {
             emptyList()
         }
+        _localRepos.value = if (activeId != null) {
+            loadNormalizedLocalRepos(activeId)
+        } else {
+            emptyList()
+        }
         return nextActive
     }
 
@@ -515,6 +596,7 @@ class SessionManager(
             tokenStore.saveSeenNotificationMarkers(emptyMap())
             tokenStore.savePinnedRepos(emptyList())
             _pinnedRepos.value = emptyList()
+            _localRepos.value = emptyList()
         }
     }
 

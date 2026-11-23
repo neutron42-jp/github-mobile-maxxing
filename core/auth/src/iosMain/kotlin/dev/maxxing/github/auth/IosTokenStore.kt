@@ -154,6 +154,22 @@ internal class IosTokenStore(
         deleteSessionItem(accountKeychainKey(accountId))
     }
 
+    override suspend fun saveLocalIdentitySecret(secretHex: String) = withKeychain {
+        val wrapper = AuthSession(
+            accessToken = secretHex.trim(),
+            providerType = dev.maxxing.github.model.ProviderType.LOCAL,
+            accountId = "__local_identity__"
+        )
+        saveSessionForAccountKey(LOCAL_IDENTITY_KEYCHAIN_ACCOUNT, wrapper)
+    }
+
+    override suspend fun loadLocalIdentitySecret(): String? = withKeychain {
+        loadSessionForAccountKey(LOCAL_IDENTITY_KEYCHAIN_ACCOUNT)
+            ?.accessToken
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+    }
+
     private fun accountKeychainKey(accountId: String): String =
         "account_${sanitizeAccountStorageKey(accountId)}"
 
@@ -378,8 +394,24 @@ internal class IosTokenStore(
         return runCatching { json.decodeFromString<List<String>>(raw) }.getOrDefault(emptyList())
     }
 
+    override suspend fun saveLocalReposForAccount(accountId: String, repoPaths: List<String>) {
+        val key = "${KEY_LOCAL_REPOS}_${sanitizeAccountStorageKey(accountId)}"
+        if (repoPaths.isEmpty()) {
+            userDefaults.removeObjectForKey(key)
+        } else {
+            userDefaults.setObject(json.encodeToString(repoPaths), forKey = key)
+        }
+    }
+
+    override suspend fun loadLocalReposForAccount(accountId: String): List<String> {
+        val key = "${KEY_LOCAL_REPOS}_${sanitizeAccountStorageKey(accountId)}"
+        val raw = userDefaults.stringForKey(key) ?: return emptyList()
+        return runCatching { json.decodeFromString<List<String>>(raw) }.getOrDefault(emptyList())
+    }
+
     companion object {
         private const val KEYCHAIN_ACCOUNT = "github_auth_session"
+        private const val LOCAL_IDENTITY_KEYCHAIN_ACCOUNT = "github_maxxing_local_identity_v1"
         private const val DEFAULT_BUNDLE_ID = "io.github.neutron42-jp.gitmax"
 
         private const val KEY_CLIENT_ID = "github_client_id"
@@ -389,6 +421,7 @@ internal class IosTokenStore(
         private const val KEY_UPDATE_PREFS = "update_prefs"
         private const val KEY_SEEN_NOTIFS = "seen_notifs"
         private const val KEY_PINNED_REPOS = "pinned_repos"
+        private const val KEY_LOCAL_REPOS = "local_repos"
         private const val KEY_HAS_LAUNCHED_BEFORE = "has_launched_before"
 
         internal fun resolveService(): String {

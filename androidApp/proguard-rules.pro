@@ -19,3 +19,11 @@
 }
 -keep class dev.maxxing.github.app.notifications.NotificationSyncWorker { *; }
 -keep class dev.maxxing.github.app.notifications.NotificationActionReceiver { *; }
+
+# UniFFI & JNA (Local iroh P2P FFI)
+-keep class com.sun.jna.** { *; }
+-keepclassmembers class * extends com.sun.jna.** { *; }
+-dontwarn com.sun.jna.**
+-keep class uniffi.local_client_ffi.** { *; }
+-keepclassmembers class uniffi.local_client_ffi.** { *; }
+-dontwarn java.awt.**

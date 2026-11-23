@@ -174,6 +174,7 @@ fun NotificationsScreen(
     val navigator = rememberListDetailPaneScaffoldNavigator<String>()
     val scope = rememberCoroutineScope()
     val strings = appStrings()
+    val capabilities = container.repository.activeCapabilities()
 
     var selectedIssueTargets by remember { mutableStateOf<Map<String, IssuePullTarget>>(emptyMap()) }
     var selectedThreads by remember { mutableStateOf<Map<String, NotificationThread>>(emptyMap()) }
@@ -257,6 +258,13 @@ fun NotificationsScreen(
     var requestSeq by remember { mutableStateOf(0) }
 
     fun loadNotifications(forceRefresh: Boolean = true, showRefreshFeedback: Boolean = false) {
+        if (!capabilities.supportsInbox) {
+            threads = emptyList()
+            isLoading = false
+            isRefreshing = false
+            errorMsg = null
+            return
+        }
         val reqFilter = filter
         val seq = ++requestSeq
         val cached = container.repository.peekNotifications(
@@ -546,6 +554,32 @@ fun NotificationsScreen(
                                     filterNotificationThreads(threads, pageReason, searchQuery)
                                 }
                                 when {
+                                    !capabilities.supportsInbox -> {
+                                        Column(
+                                            modifier = Modifier.fillMaxSize().padding(32.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            Icon(
+                                                Lucide.Inbox,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(52.dp),
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(Modifier.height(12.dp))
+                                            Text(
+                                                text = strings.localInboxUnsupportedTitle,
+                                                style = MaterialTheme.typography.titleLarge
+                                            )
+                                            Spacer(Modifier.height(6.dp))
+                                            Text(
+                                                text = strings.localInboxUnsupportedBody,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
                                     isLoading && threads.isEmpty() -> {
                                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                             MaxxingLoadingState(message = strings.syncingNotifications)

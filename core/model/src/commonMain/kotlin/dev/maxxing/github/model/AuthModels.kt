@@ -10,6 +10,10 @@ enum class ProviderType {
 }
 
 data class ProviderCapabilities(
+    val supportsRepositories: Boolean = true,
+    val supportsIssuesAndPulls: Boolean = true,
+    val supportsInbox: Boolean = true,
+    val supportsWorkingTreeDiff: Boolean = false,
     val supportsGraphQl: Boolean,
     val supportsGists: Boolean,
     val supportsDiscussions: Boolean,
@@ -26,6 +30,10 @@ data class ProviderCapabilities(
 
 fun ProviderType.capabilities(): ProviderCapabilities = when (this) {
     ProviderType.GITHUB -> ProviderCapabilities(
+        supportsRepositories = true,
+        supportsIssuesAndPulls = true,
+        supportsInbox = true,
+        supportsWorkingTreeDiff = false,
         supportsGraphQl = true,
         supportsGists = true,
         supportsDiscussions = true,
@@ -40,6 +48,10 @@ fun ProviderType.capabilities(): ProviderCapabilities = when (this) {
         supportsNotificationsDone = true
     )
     ProviderType.FORGEJO_GITEA -> ProviderCapabilities(
+        supportsRepositories = true,
+        supportsIssuesAndPulls = true,
+        supportsInbox = true,
+        supportsWorkingTreeDiff = false,
         supportsGraphQl = false,
         supportsGists = false,
         supportsDiscussions = false,
@@ -54,6 +66,10 @@ fun ProviderType.capabilities(): ProviderCapabilities = when (this) {
         supportsNotificationsDone = false
     )
     ProviderType.LOCAL -> ProviderCapabilities(
+        supportsRepositories = true,
+        supportsIssuesAndPulls = false,
+        supportsInbox = false,
+        supportsWorkingTreeDiff = true,
         supportsGraphQl = false,
         supportsGists = false,
         supportsDiscussions = false,
@@ -140,7 +156,10 @@ data class AuthSession(
             .removePrefix("https://")
             .removePrefix("http://")
             .substringBefore('/')
-        ProviderType.LOCAL -> "Local"
+        ProviderType.LOCAL -> {
+            val root = scope.trim().takeIf { it.isNotEmpty() }
+            if (root != null) "$root · P2P" else "Local · P2P"
+        }
     }
 
     companion object {

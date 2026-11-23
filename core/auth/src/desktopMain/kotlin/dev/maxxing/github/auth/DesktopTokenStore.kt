@@ -30,6 +30,7 @@ internal class LinuxDesktopTokenStore(
     }
 
     private val sessionFile: File by lazy { File(dataDir, "session.json") }
+    private val localIdentityFile: File by lazy { File(dataDir, "local_identity.key") }
     private val accountsDir: File by lazy { File(dataDir, "accounts").apply { mkdirs() } }
     private val accountIndexFile: File by lazy { File(dataDir, "accounts_index.json") }
     private val configFile: File by lazy { File(dataDir, "config.json") }
@@ -47,6 +48,9 @@ internal class LinuxDesktopTokenStore(
 
     private fun pinnedReposFileFor(accountId: String): File =
         File(accountsDir, "pinned_repos_${sanitizeAccountStorageKey(accountId)}.json")
+
+    private fun localReposFileFor(accountId: String): File =
+        File(accountsDir, "local_repos_${sanitizeAccountStorageKey(accountId)}.json")
 
     override suspend fun saveSession(session: AuthSession) = withContext(Dispatchers.IO) {
         val encoded = encodeSessionForSecretStore(session)
@@ -114,6 +118,22 @@ internal class LinuxDesktopTokenStore(
     override suspend fun loadAccountIndex(): AccountIndex? = withContext(Dispatchers.IO) {
         if (!accountIndexFile.exists()) return@withContext null
         runCatching { json.decodeFromString<AccountIndex>(accountIndexFile.readText()) }.getOrNull()
+    }
+
+    override suspend fun saveLocalIdentitySecret(secretHex: String) = withContext(Dispatchers.IO) {
+        val clean = secretHex.trim()
+        if (!trySecretToolStore("local_identity", clean)) {
+            writeOwnerOnlyFileAtomically(localIdentityFile, clean)
+        } else if (localIdentityFile.exists()) {
+            localIdentityFile.delete()
+        }
+    }
+
+    override suspend fun loadLocalIdentitySecret(): String? = withContext(Dispatchers.IO) {
+        val fromKeyring = trySecretToolLookup("local_identity")?.trim()?.takeIf { it.isNotEmpty() }
+        if (fromKeyring != null) return@withContext fromKeyring
+        if (!localIdentityFile.exists()) return@withContext null
+        localIdentityFile.readText().trim().takeIf { it.isNotEmpty() }
     }
 
     override suspend fun saveClientId(clientId: String) = withContext(Dispatchers.IO) {
@@ -207,6 +227,25 @@ internal class LinuxDesktopTokenStore(
     override suspend fun loadPinnedReposForAccount(accountId: String): List<String> =
         withContext(Dispatchers.IO) {
             val file = pinnedReposFileFor(accountId)
+            if (!file.exists()) return@withContext emptyList()
+            runCatching { json.decodeFromString<List<String>>(file.readText()) }
+                .getOrDefault(emptyList())
+        }
+
+    override suspend fun saveLocalReposForAccount(accountId: String, repoPaths: List<String>) =
+        withContext(Dispatchers.IO) {
+            val file = localReposFileFor(accountId)
+            if (repoPaths.isEmpty()) {
+                if (file.exists()) file.delete()
+            } else {
+                file.writeText(json.encodeToString(repoPaths))
+            }
+            Unit
+        }
+
+    override suspend fun loadLocalReposForAccount(accountId: String): List<String> =
+        withContext(Dispatchers.IO) {
+            val file = localReposFileFor(accountId)
             if (!file.exists()) return@withContext emptyList()
             runCatching { json.decodeFromString<List<String>>(file.readText()) }
                 .getOrDefault(emptyList())

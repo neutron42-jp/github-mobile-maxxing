@@ -42,6 +42,7 @@ private class AndroidKeystoreTokenStore(
     private val json = TokenStoreJson
     private val prefs by lazy { context.getSharedPreferences("maxxing_prefs", Context.MODE_PRIVATE) }
     private val sessionFile by lazy { File(context.filesDir, "maxxing_session.enc") }
+    private val localIdentityFile by lazy { File(context.filesDir, "local_identity.enc") }
     private val accountsDir by lazy { File(context.filesDir, "accounts").apply { mkdirs() } }
 
     private fun accountFile(accountId: String): File =
@@ -143,6 +144,19 @@ private class AndroidKeystoreTokenStore(
         Unit
     }
 
+    override suspend fun saveLocalIdentitySecret(secretHex: String) = withContext(Dispatchers.IO) {
+        val wrapper = AuthSession(
+            accessToken = secretHex.trim(),
+            providerType = dev.maxxing.github.model.ProviderType.LOCAL,
+            accountId = "__local_identity__"
+        )
+        writeFileAtomically(localIdentityFile, encryptSessionPayload(wrapper))
+    }
+
+    override suspend fun loadLocalIdentitySecret(): String? = withContext(Dispatchers.IO) {
+        decryptSessionFile(localIdentityFile)?.accessToken?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
     override suspend fun saveAccountIndex(index: AccountIndex) {
         prefs.edit().putString(KEY_ACCOUNT_INDEX, json.encodeToString(index)).apply()
     }
@@ -227,6 +241,21 @@ private class AndroidKeystoreTokenStore(
         return runCatching { json.decodeFromString<List<String>>(raw) }.getOrDefault(emptyList())
     }
 
+    override suspend fun saveLocalReposForAccount(accountId: String, repoPaths: List<String>) {
+        val key = "${KEY_LOCAL_REPOS}_${sanitizeAccountStorageKey(accountId)}"
+        if (repoPaths.isEmpty()) {
+            prefs.edit().remove(key).apply()
+        } else {
+            prefs.edit().putString(key, json.encodeToString(repoPaths)).apply()
+        }
+    }
+
+    override suspend fun loadLocalReposForAccount(accountId: String): List<String> {
+        val key = "${KEY_LOCAL_REPOS}_${sanitizeAccountStorageKey(accountId)}"
+        val raw = prefs.getString(key, null) ?: return emptyList()
+        return runCatching { json.decodeFromString<List<String>>(raw) }.getOrDefault(emptyList())
+    }
+
     companion object {
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val KEY_ALIAS = "maxxing_session_aes"
@@ -238,6 +267,7 @@ private class AndroidKeystoreTokenStore(
         private const val KEY_UPDATE_PREFS = "update_prefs"
         private const val KEY_SEEN_NOTIFS = "seen_notifs"
         private const val KEY_PINNED_REPOS = "pinned_repos"
+        private const val KEY_LOCAL_REPOS = "local_repos"
     }
 }
 

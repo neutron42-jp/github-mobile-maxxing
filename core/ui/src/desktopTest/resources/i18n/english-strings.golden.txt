@@ -613,8 +613,43 @@ loadingResults	Loading results...
 loadingSystemFonts	Loading system fonts...
 loadingTrending	Loading trending repositories...
 loadingUser	Loading @zqa1...
+localAddRepoTitle	Add Local Repository
+localAddThisRepo	Add Repository
+localBrowseFolderError	Failed to browse folders on local host
+localBrowseReposAction	Browse Local Repos
+localCameraPermissionBody	Allow camera access to scan the QR code printed by local-cli.
+localCameraPermissionTitle	Camera Permission Needed
+localClientNameLabel	Device name
+localCloseScanner	Close Scanner
+localEmptyFolder	No subfolders in this directory
+localFolderUp	Up one folder
+localGitRepoBadge	Git
+localGrantCameraPermission	Allow Camera
+localHomeRootLabel	Home
+localHomeSubtitle	Connected over encrypted iroh P2P
+localInboxUnsupportedBody	Notifications belong to remote hosts like GitHub or Codeberg.
+localInboxUnsupportedTitle	Inbox is unavailable for Local hosts
+localIssuesUnsupportedBody	Open the Repos tab to browse local trees, commits, and working tree diffs.
+localIssuesUnsupportedTitle	Issues & PRs are unavailable for Local hosts
+localNoAccounts	No local PC hosts paired yet.
+localNoRegisteredReposBody	Tap Add above to browse folders starting from your PC's Home directory and register a Git repository.
+localNoRegisteredReposTitle	No repositories registered
+localOpenAppSettings	Open Settings
+localPairAndConnect	Pair & Connect
+localPairCodeLabel	Pairing code
+localPairCodePlaceholder	Paste githubmaxxing-local://pair?d=...
+localPairInstructions	Run local-cli on your PC and scan the QR code or paste the pairing code.
+localPairing	Pairing via P2P...
+localQrUnavailableDesktop	QR camera scanning is only available on mobile devices. Paste the pairing code below.
+localRemoveRepo	Remove Repository
+localRepoAddedMessage	Added zqa1
+localRepoRemovedMessage	Removed zqa1
+localRepoTabChanges	Changes
+localScanQrAction	Scan QR Code
 localWipBody	Local repository management is work in progress and will be available in a future update.
 localWipTitle	WIP
+localWorkingDiffHeader	Working Tree Diff
+localWorkingTreeClean	Working tree is clean
 logoutAction	Logout
 manageAccountsTitle	Manage Accounts
 manageAction	Manage

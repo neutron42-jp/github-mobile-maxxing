@@ -20,3 +20,6 @@ xcuserdata/
 DerivedData/
 iosApp/Configuration/local.env
 Local.xcconfig
+
+# Rust build artifacts
+rust/target/

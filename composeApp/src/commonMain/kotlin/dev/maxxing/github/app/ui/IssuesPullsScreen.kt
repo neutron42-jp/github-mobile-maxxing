@@ -107,6 +107,7 @@ fun IssuesPullsScreen(
     val openedTargets = remember { mutableMapOf<String, IssuePullTarget>() }
     val scope = rememberCoroutineScope()
     val strings = appStrings()
+    val capabilities = container.repository.activeCapabilities()
     val profile by container.viewerProfile.collectAsState()
     val session by container.sessionManager.session.collectAsState()
     val issueStateRevision by container.repository.issueStateRevision.collectAsState()
@@ -127,6 +128,13 @@ fun IssuesPullsScreen(
     var requestSeq by remember { mutableStateOf(0) }
 
     fun loadItems(forceRefresh: Boolean = false) {
+        if (!capabilities.supportsIssuesAndPulls) {
+            items = emptyList()
+            isLoading = false
+            isRefreshing = false
+            errorMsg = null
+            return
+        }
         if (login.isBlank()) return
         val reqPreset = preset
         val reqStateFilter = stateFilter
@@ -284,6 +292,32 @@ fun IssuesPullsScreen(
                             val pageError = if (isPageActive) errorMsg else null
 
                             when {
+                                !capabilities.supportsIssuesAndPulls -> {
+                                    Column(
+                                        modifier = Modifier.fillMaxSize().padding(32.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            Lucide.GitPullRequest,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(52.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(Modifier.height(12.dp))
+                                        Text(
+                                            text = strings.localIssuesUnsupportedTitle,
+                                            style = MaterialTheme.typography.titleLarge
+                                        )
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(
+                                            text = strings.localIssuesUnsupportedBody,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
                                 pageLoading && pageItems.isEmpty() -> {
                                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                         MaxxingLoadingState(message = strings.fetchingIssuesAndPrs)

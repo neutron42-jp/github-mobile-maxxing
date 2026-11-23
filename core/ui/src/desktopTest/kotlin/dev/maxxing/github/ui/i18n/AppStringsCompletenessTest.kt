@@ -34,7 +34,8 @@ class AppStringsCompletenessTest {
         "timelineUnrecognized",        // "{0} {1}": actor + GitHub's own phrase
         "providerGitHub",              // "GitHub" (product name)
         "othersCodebergPreset",        // "Codeberg" (product name)
-        "othersInstanceUrlPlaceholder" // "https://codeberg.org" (URL placeholder)
+        "othersInstanceUrlPlaceholder",// "https://codeberg.org" (URL placeholder)
+        "localGitRepoBadge"            // "Git" (tool name)
     )
 
     private val stringSentinels = listOf("zqa1", "zqb2", "zqc3")
