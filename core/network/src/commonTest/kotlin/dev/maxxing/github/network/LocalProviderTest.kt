@@ -5,10 +5,20 @@ import dev.maxxing.github.auth.NotificationPreferences
 import dev.maxxing.github.auth.SessionManager
 import dev.maxxing.github.auth.ThemePreferences
 import dev.maxxing.github.auth.TokenStore
+import dev.maxxing.github.model.AuthMethod
 import dev.maxxing.github.model.AuthSession
 import dev.maxxing.github.model.ProviderType
 import dev.maxxing.github.model.capabilities
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
+import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -124,5 +134,59 @@ class LocalProviderTest {
         assertEquals(listOf("dev/app"), manager.localRepos.value)
         assertTrue(manager.switchAccount(secondHost.resolvedAccountId()))
         assertTrue(manager.localRepos.value.isEmpty())
+    }
+
+    @Test
+    fun switchingFromForgejoToLocalNeverLeaksRemoteProfile() = runTest {
+        val store = LocalTestTokenStore()
+        val manager = SessionManager(tokenStore = store)
+        manager.initialize()
+
+        val forgejo = AuthSession(
+            accessToken = "pat_codeberg",
+            tokenType = "token",
+            authMethod = AuthMethod.PERSONAL_ACCESS_TOKEN,
+            userLogin = "cb_alice",
+            accountId = "forgejo:codeberg.org:42",
+            providerType = ProviderType.FORGEJO_GITEA,
+            baseUrl = "https://codeberg.org",
+            apiBaseUrl = "https://codeberg.org/api/v1",
+            avatarUrl = "https://codeberg.org/avatars/42"
+        )
+        manager.addOrUpdateAccount(forgejo, makeActive = true)
+
+        val engine = MockEngine {
+            respond(
+                content = """{"id":42,"login":"cb_alice","avatar_url":"https://codeberg.org/avatars/42","full_name":"Alice CB"}""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+        val http = HttpClient(engine) {
+            install(ContentNegotiation) {
+                json(Json { ignoreUnknownKeys = true })
+            }
+        }
+        val repo = GitHubRepository(sessionManager = manager, httpClient = http)
+        val cbProfile = repo.getViewerProfile().getOrThrow()
+        assertEquals("cb_alice", cbProfile.login)
+        assertEquals("https://codeberg.org/avatars/42", cbProfile.avatarUrl)
+
+        // Add Local host WITHOUT calling clearMemoryCaches first (simulating Compose race)
+        val local = manager.addLocalAccount(
+            hostName = "fedora",
+            rootName = "user",
+            endpointId = "node_fedora",
+            endpointTicket = "ticket_fedora",
+            makeActive = true
+        )
+        assertEquals("fedora", local.userLogin)
+        assertEquals("", local.avatarUrl)
+
+        // peekViewerProfile and getViewerProfile MUST NOT return Codeberg's profile
+        assertEquals(null, repo.peekViewerProfile())
+        val localProfile = repo.getViewerProfile().getOrThrow()
+        assertEquals("fedora", localProfile.login)
+        assertEquals("", localProfile.avatarUrl)
     }
 }

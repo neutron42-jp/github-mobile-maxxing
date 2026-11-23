@@ -444,6 +444,8 @@ class GitHubRepository(
     private val singleFlight = SingleFlightGroup()
     @Volatile
     private var cacheGeneration: Long = 0L
+    @Volatile
+    private var activeMemoryScope: String = currentAccountScope()
 
     private fun currentAccountScope(): String {
         val active = sessionManager.session.value ?: return "_viewer"
@@ -481,8 +483,9 @@ class GitHubRepository(
         }
         val fetchBlock: suspend () -> Result<V> = {
             val generation = cacheGeneration
+            val expectedScope = currentAccountScope()
             runCatchingCancellable { loader() }.onSuccess { value ->
-                if (generation == cacheGeneration && shouldCache(value)) {
+                if (generation == cacheGeneration && currentAccountScope() == expectedScope && shouldCache(value)) {
                     cache.put(cacheKey, value)
                     onCached(value)
                 }
@@ -500,6 +503,11 @@ class GitHubRepository(
      * UI screens render immediately at startup while fresh network responses load in the background.
      */
     suspend fun hydrateDiskCache(loginHint: String? = null) {
+        val targetScope = currentAccountScope()
+        if (activeMemoryScope != targetScope) {
+            clearMemoryCaches()
+        }
+        activeMemoryScope = targetScope
         if (diskCache === NoOpPersistentCacheStore) return
         val generation = cacheGeneration
         val resolvedLogin = loginHint?.trim()?.takeIf { it.isNotEmpty() }
@@ -543,8 +551,8 @@ class GitHubRepository(
                 }
             }
 
-            if (generation != cacheGeneration) return@coroutineScope
-            profileJob.await()?.let { profileCache.putStaleIfAbsent("viewer", it) }
+            if (generation != cacheGeneration || currentAccountScope() != targetScope) return@coroutineScope
+            profileJob.await()?.let { profileCache.putStaleIfAbsent(targetScope, it) }
             unreadNotifsJob.await()?.let { notificationsCache.putStaleIfAbsent(NotificationsKey(all = false, participating = false, page = 1), it) }
             myReposJob.await()?.let { viewerReposCache.putStaleIfAbsent("MY", it) }
             starredReposJob.await()?.let { viewerReposCache.putStaleIfAbsent("STARRED", it) }
@@ -623,6 +631,7 @@ class GitHubRepository(
     /** Clears only in-memory caches and conditional ETags (used on account switch without wiping other accounts' disk SWR). */
     suspend fun clearMemoryCaches() {
         cacheGeneration += 1L
+        activeMemoryScope = currentAccountScope()
         restService.clearConditionalCache()
         profileCache.clear()
         notificationsCache.clear()
@@ -676,62 +685,65 @@ class GitHubRepository(
 
     // ---- Synchronous lock-free cache peeks for instant UI rendering ----
 
+    private inline fun <T> ifSameMemoryScope(block: () -> T?): T? =
+        if (currentAccountScope() == activeMemoryScope) block() else null
+
     fun peekViewerProfile(): ViewerProfile? =
-        profileCache.peek("viewer")
+        profileCache.peek(currentAccountScope())
 
     fun peekNotifications(all: Boolean = false, participating: Boolean = false, page: Int = 1): List<NotificationThread>? =
-        notificationsCache.peek(NotificationsKey(all, participating, page))
+        ifSameMemoryScope { notificationsCache.peek(NotificationsKey(all, participating, page)) }
 
     fun peekMyIssuesAndPulls(
         preset: IssueFilterPreset,
         viewerLogin: String,
         stateFilter: IssueStateFilter = IssueStateFilter.OPEN
-    ): List<IssueOrPullSummary>? = myIssuesCache.peek(MyIssuesKey(preset, viewerLogin, stateFilter))
+    ): List<IssueOrPullSummary>? = ifSameMemoryScope { myIssuesCache.peek(MyIssuesKey(preset, viewerLogin, stateFilter)) }
 
     fun peekIssueOrPullDetail(owner: String, repo: String, number: Int): IssueOrPullDetail? =
-        issueDetailCache.peek(issuePullKey(owner, repo, number))
+        ifSameMemoryScope { issueDetailCache.peek(issuePullKey(owner, repo, number)) }
 
     fun peekPullFiles(owner: String, repo: String, number: Int): List<PullFileChange>? =
-        pullFilesCache.peek(issuePullKey(owner, repo, number))
+        ifSameMemoryScope { pullFilesCache.peek(issuePullKey(owner, repo, number)) }
 
     fun peekPullReviewSyncState(owner: String, repo: String, number: Int): PullReviewSyncState? =
-        pullReviewSyncCache.peek(issuePullKey(owner, repo, number))
+        ifSameMemoryScope { pullReviewSyncCache.peek(issuePullKey(owner, repo, number)) }
 
-    fun peekViewerRepositories(): List<RepoSummary>? = viewerReposCache.peek("MY")
+    fun peekViewerRepositories(): List<RepoSummary>? = ifSameMemoryScope { viewerReposCache.peek("MY") }
 
-    fun peekStarredRepositories(): List<RepoSummary>? = viewerReposCache.peek("STARRED")
+    fun peekStarredRepositories(): List<RepoSummary>? = ifSameMemoryScope { viewerReposCache.peek("STARRED") }
 
-    fun peekSearchRepositories(query: String): List<RepoSummary>? = searchReposCache.peek(query.trim())
+    fun peekSearchRepositories(query: String): List<RepoSummary>? = ifSameMemoryScope { searchReposCache.peek(query.trim()) }
 
-    fun peekRepoDetail(owner: String, repo: String): RepoDetail? = repoDetailCache.peek(repoKey(owner, repo))
+    fun peekRepoDetail(owner: String, repo: String): RepoDetail? = ifSameMemoryScope { repoDetailCache.peek(repoKey(owner, repo)) }
 
     fun peekRepoIssuesOrPulls(
         owner: String,
         repo: String,
         pullRequests: Boolean,
         stateFilter: IssueStateFilter = IssueStateFilter.OPEN
-    ): List<IssueOrPullSummary>? = repoIssuesCache.peek(repoIssuesKey(owner, repo, pullRequests, stateFilter))
+    ): List<IssueOrPullSummary>? = ifSameMemoryScope { repoIssuesCache.peek(repoIssuesKey(owner, repo, pullRequests, stateFilter)) }
 
     fun peekDirectoryContents(owner: String, repo: String, path: String = "", ref: String? = null): List<TreeEntry>? =
-        dirCache.peek(repoPathKey(owner, repo, path, ref))
+        ifSameMemoryScope { dirCache.peek(repoPathKey(owner, repo, path, ref)) }
 
     fun peekFileContent(owner: String, repo: String, path: String, ref: String? = null): FileContent? =
-        fileCache.peek(repoPathKey(owner, repo, path, ref))
+        ifSameMemoryScope { fileCache.peek(repoPathKey(owner, repo, path, ref)) }
 
     fun peekReadme(owner: String, repo: String, ref: String? = null): String? =
-        readmeCache.peek(repoPathKey(owner, repo, "", ref))
+        ifSameMemoryScope { readmeCache.peek(repoPathKey(owner, repo, "", ref)) }
 
     fun peekContributionCalendar(login: String): ContributionCalendar? =
-        contributionCache.peek(login)
+        ifSameMemoryScope { contributionCache.peek(login) }
 
     fun peekReceivedEvents(login: String): List<ActivityEvent>? =
-        receivedEventsCache.peek(login)
+        ifSameMemoryScope { receivedEventsCache.peek(login) }
 
     fun peekUserEvents(login: String): List<ActivityEvent>? =
-        userEventsCache.peek(login)
+        ifSameMemoryScope { userEventsCache.peek(login) }
 
     fun peekUserProfile(login: String): UserProfile? =
-        userProfileCache.peek(login)
+        ifSameMemoryScope { userProfileCache.peek(login) }
 
     fun peekUserRepositories(login: String): List<RepoSummary>? =
         userReposCache.peek(login)
@@ -750,10 +762,11 @@ class GitHubRepository(
 
     // ---- Cached / Parallel Network Operations ----
 
-    suspend fun getViewerProfile(forceRefresh: Boolean = false): Result<ViewerProfile> =
-        cachedFetch(
+    suspend fun getViewerProfile(forceRefresh: Boolean = false): Result<ViewerProfile> {
+        val scopeKey = currentAccountScope()
+        return cachedFetch(
             cache = profileCache,
-            cacheKey = "viewer",
+            cacheKey = scopeKey,
             flightNamespace = "viewerProfile",
             forceRefresh = forceRefresh,
             onCached = { persistToDiskAsync("viewer_profile", value = it) }
@@ -764,6 +777,7 @@ class GitHubRepository(
                 ProviderType.LOCAL -> ViewerProfile(login = sessionManager.session.value?.userLogin ?: "local")
             }
         }
+    }
 
     suspend fun getNotifications(
         all: Boolean = false,

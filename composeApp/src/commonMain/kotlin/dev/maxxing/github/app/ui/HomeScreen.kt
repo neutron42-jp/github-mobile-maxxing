@@ -214,7 +214,11 @@ private fun HomeDashboardPane(
     val session by container.sessionManager.session.collectAsState()
     val pinnedRepoNames by container.sessionManager.pinnedRepos.collectAsState()
     val capabilities = container.repository.activeCapabilities()
-    val login = profile?.login ?: session?.userLogin.orEmpty()
+    val login = if (session?.providerType == dev.maxxing.github.model.ProviderType.LOCAL) {
+        session?.userLogin.orEmpty()
+    } else {
+        profile?.login ?: session?.userLogin.orEmpty()
+    }
 
     var feedTab by remember { mutableStateOf(FeedTab.FOLLOWING) }
     var calendar by remember(login) {

@@ -262,8 +262,13 @@ class SessionManager(
     }
 
     /** Updates cached display metadata (such as avatar URL) for an account without clobbering tokens. */
-    suspend fun updateAccountProfileMetadata(accountId: String, userLogin: String?, avatarUrl: String?) {
-        val cleanAvatar = avatarUrl?.trim()?.takeIf { it.isNotEmpty() }
+    suspend fun updateAccountProfileMetadata(
+        accountId: String,
+        userLogin: String?,
+        avatarUrl: String?,
+        forceClearAvatar: Boolean = false
+    ) {
+        val cleanAvatar = if (forceClearAvatar) "" else avatarUrl?.trim()?.takeIf { it.isNotEmpty() }
         val cleanLogin = userLogin?.trim()?.takeIf { it.isNotEmpty() }
         if (cleanAvatar == null && cleanLogin == null) return
         refreshMutex.withLock {

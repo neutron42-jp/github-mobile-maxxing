@@ -11,6 +11,10 @@ name = "local_client_ffi"
 [[bin]]
 name = "uniffi-bindgen"
 path = "src/bin/uniffi_bindgen.rs"
+required-features = ["bindgen"]
+
+[features]
+bindgen = ["uniffi/cli"]
 
 [dependencies]
 hex.workspace = true
@@ -19,4 +23,4 @@ iroh-tickets.workspace = true
 local-protocol = { path = "../local-protocol" }
 thiserror.workspace = true
 tokio.workspace = true
-uniffi = { version = "0.32.2", features = ["cli"] }
+uniffi = "0.32.2"
