@@ -1,0 +1,27 @@
+[package]
+name = "local-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap = { version = "4", features = ["derive"] }
+dirs.workspace = true
+gix = { version = "0.91.0", default-features = false, features = ["sha1", "revision", "status", "blob-diff", "parallel"] }
+hex.workspace = true
+iroh.workspace = true
+iroh-tickets.workspace = true
+local-protocol = { path = "../local-protocol" }
+qrcode = "0.15"
+rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+similar = "2"
+thiserror.workspace = true
+tokio = { workspace = true, features = ["macros", "signal", "io-std"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3"

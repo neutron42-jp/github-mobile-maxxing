@@ -113,6 +113,7 @@ import dev.maxxing.github.model.AppLanguage
 import dev.maxxing.github.model.AuthSession
 import dev.maxxing.github.model.FontSelection
 import dev.maxxing.github.model.FontSourceKind
+import dev.maxxing.github.model.ProviderType
 import dev.maxxing.github.model.RateLimitInfo
 import dev.maxxing.github.model.ViewerProfile
 import dev.maxxing.github.ui.components.MaxxingColorPickerDialog
@@ -226,7 +227,11 @@ fun SettingsScreen(
             val base = if (accounts.isNotEmpty()) accounts else listOfNotNull(session)
             val activeId = session?.resolvedAccountId()
             base.map { acc ->
-                if (acc.resolvedAccountId() == activeId && acc.avatarUrl.isBlank() && !profile?.avatarUrl.isNullOrBlank()) {
+                if (acc.providerType != ProviderType.LOCAL &&
+                    acc.resolvedAccountId() == activeId &&
+                    acc.avatarUrl.isBlank() &&
+                    !profile?.avatarUrl.isNullOrBlank()
+                ) {
                     acc.copy(avatarUrl = profile?.avatarUrl.orEmpty())
                 } else {
                     acc
@@ -437,7 +442,11 @@ private fun SettingsHubContent(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
-                    val loginTarget = profile?.login ?: session?.userLogin
+                    val loginTarget = if (session?.providerType == ProviderType.LOCAL) {
+                        session?.userLogin
+                    } else {
+                        profile?.login ?: session?.userLogin
+                    }
                     val activeHost = session?.instanceHostLabel()
                     val countSummary = when (accounts.size) {
                         0 -> strings.accountsSummaryNone

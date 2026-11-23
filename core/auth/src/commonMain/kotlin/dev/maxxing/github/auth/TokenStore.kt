@@ -105,6 +105,14 @@ interface TokenStore {
     }
     suspend fun loadPinnedReposForAccount(accountId: String): List<String> =
         loadPinnedRepos()
+
+    /** Persists the client's Ed25519 identity secret key hex for Local iroh P2P mutual TLS auth. */
+    suspend fun saveLocalIdentitySecret(secretHex: String) {}
+    suspend fun loadLocalIdentitySecret(): String? = null
+
+    /** Persists client-registered Local repository relative paths scoped to a Local host account. */
+    suspend fun saveLocalReposForAccount(accountId: String, repoPaths: List<String>) {}
+    suspend fun loadLocalReposForAccount(accountId: String): List<String> = emptyList()
 }
 
 expect fun createPlatformTokenStore(): TokenStore

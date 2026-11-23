@@ -1144,3 +1144,39 @@ localWipTitle,,WIP,開発中 (WIP)
 localWipBody,,Local repository management is work in progress and will be available in a future update.,ローカルリポジトリ管理は現在開発中（WIP）です。今後のアップデートで対応予定です。
 providerUnsupportedFeature,String,{0} is not available for this provider.,{0} はこのプロバイダーでは利用できません。
 featureRepoInsightsNotice,,Detailed contributor and commit graphs require GitHub; language breakdown is shown below.,コントリビューター・コミット推移の詳細は GitHub のみ対応しています（言語内訳のみ表示）。
+# Local iroh P2P provider
+localPairCodeLabel,,Pairing code,ペアリングコード
+localPairCodePlaceholder,,Paste githubmaxxing-local://pair?d=...,コードを貼り付け (githubmaxxing-local://pair?d=...)
+localClientNameLabel,,Device name,端末名
+localScanQrAction,,Scan QR Code,QR コードを読み取る
+localPairAndConnect,,Pair & Connect,ペアリングして接続
+localPairing,,Pairing via P2P...,P2P 経由でペアリング中...
+localNoAccounts,,No local PC hosts paired yet.,ペアリング済みのローカル PC はありません。
+localPairInstructions,,Run local-cli on your PC and scan the QR code or paste the pairing code.,PC で local-cli を起動し、QR コードを読み取るかペアリングコードを貼り付けてください。
+localCameraPermissionTitle,,Camera Permission Needed,カメラの権限が必要です
+localCameraPermissionBody,,Allow camera access to scan the QR code printed by local-cli.,local-cli が表示する QR コードを読み取るにはカメラへのアクセス許可が必要です。
+localGrantCameraPermission,,Allow Camera,カメラを許可
+localOpenAppSettings,,Open Settings,設定を開く
+localQrUnavailableDesktop,,QR camera scanning is only available on mobile devices. Paste the pairing code below.,QR カメラ読み取りはモバイル端末でのみ利用できます。下の欄にペアリングコードを貼り付けてください。
+localCloseScanner,,Close Scanner,スキャナーを閉じる
+localInboxUnsupportedTitle,,Inbox is unavailable for Local hosts,Inbox はローカルホストでは利用できません
+localInboxUnsupportedBody,,Notifications belong to remote hosts like GitHub or Codeberg.,通知機能は GitHub や Codeberg などのリモートホスト向けです。
+localIssuesUnsupportedTitle,,Issues & PRs are unavailable for Local hosts,Issues / PR はローカルホストでは利用できません
+localIssuesUnsupportedBody,,"Open the Repos tab to browse local trees, commits, and working tree diffs.",Repos タブからローカルのファイルツリー・コミット履歴・作業ツリー差分を閲覧できます。
+localRepoTabChanges,,Changes,変更差分
+localWorkingTreeClean,,Working tree is clean,作業ツリーに変更はありません
+localWorkingDiffHeader,,Working Tree Diff,作業ツリーの差分
+localHomeSubtitle,,Connected over encrypted iroh P2P,iroh P2P (E2EE) で接続中
+localBrowseReposAction,,Browse Local Repos,ローカルリポジトリを開く
+localAddRepoTitle,,Add Local Repository,ローカルリポジトリを追加
+localHomeRootLabel,,Home,ホーム
+localEmptyFolder,,No subfolders in this directory,このフォルダーにサブフォルダーはありません
+localAddThisRepo,,Add Repository,このリポジトリを追加
+localRemoveRepo,,Remove Repository,リポジトリを解除
+localNoRegisteredReposTitle,,No repositories registered,リポジトリが未登録です
+localNoRegisteredReposBody,,Tap Add above to browse folders starting from your PC's Home directory and register a Git repository.,右上の「追加」から PC のホームディレクトリ配下のフォルダーを参照して Git リポジトリを登録してください。
+localGitRepoBadge,,Git,Git
+localFolderUp,,Up one folder,上のフォルダーへ
+localRepoAddedMessage,String,Added {0},{0} を追加しました
+localRepoRemovedMessage,String,Removed {0},{0} を一覧から解除しました
+localBrowseFolderError,,Failed to browse folders on local host,ローカル PC のフォルダー取得に失敗しました

@@ -103,6 +103,7 @@ import com.composables.icons.lucide.Activity
 import com.composables.icons.lucide.ArrowLeft
 import com.composables.icons.lucide.ArrowLeftRight
 import com.composables.icons.lucide.Bookmark
+import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.CircleCheck
 import com.composables.icons.lucide.CircleDot
@@ -122,6 +123,8 @@ import com.composables.icons.lucide.GitCommitHorizontal
 import com.composables.icons.lucide.GitFork
 import com.composables.icons.lucide.GitMerge
 import com.composables.icons.lucide.GitPullRequest
+import com.composables.icons.lucide.FileDiff
+import com.composables.icons.lucide.HardDrive
 import com.composables.icons.lucide.Lock
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.MessageSquare
@@ -156,6 +159,7 @@ import dev.maxxing.github.model.IssueOrPullSummary
 import dev.maxxing.github.model.IssueStateFilter
 import dev.maxxing.github.model.LabelTag
 import dev.maxxing.github.model.MilestoneSummary
+import dev.maxxing.github.model.ProviderType
 import dev.maxxing.github.model.PullFileChange
 import dev.maxxing.github.model.ReleaseSummary
 import dev.maxxing.github.model.RepoDetail
@@ -172,6 +176,8 @@ import dev.maxxing.github.model.UserSummary
 import dev.maxxing.github.model.WorkflowJobSummary
 import dev.maxxing.github.model.WorkflowRunSummary
 import dev.maxxing.github.model.WorkflowSummary
+import dev.maxxing.github.network.LocalBrowseResult
+import dev.maxxing.github.network.LocalDirectoryEntry
 import dev.maxxing.github.ui.components.CodeViewer
 import dev.maxxing.github.ui.components.MaxxingIconLabelTab
 import dev.maxxing.github.ui.components.ExpressiveStatusPill
@@ -390,6 +396,8 @@ private fun RepoListPane(
     onMessage: (String) -> Unit
 ) {
     val providerCapabilities = container.repository.activeCapabilities()
+    val isLocalProvider = container.repository.activeProviderType() == ProviderType.LOCAL
+    val registeredLocalPaths by container.sessionManager.localRepos.collectAsState()
     var activeTab by remember { mutableStateOf(RepoListTab.MINE) }
     var searchKind by remember { mutableStateOf(GlobalSearchKind.REPOSITORIES) }
     var searchQuery by remember { mutableStateOf("") }
@@ -411,6 +419,7 @@ private fun RepoListPane(
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var requestSeq by remember { mutableStateOf(0) }
     var showCreateRepoDialog by remember { mutableStateOf(false) }
+    var showAddLocalRepoDialog by remember { mutableStateOf(false) }
     var newRepoName by remember { mutableStateOf("") }
     var newRepoDesc by remember { mutableStateOf("") }
     var newRepoPrivate by remember { mutableStateOf(false) }
@@ -421,10 +430,14 @@ private fun RepoListPane(
     val visibleRepoTabs = remember(providerCapabilities) {
         RepoDetailTab.entries.filter { tab ->
             when (tab) {
+                RepoDetailTab.CODE -> true
+                RepoDetailTab.ISSUES,
+                RepoDetailTab.PULLS,
+                RepoDetailTab.RELEASES,
+                RepoDetailTab.INSIGHTS -> providerCapabilities.supportsIssuesAndPulls
                 RepoDetailTab.ACTIONS -> providerCapabilities.supportsActions
                 RepoDetailTab.DISCUSSIONS -> providerCapabilities.supportsDiscussions
                 RepoDetailTab.SECURITY -> providerCapabilities.supportsSecurity
-                else -> true
             }
         }
     }
@@ -600,25 +613,31 @@ private fun RepoListPane(
                     maxLines = 1,
                     modifier = Modifier.weight(1f)
                 )
-                FilledTonalButton(
-                    onClick = { showCreateRepoDialog = true },
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Icon(Lucide.Plus, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(strings.newAction)
+                if (providerCapabilities.supportsIssuesAndPulls || isLocalProvider) {
+                    FilledTonalButton(
+                        onClick = {
+                            if (isLocalProvider) showAddLocalRepoDialog = true
+                            else showCreateRepoDialog = true
+                        },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Lucide.Plus, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (isLocalProvider) strings.addAction else strings.newAction)
+                    }
                 }
                 IconButton(onClick = { loadRepos(forceRefresh = true) }) {
                     Icon(Lucide.RefreshCw, contentDescription = strings.refresh, modifier = Modifier.size(18.dp))
                 }
             }
-            MaxxingCollapsibleSection(visible = showExpandedHeader) {
-                Column {
-                    Spacer(Modifier.height(MaxxingTopHeaderDefaults.TabBarTopSpacing))
-                    RepoListTabRow(
-                        activeTab = activeTab,
-                        onSelectTab = { activeTab = it }
-                    )
+            if (providerCapabilities.supportsIssuesAndPulls) {
+                MaxxingCollapsibleSection(visible = showExpandedHeader) {
+                    Column {
+                        Spacer(Modifier.height(MaxxingTopHeaderDefaults.TabBarTopSpacing))
+                        RepoListTabRow(
+                            activeTab = activeTab,
+                            onSelectTab = { activeTab = it }
+                        )
                     if (activeTab == RepoListTab.SEARCH) {
                         Spacer(Modifier.height(10.dp))
                         Row(
@@ -735,6 +754,7 @@ private fun RepoListPane(
                     }
                 }
             }
+            }
             if ((isLoading || isRefreshing) && hasCurrentItems) {
                 Spacer(Modifier.height(8.dp))
                 MaxxingWavyProgress()
@@ -747,8 +767,8 @@ private fun RepoListPane(
             modifier = Modifier.fillMaxSize().nestedScroll(headerNestedScroll)
         ) {
             MaxxingSwipeableTabPager(
-                tabs = RepoListTab.entries,
-                selectedTab = activeTab,
+                tabs = if (providerCapabilities.supportsIssuesAndPulls) RepoListTab.entries else listOf(RepoListTab.MINE),
+                selectedTab = if (providerCapabilities.supportsIssuesAndPulls) activeTab else RepoListTab.MINE,
                 onSelectTab = { activeTab = it },
                 modifier = Modifier.fillMaxSize()
             ) { pageTab ->
@@ -844,19 +864,51 @@ private fun RepoListPane(
                     }
 
                     !pageHasItems -> {
-                        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-                            Text(
-                                text = when (pageTab) {
-                                    RepoListTab.SEARCH -> if (submittedSearchQuery.isBlank()) {
-                                        strings.noTrendingFound
-                                    } else {
-                                        strings.noSearchMatches(strings.searchKindLabel(searchKind), submittedSearchQuery)
-                                    }
-                                    RepoListTab.STARRED -> strings.noStarredRepos
-                                    RepoListTab.MINE -> strings.noReposFound
-                                },
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        if (isLocalProvider && pageTab == RepoListTab.MINE) {
+                            Column(
+                                modifier = Modifier.fillMaxSize().padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    Lucide.HardDrive,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(40.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    text = strings.localNoRegisteredReposTitle,
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    text = strings.localNoRegisteredReposBody,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(Modifier.height(14.dp))
+                                FilledTonalButton(onClick = { showAddLocalRepoDialog = true }) {
+                                    Icon(Lucide.Plus, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(strings.addAction)
+                                }
+                            }
+                        } else {
+                            Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = when (pageTab) {
+                                        RepoListTab.SEARCH -> if (submittedSearchQuery.isBlank()) {
+                                            strings.noTrendingFound
+                                        } else {
+                                            strings.noSearchMatches(strings.searchKindLabel(searchKind), submittedSearchQuery)
+                                        }
+                                        RepoListTab.STARRED -> strings.noStarredRepos
+                                        RepoListTab.MINE -> strings.noReposFound
+                                    },
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
 
@@ -949,7 +1001,29 @@ private fun RepoListPane(
                                 key = { it.id },
                                 contentType = { "repo_summary" }
                             ) { repo ->
-                                RepoSummaryCard(repo = repo, onClick = { onSelectRepo(repo) })
+                                val removeAction = if (isLocalProvider && pageTab == RepoListTab.MINE) {
+                                    {
+                                        val repoPath = repo.id.removePrefix("local:")
+                                        scope.launch {
+                                            container.repository.unregisterLocalRepo(repoPath)
+                                                .onSuccess { updated ->
+                                                    repos = updated
+                                                    onMessage(strings.localRepoRemovedMessage(repo.fullName))
+                                                }
+                                                .onFailure {
+                                                    onMessage(strings.errorMessage(it, strings.failedLoadRepos))
+                                                }
+                                        }
+                                        Unit
+                                    }
+                                } else {
+                                    null
+                                }
+                                RepoSummaryCard(
+                                    repo = repo,
+                                    onClick = { onSelectRepo(repo) },
+                                    onRemove = removeAction
+                                )
                             }
                         }
                     }
@@ -1040,6 +1114,265 @@ private fun RepoListPane(
             }
         )
     }
+
+    if (showAddLocalRepoDialog) {
+        LocalFolderPickerDialog(
+            container = container,
+            registeredPaths = registeredLocalPaths,
+            onDismiss = { showAddLocalRepoDialog = false },
+            onRegisterRepo = { path ->
+                scope.launch {
+                    container.repository.registerLocalRepo(path)
+                        .onSuccess { updated ->
+                            repos = updated
+                            showAddLocalRepoDialog = false
+                            onMessage(strings.localRepoAddedMessage(path))
+                        }
+                        .onFailure {
+                            onMessage(strings.errorMessage(it, strings.localBrowseFolderError))
+                        }
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun LocalFolderPickerDialog(
+    container: AppContainer,
+    registeredPaths: List<String>,
+    onDismiss: () -> Unit,
+    onRegisterRepo: (String) -> Unit
+) {
+    val strings = appStrings()
+    var currentPath by remember { mutableStateOf("") }
+    var browseResult by remember { mutableStateOf<LocalBrowseResult?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var reloadNonce by remember { mutableStateOf(0) }
+
+    LaunchedEffect(currentPath, reloadNonce) {
+        isLoading = true
+        errorMsg = null
+        container.repository.browseLocalDirectories(currentPath)
+            .onSuccess {
+                browseResult = it
+                isLoading = false
+            }
+            .onFailure {
+                errorMsg = strings.errorMessage(it, strings.localBrowseFolderError)
+                isLoading = false
+            }
+    }
+
+    val registeredSet = remember(registeredPaths) { registeredPaths.toSet() }
+    val activeRelativePath = browseResult?.currentRelativePath ?: currentPath
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(Lucide.HardDrive, contentDescription = null, modifier = Modifier.size(20.dp))
+                Text(strings.localAddRepoTitle)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (activeRelativePath.isNotEmpty()) {
+                            IconButton(
+                                onClick = {
+                                    currentPath = activeRelativePath.substringBeforeLast('/', "")
+                                },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Lucide.ArrowLeft,
+                                    contentDescription = strings.localFolderUp,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                        val pathDisplay = buildString {
+                            append("~")
+                            if (activeRelativePath.isNotEmpty()) {
+                                append("/")
+                                append(activeRelativePath)
+                            }
+                        }
+                        Text(
+                            text = pathDisplay,
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable(enabled = activeRelativePath.isNotEmpty()) {
+                                    currentPath = ""
+                                }
+                        )
+                    }
+                }
+
+                if (browseResult?.currentIsGitRepo == true) {
+                    val repoTarget = activeRelativePath.ifEmpty { "." }
+                    val alreadyAdded = repoTarget in registeredSet
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                Lucide.FolderGit2,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = repoTarget,
+                                style = MaterialTheme.typography.labelLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Button(
+                                enabled = !alreadyAdded,
+                                onClick = { onRegisterRepo(repoTarget) },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                            ) {
+                                Icon(
+                                    if (alreadyAdded) Lucide.Check else Lucide.Plus,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(strings.localAddThisRepo)
+                            }
+                        }
+                    }
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 340.dp)) {
+                    when {
+                        isLoading -> {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                MaxxingLoadingState(message = strings.loadingResults)
+                            }
+                        }
+                        errorMsg != null -> {
+                            Column(
+                                modifier = Modifier.fillMaxSize().padding(12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = errorMsg.orEmpty(),
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                TextButton(onClick = { reloadNonce++ }) {
+                                    Text(strings.retry)
+                                }
+                            }
+                        }
+                        browseResult?.entries.isNullOrEmpty() -> {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = strings.localEmptyFolder,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        else -> {
+                            val entries: List<LocalDirectoryEntry> = browseResult?.entries.orEmpty()
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                items(items = entries, key = { it.relativePath }) { entry ->
+                                    val alreadyAdded = entry.relativePath in registeredSet
+                                    Surface(
+                                        shape = MaterialTheme.shapes.small,
+                                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { currentPath = entry.relativePath }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (entry.isGitRepo) Lucide.FolderGit2 else Lucide.Folder,
+                                                contentDescription = null,
+                                                tint = if (entry.isGitRepo) {
+                                                    MaterialTheme.colorScheme.primary
+                                                } else {
+                                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                                },
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Text(
+                                                text = entry.name,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            if (entry.isGitRepo) {
+                                                ExpressiveStatusPill(
+                                                    label = strings.localGitRepoBadge,
+                                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                                )
+                                                IconButton(
+                                                    enabled = !alreadyAdded,
+                                                    onClick = { onRegisterRepo(entry.relativePath) },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (alreadyAdded) Lucide.Check else Lucide.Plus,
+                                                        contentDescription = strings.localAddThisRepo,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(strings.cancel)
+            }
+        }
+    )
 }
 
 @Composable
@@ -1208,7 +1541,8 @@ private fun SearchUserCard(
 @Composable
 fun RepoSummaryCard(
     repo: RepoSummary,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onRemove: (() -> Unit)? = null
 ) {
     val strings = appStrings()
     Card(
@@ -1222,7 +1556,12 @@ fun RepoSummaryCard(
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                UserAvatar(repo.ownerAvatarUrl, repo.owner, sizeDp = 24)
+                AccountAvatar(
+                    providerType = if (repo.id.startsWith("local:")) ProviderType.LOCAL else ProviderType.GITHUB,
+                    avatarUrl = repo.ownerAvatarUrl,
+                    login = repo.owner,
+                    sizeDp = 24
+                )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = repo.fullName,
@@ -1238,6 +1577,16 @@ fun RepoSummaryCard(
                         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                         icon = Lucide.Lock
                     )
+                }
+                if (onRemove != null) {
+                    IconButton(onClick = onRemove, modifier = Modifier.size(30.dp)) {
+                        Icon(
+                            Lucide.Trash2,
+                            contentDescription = strings.localRemoveRepo,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
 
@@ -1292,6 +1641,99 @@ fun RepoSummaryCard(
     }
 }
 
+@Composable
+private fun LocalWorkingDiffTabContent(
+    workingDiff: dev.maxxing.github.network.LocalWorkingDiffResult?,
+    isLoading: Boolean,
+    errorMsg: String?,
+    onRefresh: () -> Unit,
+    onOpenFullScreen: (PullFileChange, List<PullFileChange>) -> Unit
+) {
+    val strings = appStrings()
+    val expanded = remember { mutableStateMapOf<String, Boolean>() }
+    when {
+        isLoading && workingDiff == null -> {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                MaxxingLoadingState(message = strings.localWorkingDiffHeader)
+            }
+        }
+        errorMsg != null && workingDiff == null -> {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(errorMsg, color = MaterialTheme.colorScheme.error)
+                Spacer(Modifier.height(10.dp))
+                FilledTonalButton(onClick = onRefresh) { Text(strings.retry) }
+            }
+        }
+        else -> {
+            val files = workingDiff?.files.orEmpty()
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                item(key = "working_diff_header") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(strings.localWorkingDiffHeader, style = MaterialTheme.typography.titleMedium)
+                            val branch = workingDiff?.branch?.takeIf { it.isNotBlank() }
+                            if (branch != null) {
+                                Text(
+                                    text = "$branch · ${files.size} file(s)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        FilledTonalButton(
+                            onClick = onRefresh,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Lucide.RefreshCw, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(strings.refresh, maxLines = 1, softWrap = false)
+                        }
+                    }
+                }
+                if (files.isEmpty()) {
+                    item(key = "working_diff_clean") {
+                        Card(
+                            shape = MaterialTheme.shapes.large,
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(Lucide.CircleCheck, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Text(strings.localWorkingTreeClean, style = MaterialTheme.typography.titleSmall)
+                            }
+                        }
+                    }
+                } else {
+                    files.forEach { file ->
+                        val isOpen = expanded[file.filename] ?: true
+                        diffFileLazyItems(
+                            file = file,
+                            expanded = isOpen,
+                            onToggleExpand = { expanded[file.filename] = !isOpen },
+                            onOpenFullScreen = { onOpenFullScreen(file, files) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 private enum class RepoPeopleTab {
     STARGAZERS,
     FORKS,
@@ -1326,10 +1768,14 @@ fun RepoDetailScreen(
     val visibleRepoTabs = remember(providerCapabilities) {
         RepoDetailTab.entries.filter { tab ->
             when (tab) {
+                RepoDetailTab.CODE -> true
+                RepoDetailTab.ISSUES,
+                RepoDetailTab.PULLS,
+                RepoDetailTab.RELEASES,
+                RepoDetailTab.INSIGHTS -> providerCapabilities.supportsIssuesAndPulls
                 RepoDetailTab.ACTIONS -> providerCapabilities.supportsActions
                 RepoDetailTab.DISCUSSIONS -> providerCapabilities.supportsDiscussions
                 RepoDetailTab.SECURITY -> providerCapabilities.supportsSecurity
-                else -> true
             }
         }
     }
@@ -1524,7 +1970,36 @@ fun RepoDetailScreen(
     var insightsLoading by remember(repo.fullName) { mutableStateOf(false) }
     var insightsError by remember(repo.fullName) { mutableStateOf<String?>(null) }
     val insightsRequestGuard = remember(repo.fullName) { LatestRequestGuard() }
+    var workingDiff by remember(repo.fullName) { mutableStateOf<dev.maxxing.github.network.LocalWorkingDiffResult?>(null) }
+    var workingDiffLoading by remember(repo.fullName) { mutableStateOf(false) }
+    var workingDiffError by remember(repo.fullName) { mutableStateOf<String?>(null) }
+    var showLocalChangesTab by remember(repo.fullName) { mutableStateOf(false) }
+    val workingDiffRequestGuard = remember(repo.fullName) { LatestRequestGuard() }
     var fullScreenDiffContext by remember(repo.fullName) { mutableStateOf<Pair<PullFileChange, List<PullFileChange>>?>(null) }
+
+    fun loadWorkingDiff(forceRefresh: Boolean = false) {
+        if (!providerCapabilities.supportsWorkingTreeDiff) return
+        val reqSeq = workingDiffRequestGuard.next()
+        scope.launch {
+            if (workingDiff == null || forceRefresh) {
+                workingDiffLoading = true
+            }
+            workingDiffError = null
+            container.repository.getLocalWorkingDiff(repo.owner, repo.name, forceRefresh = forceRefresh)
+                .onSuccess { loaded ->
+                    if (workingDiffRequestGuard.isLatest(reqSeq)) {
+                        workingDiff = loaded
+                        workingDiffLoading = false
+                    }
+                }
+                .onFailure { err ->
+                    if (workingDiffRequestGuard.isLatest(reqSeq)) {
+                        workingDiffError = strings.errorMessage(err, strings.localWorkingDiffHeader)
+                        workingDiffLoading = false
+                    }
+                }
+        }
+    }
 
     fun loadDiscussions(categoryId: String? = selectedDiscussionCategoryId, forceRefresh: Boolean = false) {
         val reqSeq = ++discussionsRequestSeq
@@ -2180,9 +2655,12 @@ fun RepoDetailScreen(
         }
     }
 
-    LaunchedEffect(activeTab, currentRef, repo.fullName, showCommitsView, showCompareView, openedCommitSha) {
+    LaunchedEffect(activeTab, currentRef, repo.fullName, showCommitsView, showCompareView, openedCommitSha, showLocalChangesTab) {
         if (activeTab == RepoDetailTab.CODE && showCommitsView && !showCompareView && openedCommitSha == null) {
             loadCommits(currentRef, forceRefresh = false)
+        }
+        if (showLocalChangesTab) {
+            loadWorkingDiff(forceRefresh = false)
         }
         if (activeTab == RepoDetailTab.ACTIONS && openedRun == null) {
             loadActions(selectedWorkflowId, forceRefresh = false)
@@ -2382,6 +2860,7 @@ fun RepoDetailScreen(
                     exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut()
                 ) {
                     Column {
+                        if (providerCapabilities.supportsIssuesAndPulls) {
                         Spacer(Modifier.height(8.dp))
                         // 1) MD3E Connected Social Action Group (Star · Watch · Fork · Network)
                         val isLightTheme = MaterialTheme.colorScheme.surface.luminance() > 0.5f
@@ -2561,6 +3040,7 @@ fun RepoDetailScreen(
                                 }
                             }
                         }
+                        }
 
                         Spacer(Modifier.height(8.dp))
                         // 2) Distinct Git Reference Field (10.dp rounded rectangle) + Compare button
@@ -2702,26 +3182,15 @@ fun RepoDetailScreen(
                     pullStateFilter == IssueStateFilter.OPEN && repoPulls != null -> repoPulls!!.size
                     else -> null
                 }
-                PrimaryScrollableTabRow(
-                    selectedTabIndex = visibleRepoTabs.indexOf(activeTab).coerceAtLeast(0),
-                    containerColor = Color.Transparent,
-                    edgePadding = 0.dp
-                ) {
-                    visibleRepoTabs.forEach { tab ->
-                        val icon = when (tab) {
-                            RepoDetailTab.CODE -> Lucide.Folder
-                            RepoDetailTab.ISSUES -> Lucide.CircleDot
-                            RepoDetailTab.PULLS -> Lucide.GitPullRequest
-                            RepoDetailTab.ACTIONS -> Lucide.Play
-                            RepoDetailTab.RELEASES -> Lucide.Tag
-                            RepoDetailTab.DISCUSSIONS -> Lucide.MessageSquare
-                            RepoDetailTab.SECURITY -> Lucide.ShieldCheck
-                            RepoDetailTab.INSIGHTS -> Lucide.Activity
-                        }
-                        val selected = activeTab == tab
+                if (providerCapabilities.supportsWorkingTreeDiff && !providerCapabilities.supportsIssuesAndPulls) {
+                    PrimaryScrollableTabRow(
+                        selectedTabIndex = if (showLocalChangesTab) 1 else 0,
+                        containerColor = Color.Transparent,
+                        edgePadding = 0.dp
+                    ) {
                         Tab(
-                            selected = selected,
-                            onClick = { selectRepoDetailTab(tab) },
+                            selected = !showLocalChangesTab,
+                            onClick = { showLocalChangesTab = false },
                             selectedContentColor = MaterialTheme.colorScheme.primary,
                             unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                             text = {
@@ -2729,15 +3198,65 @@ fun RepoDetailScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
-                                    Text(
-                                        text = formatLocalizedRepoDetailTabLabel(tab, resolvedOpenIssuesCount, resolvedOpenPullsCount, strings),
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
+                                    Icon(Lucide.Folder, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Text(strings.repoDetailTabCode, maxLines = 1, softWrap = false)
                                 }
                             }
                         )
+                        Tab(
+                            selected = showLocalChangesTab,
+                            onClick = { showLocalChangesTab = true },
+                            selectedContentColor = MaterialTheme.colorScheme.primary,
+                            unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(Lucide.FileDiff, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Text(strings.localRepoTabChanges, maxLines = 1, softWrap = false)
+                                }
+                            }
+                        )
+                    }
+                } else {
+                    PrimaryScrollableTabRow(
+                        selectedTabIndex = visibleRepoTabs.indexOf(activeTab).coerceAtLeast(0),
+                        containerColor = Color.Transparent,
+                        edgePadding = 0.dp
+                    ) {
+                        visibleRepoTabs.forEach { tab ->
+                            val icon = when (tab) {
+                                RepoDetailTab.CODE -> Lucide.Folder
+                                RepoDetailTab.ISSUES -> Lucide.CircleDot
+                                RepoDetailTab.PULLS -> Lucide.GitPullRequest
+                                RepoDetailTab.ACTIONS -> Lucide.Play
+                                RepoDetailTab.RELEASES -> Lucide.Tag
+                                RepoDetailTab.DISCUSSIONS -> Lucide.MessageSquare
+                                RepoDetailTab.SECURITY -> Lucide.ShieldCheck
+                                RepoDetailTab.INSIGHTS -> Lucide.Activity
+                            }
+                            val selected = activeTab == tab
+                            Tab(
+                                selected = selected,
+                                onClick = { selectRepoDetailTab(tab) },
+                                selectedContentColor = MaterialTheme.colorScheme.primary,
+                                unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                text = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
+                                        Text(
+                                            text = formatLocalizedRepoDetailTabLabel(tab, resolvedOpenIssuesCount, resolvedOpenPullsCount, strings),
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
 
@@ -2754,6 +3273,17 @@ fun RepoDetailScreen(
                 .fillMaxWidth()
                 .nestedScroll(headerNestedScroll)
         ) {
+            if (showLocalChangesTab && providerCapabilities.supportsWorkingTreeDiff) {
+                LocalWorkingDiffTabContent(
+                    workingDiff = workingDiff,
+                    isLoading = workingDiffLoading,
+                    errorMsg = workingDiffError,
+                    onRefresh = { loadWorkingDiff(forceRefresh = true) },
+                    onOpenFullScreen = { file, allFiles ->
+                        fullScreenDiffContext = file to allFiles
+                    }
+                )
+            } else {
             MaxxingSwipeableTabPager(
                 tabs = visibleRepoTabs,
                 selectedTab = activeTab,
@@ -3494,6 +4024,7 @@ fun RepoDetailScreen(
                     }
                 )
             }
+        }
         }
         }
         }

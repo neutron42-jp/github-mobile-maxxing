@@ -161,35 +161,11 @@ fun SignInScreen(
                             onMessage = { msg -> scope.launch { snackbarHostState.showSnackbar(msg) } }
                         )
 
-                        ProviderType.LOCAL -> Surface(
-                            shape = MaterialTheme.shapes.large,
-                            color = MaterialTheme.colorScheme.surfaceContainer,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth().padding(24.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    Lucide.HardDrive,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(30.dp)
-                                )
-                                Text(
-                                    text = strings.localWipTitle,
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = strings.localWipBody,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        }
+                        ProviderType.LOCAL -> LocalHostAuthBlock(
+                            sessionManager = sessionManager,
+                            onAuthenticated = { onSignedIn() },
+                            onMessage = { msg -> scope.launch { snackbarHostState.showSnackbar(msg) } }
+                        )
                     }
                 }
             }

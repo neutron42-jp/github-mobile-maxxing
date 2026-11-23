@@ -613,8 +613,43 @@ loadingResults	検索結果を読み込み中...
 loadingSystemFonts	システムフォントを読み込み中...
 loadingTrending	トレンドリポジトリを読み込み中...
 loadingUser	@zqa1 を読み込み中...
+localAddRepoTitle	ローカルリポジトリを追加
+localAddThisRepo	このリポジトリを追加
+localBrowseFolderError	ローカル PC のフォルダー取得に失敗しました
+localBrowseReposAction	ローカルリポジトリを開く
+localCameraPermissionBody	local-cli が表示する QR コードを読み取るにはカメラへのアクセス許可が必要です。
+localCameraPermissionTitle	カメラの権限が必要です
+localClientNameLabel	端末名
+localCloseScanner	スキャナーを閉じる
+localEmptyFolder	このフォルダーにサブフォルダーはありません
+localFolderUp	上のフォルダーへ
+localGitRepoBadge	Git
+localGrantCameraPermission	カメラを許可
+localHomeRootLabel	ホーム
+localHomeSubtitle	iroh P2P (E2EE) で接続中
+localInboxUnsupportedBody	通知機能は GitHub や Codeberg などのリモートホスト向けです。
+localInboxUnsupportedTitle	Inbox はローカルホストでは利用できません
+localIssuesUnsupportedBody	Repos タブからローカルのファイルツリー・コミット履歴・作業ツリー差分を閲覧できます。
+localIssuesUnsupportedTitle	Issues / PR はローカルホストでは利用できません
+localNoAccounts	ペアリング済みのローカル PC はありません。
+localNoRegisteredReposBody	右上の「追加」から PC のホームディレクトリ配下のフォルダーを参照して Git リポジトリを登録してください。
+localNoRegisteredReposTitle	リポジトリが未登録です
+localOpenAppSettings	設定を開く
+localPairAndConnect	ペアリングして接続
+localPairCodeLabel	ペアリングコード
+localPairCodePlaceholder	コードを貼り付け (githubmaxxing-local://pair?d=...)
+localPairInstructions	PC で local-cli を起動し、QR コードを読み取るかペアリングコードを貼り付けてください。
+localPairing	P2P 経由でペアリング中...
+localQrUnavailableDesktop	QR カメラ読み取りはモバイル端末でのみ利用できます。下の欄にペアリングコードを貼り付けてください。
+localRemoveRepo	リポジトリを解除
+localRepoAddedMessage	zqa1 を追加しました
+localRepoRemovedMessage	zqa1 を一覧から解除しました
+localRepoTabChanges	変更差分
+localScanQrAction	QR コードを読み取る
 localWipBody	ローカルリポジトリ管理は現在開発中（WIP）です。今後のアップデートで対応予定です。
 localWipTitle	開発中 (WIP)
+localWorkingDiffHeader	作業ツリーの差分
+localWorkingTreeClean	作業ツリーに変更はありません
 logoutAction	サインアウト
 manageAccountsTitle	アカウント管理
 manageAction	管理

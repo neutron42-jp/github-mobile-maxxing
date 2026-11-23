@@ -92,6 +92,15 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+        jniLibs {
+            useLegacyPackaging = true
+            excludes += listOf(
+                "lib/mips/**",
+                "lib/mips64/**",
+                "lib/armeabi/**",
+                "lib/x86/**"
+            )
+        }
     }
 
     buildTypes {

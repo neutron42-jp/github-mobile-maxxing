@@ -214,7 +214,11 @@ private fun HomeDashboardPane(
     val session by container.sessionManager.session.collectAsState()
     val pinnedRepoNames by container.sessionManager.pinnedRepos.collectAsState()
     val capabilities = container.repository.activeCapabilities()
-    val login = profile?.login ?: session?.userLogin.orEmpty()
+    val login = if (session?.providerType == dev.maxxing.github.model.ProviderType.LOCAL) {
+        session?.userLogin.orEmpty()
+    } else {
+        profile?.login ?: session?.userLogin.orEmpty()
+    }
 
     var feedTab by remember { mutableStateOf(FeedTab.FOLLOWING) }
     var calendar by remember(login) {
@@ -241,16 +245,39 @@ private fun HomeDashboardPane(
 
     fun loadHome(forceRefresh: Boolean = false) {
         if (login.isBlank()) return
+        val isLocalProvider = session?.providerType == dev.maxxing.github.model.ProviderType.LOCAL
         val reqTab = feedTab
         val seq = ++requestSeq
-        val cachedCal = container.repository.peekContributionCalendar(login)
         val cachedRepos = container.repository.peekViewerRepositories()
+        if (cachedRepos != null) recentRepos = cachedRepos
+        if (isLocalProvider) {
+            feedEvents = emptyList()
+            calendar = null
+            isLoading = cachedRepos == null
+            isRefreshing = forceRefresh
+            errorMsg = null
+            scope.launch {
+                container.repository.getViewerRepositories(forceRefresh = forceRefresh)
+                    .onSuccess { if (seq == requestSeq) recentRepos = it }
+                    .onFailure {
+                        if (seq == requestSeq) {
+                            errorMsg = strings.errorMessage(it, strings.failedLoadActivity)
+                            if (forceRefresh) onMessage(errorMsg!!)
+                        }
+                    }
+                if (seq == requestSeq) {
+                    isLoading = false
+                    isRefreshing = false
+                }
+            }
+            return
+        }
+        val cachedCal = container.repository.peekContributionCalendar(login)
         val cachedFeed = when (reqTab) {
             FeedTab.FOLLOWING -> container.repository.peekReceivedEvents(login)
             FeedTab.MY_ACTIVITY -> container.repository.peekUserEvents(login)
         }
         if (cachedCal != null) calendar = cachedCal
-        if (cachedRepos != null) recentRepos = cachedRepos
         if (cachedFeed != null) {
             feedEvents = cachedFeed
             isLoading = false
@@ -304,7 +331,8 @@ private fun HomeDashboardPane(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                UserAvatar(
+                AccountAvatar(
+                    providerType = session?.providerType ?: dev.maxxing.github.model.ProviderType.GITHUB,
                     avatarUrl = profile?.avatarUrl.orEmpty(),
                     login = login.ifBlank { "?" },
                     sizeDp = if (headerTracker.isCollapsed) 28 else 36,
@@ -364,9 +392,44 @@ private fun HomeDashboardPane(
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 84.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        calendar?.takeIf { it.weeks.isNotEmpty() }?.let { cal ->
-                            item(key = "contributions", contentType = "contribution_heatmap") {
-                                ContributionHeatmapCard(calendar = cal)
+                        if (session?.providerType == dev.maxxing.github.model.ProviderType.LOCAL) {
+                            item(key = "local_host_summary", contentType = "local_host_summary") {
+                                ElevatedCard(
+                                    shape = MaterialTheme.shapes.large,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = session?.userLogin ?: strings.providerLocal,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            text = buildString {
+                                                append(strings.localHomeSubtitle)
+                                                val root = session?.scope?.trim().orEmpty()
+                                                if (root.isNotEmpty()) {
+                                                    append(" · ")
+                                                    append(root)
+                                                }
+                                            },
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        androidx.compose.material3.Button(onClick = onNavigateRepos) {
+                                            Text(strings.localBrowseReposAction)
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            calendar?.takeIf { it.weeks.isNotEmpty() }?.let { cal ->
+                                item(key = "contributions", contentType = "contribution_heatmap") {
+                                    ContributionHeatmapCard(calendar = cal)
+                                }
                             }
                         }
 

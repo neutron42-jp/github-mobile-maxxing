@@ -29,12 +29,18 @@ kotlin {
             implementation(libs.ktor.serialization.kotlinx.json)
             implementation(libs.ktor.client.logging)
         }
-        androidMain.dependencies {
-            implementation(libs.ktor.client.okhttp)
+        val androidMain by getting {
+            kotlin.srcDir("src/jvmCommonMain/kotlin")
+            dependencies {
+                implementation(libs.ktor.client.okhttp)
+                implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
+            }
         }
         val desktopMain by getting {
+            kotlin.srcDir("src/jvmCommonMain/kotlin")
             dependencies {
                 implementation(libs.ktor.client.cio)
+                implementation(libs.jna)
             }
         }
         iosMain.dependencies {

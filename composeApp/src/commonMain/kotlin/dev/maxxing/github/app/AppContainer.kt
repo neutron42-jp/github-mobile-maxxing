@@ -116,6 +116,7 @@ class AppContainer(
     private var updateDownloadJob: Job? = null
     private var warmUpJob: Job? = null
     private var warmUpLogin: String? = null
+    private var lastHydratedAccountId: String? = null
 
     @Volatile
     var isAppInForeground: Boolean = false
@@ -238,6 +239,11 @@ class AppContainer(
     }
 
     suspend fun hydrateFromDisk(loginHint: String?) {
+        val currentId = sessionManager.session.value?.resolvedAccountId()
+        if (currentId != lastHydratedAccountId) {
+            lastHydratedAccountId = currentId
+            _viewerProfile.value = null
+        }
         repository.hydrateDiskCache(loginHint)
         if (_viewerProfile.value == null) {
             repository.peekViewerProfile()?.let { _viewerProfile.value = it }
@@ -342,25 +348,58 @@ class AppContainer(
     }
 
     suspend fun refreshViewerProfile(): ViewerProfile? {
-        val activeId = sessionManager.session.value?.resolvedAccountId()
-        return repository.getViewerProfile().getOrNull()?.also { loaded ->
-            _viewerProfile.value = loaded
-            if (!activeId.isNullOrBlank()) {
+        val targetSession = sessionManager.session.value ?: return null
+        val activeId = targetSession.resolvedAccountId()
+        if (targetSession.providerType == ProviderType.LOCAL) {
+            // Self-heal if an earlier build leaked a remote profile's avatar/login onto a Local account.
+            if (targetSession.avatarUrl.isNotBlank()) {
                 runCatching {
                     sessionManager.updateAccountProfileMetadata(
                         accountId = activeId,
-                        userLogin = loaded.login,
-                        avatarUrl = loaded.avatarUrl
+                        userLogin = null,
+                        avatarUrl = "",
+                        forceClearAvatar = true
                     )
                 }
+                backgroundScope.launch {
+                    val host = repository.getLocalHostInfo().getOrNull() ?: return@launch
+                    if (sessionManager.session.value?.resolvedAccountId() == activeId &&
+                        host.hostName.isNotBlank()
+                    ) {
+                        sessionManager.updateAccountProfileMetadata(
+                            accountId = activeId,
+                            userLogin = host.hostName,
+                            avatarUrl = "",
+                            forceClearAvatar = true
+                        )
+                        _viewerProfile.value = ViewerProfile(login = host.hostName)
+                    }
+                }
+            }
+            val localProfile = ViewerProfile(login = targetSession.userLogin ?: "local")
+            if (sessionManager.session.value?.resolvedAccountId() == activeId) {
+                _viewerProfile.value = localProfile
+            }
+            return localProfile
+        }
+        return repository.getViewerProfile().getOrNull()?.also { loaded ->
+            if (sessionManager.session.value?.resolvedAccountId() != activeId) return@also
+            _viewerProfile.value = loaded
+            runCatching {
+                sessionManager.updateAccountProfileMetadata(
+                    accountId = activeId,
+                    userLogin = loaded.login,
+                    avatarUrl = loaded.avatarUrl
+                )
             }
         }
     }
 
     suspend fun switchAccount(accountId: String): Boolean {
+        if (sessionManager.accounts.value.none { it.resolvedAccountId() == accountId }) return false
+        resetActiveSessionState(clearDisk = false)
         val switched = sessionManager.switchAccount(accountId)
         if (!switched) return false
-        resetActiveSessionState(clearDisk = false)
         val active = sessionManager.session.value
         val login = active?.userLogin
         hydrateFromDisk(login)

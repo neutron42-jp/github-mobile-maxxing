@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.composables.icons.lucide.ShieldAlert
+import com.composables.icons.lucide.Camera
 import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.Copy
@@ -130,6 +131,58 @@ internal fun resolveAccountClusterLayout(accountCount: Int): AccountClusterLayou
     else -> AccountClusterLayout.GRID_OVERFLOW
 }
 
+/**
+ * Renders an account avatar, showing a distinct server icon badge for [ProviderType.LOCAL]
+ * hosts so they stand out from remote accounts that lack a custom avatar image.
+ */
+@Composable
+fun AccountAvatar(
+    providerType: ProviderType,
+    avatarUrl: String,
+    login: String,
+    sizeDp: Int = 28,
+    modifier: Modifier = Modifier
+) {
+    if (providerType == ProviderType.LOCAL) {
+        Box(
+            modifier = modifier
+                .size(sizeDp.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.tertiaryContainer),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Lucide.Server,
+                contentDescription = login,
+                tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                modifier = Modifier.size((sizeDp * 0.56f).dp.coerceAtLeast(10.dp))
+            )
+        }
+    } else {
+        UserAvatar(
+            avatarUrl = avatarUrl,
+            login = login,
+            sizeDp = sizeDp,
+            modifier = modifier
+        )
+    }
+}
+
+@Composable
+fun AccountAvatar(
+    session: AuthSession,
+    sizeDp: Int = 28,
+    modifier: Modifier = Modifier
+) {
+    AccountAvatar(
+        providerType = session.providerType,
+        avatarUrl = session.avatarUrl,
+        login = session.userLogin ?: "?",
+        sizeDp = sizeDp,
+        modifier = modifier
+    )
+}
+
 @Composable
 fun AccountAvatarCluster(
     accounts: List<AuthSession>,
@@ -160,12 +213,7 @@ fun AccountAvatarCluster(
                 }
             }
             AccountClusterLayout.SINGLE -> {
-                val acc = accounts.first()
-                UserAvatar(
-                    avatarUrl = acc.avatarUrl,
-                    login = acc.userLogin ?: "?",
-                    sizeDp = sizeDp
-                )
+                AccountAvatar(session = accounts.first(), sizeDp = sizeDp)
             }
             AccountClusterLayout.PAIR -> {
                 val itemSize = (sizeDp * 0.46f).toInt().coerceAtLeast(18)
@@ -174,11 +222,7 @@ fun AccountAvatarCluster(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     accounts.take(2).forEach { acc ->
-                        UserAvatar(
-                            avatarUrl = acc.avatarUrl,
-                            login = acc.userLogin ?: "?",
-                            sizeDp = itemSize
-                        )
+                        AccountAvatar(session = acc, sizeDp = itemSize)
                     }
                 }
             }
@@ -188,22 +232,10 @@ fun AccountAvatarCluster(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    UserAvatar(
-                        avatarUrl = accounts[0].avatarUrl,
-                        login = accounts[0].userLogin ?: "?",
-                        sizeDp = itemSize
-                    )
+                    AccountAvatar(session = accounts[0], sizeDp = itemSize)
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        UserAvatar(
-                            avatarUrl = accounts[1].avatarUrl,
-                            login = accounts[1].userLogin ?: "?",
-                            sizeDp = itemSize
-                        )
-                        UserAvatar(
-                            avatarUrl = accounts[2].avatarUrl,
-                            login = accounts[2].userLogin ?: "?",
-                            sizeDp = itemSize
-                        )
+                        AccountAvatar(session = accounts[1], sizeDp = itemSize)
+                        AccountAvatar(session = accounts[2], sizeDp = itemSize)
                     }
                 }
             }
@@ -211,12 +243,12 @@ fun AccountAvatarCluster(
                 val itemSize = (sizeDp * 0.46f).toInt().coerceAtLeast(16)
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        UserAvatar(accounts[0].avatarUrl, accounts[0].userLogin ?: "?", sizeDp = itemSize)
-                        UserAvatar(accounts[1].avatarUrl, accounts[1].userLogin ?: "?", sizeDp = itemSize)
+                        AccountAvatar(session = accounts[0], sizeDp = itemSize)
+                        AccountAvatar(session = accounts[1], sizeDp = itemSize)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        UserAvatar(accounts[2].avatarUrl, accounts[2].userLogin ?: "?", sizeDp = itemSize)
-                        UserAvatar(accounts[3].avatarUrl, accounts[3].userLogin ?: "?", sizeDp = itemSize)
+                        AccountAvatar(session = accounts[2], sizeDp = itemSize)
+                        AccountAvatar(session = accounts[3], sizeDp = itemSize)
                     }
                 }
             }
@@ -224,11 +256,11 @@ fun AccountAvatarCluster(
                 val itemSize = (sizeDp * 0.46f).toInt().coerceAtLeast(16)
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        UserAvatar(accounts[0].avatarUrl, accounts[0].userLogin ?: "?", sizeDp = itemSize)
-                        UserAvatar(accounts[1].avatarUrl, accounts[1].userLogin ?: "?", sizeDp = itemSize)
+                        AccountAvatar(session = accounts[0], sizeDp = itemSize)
+                        AccountAvatar(session = accounts[1], sizeDp = itemSize)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        UserAvatar(accounts[2].avatarUrl, accounts[2].userLogin ?: "?", sizeDp = itemSize)
+                        AccountAvatar(session = accounts[2], sizeDp = itemSize)
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -289,9 +321,8 @@ fun AccountSwitcherFloatingPill(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                UserAvatar(
-                    avatarUrl = activeAccount.avatarUrl,
-                    login = activeAccount.userLogin ?: "?",
+                AccountAvatar(
+                    session = activeAccount,
                     sizeDp = 26
                 )
                 Column(modifier = Modifier.weight(1f, fill = false)) {
@@ -354,9 +385,8 @@ fun AccountSwitcherFloatingPill(
                     val needsReauth = id in reauthRequiredIds
                     DropdownMenuItem(
                         leadingIcon = {
-                            UserAvatar(
-                                avatarUrl = acc.avatarUrl,
-                                login = acc.userLogin ?: "?",
+                            AccountAvatar(
+                                session = acc,
                                 sizeDp = 28
                             )
                         },
@@ -450,6 +480,7 @@ fun ManageAccountsDialog(
     var selectedCategory by remember(initialCategory) { mutableStateOf(initialCategory) }
     var showAddGitHub by remember { mutableStateOf(false) }
     var showAddOthers by remember { mutableStateOf(false) }
+    var showAddLocal by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -488,6 +519,7 @@ fun ManageAccountsDialog(
                         selectedCategory = it
                         showAddGitHub = false
                         showAddOthers = false
+                        showAddLocal = false
                     },
                     labelProvider = { type ->
                         when (type) {
@@ -650,33 +682,72 @@ fun ManageAccountsDialog(
                         }
 
                         ProviderType.LOCAL -> {
-                            Surface(
-                                shape = MaterialTheme.shapes.large,
-                                color = MaterialTheme.colorScheme.surfaceContainer,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth().padding(24.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                            val localAccounts = accounts.filter { it.providerType == ProviderType.LOCAL }
+                            if (localAccounts.isEmpty()) {
+                                Text(
+                                    text = strings.localNoAccounts,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                localAccounts.forEach { acc ->
+                                    val id = acc.resolvedAccountId()
+                                    AccountManageRow(
+                                        session = acc,
+                                        isActive = id == activeAccountId,
+                                        needsReauth = id in reauthRequiredIds,
+                                        onSelect = {
+                                            if (id != activeAccountId) {
+                                                onSwitchAccount(id)
+                                            }
+                                        },
+                                        onLogout = { onLogoutAccount(id) }
+                                    )
+                                }
+                            }
+
+                            if (!showAddLocal) {
+                                FilledTonalButton(
+                                    onClick = { showAddLocal = true },
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Icon(
-                                        Lucide.HardDrive,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(32.dp)
-                                    )
-                                    Text(
-                                        text = strings.localWipTitle,
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = strings.localWipBody,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        textAlign = TextAlign.Center
-                                    )
+                                    Icon(Lucide.Plus, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(strings.addAction)
+                                }
+                            } else {
+                                Surface(
+                                    shape = MaterialTheme.shapes.large,
+                                    color = MaterialTheme.colorScheme.surfaceContainer,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(14.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = strings.providerLocal,
+                                                style = MaterialTheme.typography.titleSmall,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            TextButton(onClick = { showAddLocal = false }) {
+                                                Text(strings.cancel)
+                                            }
+                                        }
+                                        Spacer(Modifier.height(6.dp))
+                                        LocalHostAuthBlock(
+                                            sessionManager = container.sessionManager,
+                                            onAuthenticated = { newSession ->
+                                                showAddLocal = false
+                                                scope.launch {
+                                                    container.onExternalAccountAdded(newSession)
+                                                }
+                                                onMessage(strings.signInWelcome(newSession.userLogin ?: "Local PC"))
+                                            },
+                                            onMessage = onMessage
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -684,6 +755,135 @@ fun ManageAccountsDialog(
                 }
             }
         }
+    }
+}
+
+@Composable
+internal fun LocalHostAuthBlock(
+    sessionManager: SessionManager,
+    onAuthenticated: (AuthSession) -> Unit,
+    onMessage: (String) -> Unit
+) {
+    val strings = appStrings()
+    val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    var pairCode by remember { mutableStateOf("") }
+    var clientName by remember {
+        mutableStateOf(if (platformCapabilities.avoidsKeyboardOnSignIn) "Mobile" else "Desktop")
+    }
+    var pairing by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var showQrScanner by remember { mutableStateOf(false) }
+
+    fun submitPairing(rawCode: String = pairCode) {
+        val clean = rawCode.trim()
+        if (clean.isEmpty() || pairing) return
+        if (!dev.maxxing.github.network.LocalP2pClient.isSupported) {
+            errorMsg = strings.providerUnsupportedFeature(strings.providerLocal)
+            return
+        }
+        focusManager.clearFocus()
+        pairing = true
+        errorMsg = null
+        scope.launch {
+            runCatching {
+                val secretHex = sessionManager.getOrCreateLocalIdentitySecret {
+                    dev.maxxing.github.network.LocalP2pClient.generateClientIdentity().secretKeyHex
+                }
+                val paired = dev.maxxing.github.network.LocalP2pClient.pairWithHost(
+                    clientSecretHex = secretHex,
+                    pairingCode = clean,
+                    clientName = clientName.trim().ifEmpty { "Mobile" }
+                )
+                sessionManager.addLocalAccount(
+                    hostName = paired.host.hostName,
+                    rootName = paired.host.rootName,
+                    endpointId = paired.host.endpointId,
+                    endpointTicket = paired.endpointTicket,
+                    makeActive = true
+                )
+            }.onSuccess { session ->
+                pairing = false
+                pairCode = ""
+                onAuthenticated(session)
+            }.onFailure { err ->
+                pairing = false
+                val msg = strings.errorMessage(err, strings.localPairAndConnect)
+                errorMsg = msg
+                onMessage(msg)
+            }
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = strings.localPairInstructions,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        OutlinedButton(
+            onClick = { showQrScanner = true },
+            enabled = !pairing,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Lucide.Camera, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(strings.localScanQrAction)
+        }
+
+        OutlinedTextField(
+            value = pairCode,
+            onValueChange = {
+                pairCode = it
+                errorMsg = null
+            },
+            label = { Text(strings.localPairCodeLabel) },
+            placeholder = { Text(strings.localPairCodePlaceholder) },
+            singleLine = true,
+            enabled = !pairing,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { submitPairing() }),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        OutlinedTextField(
+            value = clientName,
+            onValueChange = { clientName = it },
+            label = { Text(strings.localClientNameLabel) },
+            singleLine = true,
+            enabled = !pairing,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        if (!errorMsg.isNullOrBlank()) {
+            Text(
+                text = errorMsg!!,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+
+        Button(
+            onClick = { submitPairing() },
+            enabled = !pairing && pairCode.trim().isNotEmpty(),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Lucide.HardDrive, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(if (pairing) strings.localPairing else strings.localPairAndConnect)
+        }
+    }
+
+    if (showQrScanner) {
+        QrCodeScannerDialog(
+            onCodeScanned = { scanned ->
+                showQrScanner = false
+                pairCode = scanned
+                submitPairing(scanned)
+            },
+            onDismiss = { showQrScanner = false }
+        )
     }
 }
 
@@ -714,9 +914,8 @@ private fun AccountManageRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            UserAvatar(
-                avatarUrl = session.avatarUrl,
-                login = session.userLogin ?: "?",
+            AccountAvatar(
+                session = session,
                 sizeDp = 36
             )
             Column(modifier = Modifier.weight(1f)) {

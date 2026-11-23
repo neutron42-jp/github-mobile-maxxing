@@ -404,6 +404,38 @@ class GitHubRepository(
             ?.takeIf { it.isNotBlank() }
             ?: error("No Forgejo/Gitea instance base URL configured for active account")
 
+    private fun activeLocalEndpointTicket(): String =
+        sessionManager.session.value?.takeIf { it.providerType == ProviderType.LOCAL }
+            ?.baseUrl?.trim()?.takeIf { it.isNotBlank() }
+            ?: error("No Local host endpoint ticket configured for active account")
+
+    private suspend fun getOrCreateLocalIdentitySecret(): String {
+        if (!LocalP2pClient.isSupported) {
+            throw GitHubApiException(501, "Local P2P native client is not available on this platform", isSyntheticStatus = true)
+        }
+        return sessionManager.getOrCreateLocalIdentitySecret {
+            LocalP2pClient.generateClientIdentity().secretKeyHex
+        }
+    }
+
+    suspend fun pairLocalHost(pairingCode: String, clientName: String = "Mobile"): Result<AuthSession> =
+        runMutationCancellable {
+            val secret = getOrCreateLocalIdentitySecret()
+            val paired = LocalP2pClient.pairWithHost(secret, pairingCode, clientName)
+            sessionManager.addLocalAccount(
+                hostName = paired.host.hostName,
+                rootName = paired.host.rootName,
+                endpointId = paired.host.endpointId,
+                endpointTicket = paired.endpointTicket,
+                makeActive = true
+            )
+        }
+
+    suspend fun getLocalHostInfo(): Result<LocalHostInfo> = runCatchingCancellable {
+        val secret = getOrCreateLocalIdentitySecret()
+        LocalP2pClient.getHostInfo(secret, activeLocalEndpointTicket())
+    }
+
     /** Releases the underlying HttpClient. Only for short-lived instances that own their client. */
     fun close() {
         httpClient.close()
@@ -412,6 +444,8 @@ class GitHubRepository(
     private val singleFlight = SingleFlightGroup()
     @Volatile
     private var cacheGeneration: Long = 0L
+    @Volatile
+    private var activeMemoryScope: String = currentAccountScope()
 
     private fun currentAccountScope(): String {
         val active = sessionManager.session.value ?: return "_viewer"
@@ -449,8 +483,9 @@ class GitHubRepository(
         }
         val fetchBlock: suspend () -> Result<V> = {
             val generation = cacheGeneration
+            val expectedScope = currentAccountScope()
             runCatchingCancellable { loader() }.onSuccess { value ->
-                if (generation == cacheGeneration && shouldCache(value)) {
+                if (generation == cacheGeneration && currentAccountScope() == expectedScope && shouldCache(value)) {
                     cache.put(cacheKey, value)
                     onCached(value)
                 }
@@ -468,6 +503,11 @@ class GitHubRepository(
      * UI screens render immediately at startup while fresh network responses load in the background.
      */
     suspend fun hydrateDiskCache(loginHint: String? = null) {
+        val targetScope = currentAccountScope()
+        if (activeMemoryScope != targetScope) {
+            clearMemoryCaches()
+        }
+        activeMemoryScope = targetScope
         if (diskCache === NoOpPersistentCacheStore) return
         val generation = cacheGeneration
         val resolvedLogin = loginHint?.trim()?.takeIf { it.isNotEmpty() }
@@ -511,8 +551,8 @@ class GitHubRepository(
                 }
             }
 
-            if (generation != cacheGeneration) return@coroutineScope
-            profileJob.await()?.let { profileCache.putStaleIfAbsent("viewer", it) }
+            if (generation != cacheGeneration || currentAccountScope() != targetScope) return@coroutineScope
+            profileJob.await()?.let { profileCache.putStaleIfAbsent(targetScope, it) }
             unreadNotifsJob.await()?.let { notificationsCache.putStaleIfAbsent(NotificationsKey(all = false, participating = false, page = 1), it) }
             myReposJob.await()?.let { viewerReposCache.putStaleIfAbsent("MY", it) }
             starredReposJob.await()?.let { viewerReposCache.putStaleIfAbsent("STARRED", it) }
@@ -581,6 +621,7 @@ class GitHubRepository(
     private val insightsCache = LruMemoryCache<RepoKey, RepoInsightsData>(ttl = 120.seconds, maxEntries = 32)
     private val gistsCache = LruMemoryCache<String, List<GistSummary>>(ttl = 60.seconds, maxEntries = 16)
     private val gistDetailCache = LruMemoryCache<String, GistDetail>(ttl = 60.seconds, maxEntries = 32)
+    private val localWorkingDiffCache = LruMemoryCache<RepoKey, LocalWorkingDiffResult>(ttl = 15.seconds, maxEntries = 32)
 
     suspend fun clearCache() {
         clearMemoryCaches()
@@ -590,6 +631,7 @@ class GitHubRepository(
     /** Clears only in-memory caches and conditional ETags (used on account switch without wiping other accounts' disk SWR). */
     suspend fun clearMemoryCaches() {
         cacheGeneration += 1L
+        activeMemoryScope = currentAccountScope()
         restService.clearConditionalCache()
         profileCache.clear()
         notificationsCache.clear()
@@ -636,68 +678,72 @@ class GitHubRepository(
         insightsCache.clear()
         gistsCache.clear()
         gistDetailCache.clear()
+        localWorkingDiffCache.clear()
         recentIssueStateOverrides = emptyMap()
         presetIssueHints = emptyMap()
     }
 
     // ---- Synchronous lock-free cache peeks for instant UI rendering ----
 
+    private inline fun <T> ifSameMemoryScope(block: () -> T?): T? =
+        if (currentAccountScope() == activeMemoryScope) block() else null
+
     fun peekViewerProfile(): ViewerProfile? =
-        profileCache.peek("viewer")
+        profileCache.peek(currentAccountScope())
 
     fun peekNotifications(all: Boolean = false, participating: Boolean = false, page: Int = 1): List<NotificationThread>? =
-        notificationsCache.peek(NotificationsKey(all, participating, page))
+        ifSameMemoryScope { notificationsCache.peek(NotificationsKey(all, participating, page)) }
 
     fun peekMyIssuesAndPulls(
         preset: IssueFilterPreset,
         viewerLogin: String,
         stateFilter: IssueStateFilter = IssueStateFilter.OPEN
-    ): List<IssueOrPullSummary>? = myIssuesCache.peek(MyIssuesKey(preset, viewerLogin, stateFilter))
+    ): List<IssueOrPullSummary>? = ifSameMemoryScope { myIssuesCache.peek(MyIssuesKey(preset, viewerLogin, stateFilter)) }
 
     fun peekIssueOrPullDetail(owner: String, repo: String, number: Int): IssueOrPullDetail? =
-        issueDetailCache.peek(issuePullKey(owner, repo, number))
+        ifSameMemoryScope { issueDetailCache.peek(issuePullKey(owner, repo, number)) }
 
     fun peekPullFiles(owner: String, repo: String, number: Int): List<PullFileChange>? =
-        pullFilesCache.peek(issuePullKey(owner, repo, number))
+        ifSameMemoryScope { pullFilesCache.peek(issuePullKey(owner, repo, number)) }
 
     fun peekPullReviewSyncState(owner: String, repo: String, number: Int): PullReviewSyncState? =
-        pullReviewSyncCache.peek(issuePullKey(owner, repo, number))
+        ifSameMemoryScope { pullReviewSyncCache.peek(issuePullKey(owner, repo, number)) }
 
-    fun peekViewerRepositories(): List<RepoSummary>? = viewerReposCache.peek("MY")
+    fun peekViewerRepositories(): List<RepoSummary>? = ifSameMemoryScope { viewerReposCache.peek("MY") }
 
-    fun peekStarredRepositories(): List<RepoSummary>? = viewerReposCache.peek("STARRED")
+    fun peekStarredRepositories(): List<RepoSummary>? = ifSameMemoryScope { viewerReposCache.peek("STARRED") }
 
-    fun peekSearchRepositories(query: String): List<RepoSummary>? = searchReposCache.peek(query.trim())
+    fun peekSearchRepositories(query: String): List<RepoSummary>? = ifSameMemoryScope { searchReposCache.peek(query.trim()) }
 
-    fun peekRepoDetail(owner: String, repo: String): RepoDetail? = repoDetailCache.peek(repoKey(owner, repo))
+    fun peekRepoDetail(owner: String, repo: String): RepoDetail? = ifSameMemoryScope { repoDetailCache.peek(repoKey(owner, repo)) }
 
     fun peekRepoIssuesOrPulls(
         owner: String,
         repo: String,
         pullRequests: Boolean,
         stateFilter: IssueStateFilter = IssueStateFilter.OPEN
-    ): List<IssueOrPullSummary>? = repoIssuesCache.peek(repoIssuesKey(owner, repo, pullRequests, stateFilter))
+    ): List<IssueOrPullSummary>? = ifSameMemoryScope { repoIssuesCache.peek(repoIssuesKey(owner, repo, pullRequests, stateFilter)) }
 
     fun peekDirectoryContents(owner: String, repo: String, path: String = "", ref: String? = null): List<TreeEntry>? =
-        dirCache.peek(repoPathKey(owner, repo, path, ref))
+        ifSameMemoryScope { dirCache.peek(repoPathKey(owner, repo, path, ref)) }
 
     fun peekFileContent(owner: String, repo: String, path: String, ref: String? = null): FileContent? =
-        fileCache.peek(repoPathKey(owner, repo, path, ref))
+        ifSameMemoryScope { fileCache.peek(repoPathKey(owner, repo, path, ref)) }
 
     fun peekReadme(owner: String, repo: String, ref: String? = null): String? =
-        readmeCache.peek(repoPathKey(owner, repo, "", ref))
+        ifSameMemoryScope { readmeCache.peek(repoPathKey(owner, repo, "", ref)) }
 
     fun peekContributionCalendar(login: String): ContributionCalendar? =
-        contributionCache.peek(login)
+        ifSameMemoryScope { contributionCache.peek(login) }
 
     fun peekReceivedEvents(login: String): List<ActivityEvent>? =
-        receivedEventsCache.peek(login)
+        ifSameMemoryScope { receivedEventsCache.peek(login) }
 
     fun peekUserEvents(login: String): List<ActivityEvent>? =
-        userEventsCache.peek(login)
+        ifSameMemoryScope { userEventsCache.peek(login) }
 
     fun peekUserProfile(login: String): UserProfile? =
-        userProfileCache.peek(login)
+        ifSameMemoryScope { userProfileCache.peek(login) }
 
     fun peekUserRepositories(login: String): List<RepoSummary>? =
         userReposCache.peek(login)
@@ -716,10 +762,11 @@ class GitHubRepository(
 
     // ---- Cached / Parallel Network Operations ----
 
-    suspend fun getViewerProfile(forceRefresh: Boolean = false): Result<ViewerProfile> =
-        cachedFetch(
+    suspend fun getViewerProfile(forceRefresh: Boolean = false): Result<ViewerProfile> {
+        val scopeKey = currentAccountScope()
+        return cachedFetch(
             cache = profileCache,
-            cacheKey = "viewer",
+            cacheKey = scopeKey,
             flightNamespace = "viewerProfile",
             forceRefresh = forceRefresh,
             onCached = { persistToDiskAsync("viewer_profile", value = it) }
@@ -730,6 +777,7 @@ class GitHubRepository(
                 ProviderType.LOCAL -> ViewerProfile(login = sessionManager.session.value?.userLogin ?: "local")
             }
         }
+    }
 
     suspend fun getNotifications(
         all: Boolean = false,
@@ -1207,9 +1255,64 @@ class GitHubRepository(
                     restService.fetchViewerRepositoriesRest()
                 }
                 ProviderType.FORGEJO_GITEA -> forgejoService.fetchViewerRepositories(activeForgejoApiBaseUrl())
-                ProviderType.LOCAL -> emptyList()
+                ProviderType.LOCAL -> {
+                    val paths = sessionManager.localRepos.value
+                    if (paths.isEmpty()) {
+                        emptyList()
+                    } else {
+                        LocalP2pClient.listRegisteredRepos(
+                            clientSecretHex = getOrCreateLocalIdentitySecret(),
+                            endpointTicket = activeLocalEndpointTicket(),
+                            repoPaths = paths
+                        )
+                    }
+                }
             }
         }
+
+    suspend fun browseLocalDirectories(dirPath: String = ""): Result<LocalBrowseResult> = runCatching {
+        if (activeProviderType() != ProviderType.LOCAL) {
+            throw GitHubApiException(501, "Directory browsing is only available for Local hosts", isSyntheticStatus = true)
+        }
+        LocalP2pClient.browseDirectories(
+            clientSecretHex = getOrCreateLocalIdentitySecret(),
+            endpointTicket = activeLocalEndpointTicket(),
+            dirPath = dirPath
+        )
+    }
+
+    suspend fun registerLocalRepo(repoPath: String): Result<List<RepoSummary>> = runCatching {
+        if (activeProviderType() != ProviderType.LOCAL) {
+            throw GitHubApiException(501, "Local repo registration requires a Local host", isSyntheticStatus = true)
+        }
+        sessionManager.addLocalRepoPath(repoPath)
+        refreshAndCacheRegisteredLocalRepos()
+    }
+
+    suspend fun unregisterLocalRepo(repoPath: String): Result<List<RepoSummary>> = runCatching {
+        if (activeProviderType() != ProviderType.LOCAL) {
+            throw GitHubApiException(501, "Local repo removal requires a Local host", isSyntheticStatus = true)
+        }
+        sessionManager.removeLocalRepoPath(repoPath)
+        refreshAndCacheRegisteredLocalRepos()
+    }
+
+    private suspend fun refreshAndCacheRegisteredLocalRepos(): List<RepoSummary> {
+        viewerReposCache.invalidate("MY")
+        val paths = sessionManager.localRepos.value
+        val updated = if (paths.isEmpty()) {
+            emptyList()
+        } else {
+            LocalP2pClient.listRegisteredRepos(
+                clientSecretHex = getOrCreateLocalIdentitySecret(),
+                endpointTicket = activeLocalEndpointTicket(),
+                repoPaths = paths
+            )
+        }
+        viewerReposCache.put("MY", updated)
+        persistToDiskAsync("viewer_repos", "MY", updated)
+        return updated
+    }
 
     suspend fun getStarredRepositories(forceRefresh: Boolean = false): Result<List<RepoSummary>> =
         cachedFetch(
@@ -1250,7 +1353,14 @@ class GitHubRepository(
                     restService.searchRepositoriesRest(trimmed)
                 }
                 ProviderType.FORGEJO_GITEA -> forgejoService.searchRepositories(activeForgejoApiBaseUrl(), trimmed)
-                ProviderType.LOCAL -> emptyList()
+                ProviderType.LOCAL -> {
+                    val all = LocalP2pClient.listRepos(getOrCreateLocalIdentitySecret(), activeLocalEndpointTicket())
+                    all.filter {
+                        it.name.contains(trimmed, ignoreCase = true) ||
+                            it.fullName.contains(trimmed, ignoreCase = true) ||
+                            (it.description?.contains(trimmed, ignoreCase = true) == true)
+                    }
+                }
             }
         }
     }
@@ -1272,7 +1382,25 @@ class GitHubRepository(
                 detailDeferred.await().copy(branches = branchesDeferred.await())
             }
             ProviderType.FORGEJO_GITEA -> forgejoService.fetchRepoDetail(activeForgejoApiBaseUrl(), owner, repo)
-            ProviderType.LOCAL -> throw GitHubApiException(501, "Not supported in local mode", isSyntheticStatus = true)
+            ProviderType.LOCAL -> {
+                val relPath = joinLocalRepoRelativePath(owner, repo)
+                val cachedList = viewerReposCache.peek("MY")
+                    ?: LocalP2pClient.listRepos(getOrCreateLocalIdentitySecret(), activeLocalEndpointTicket())
+                val matched = cachedList.firstOrNull {
+                    joinLocalRepoRelativePath(it.owner, it.name) == relPath ||
+                        it.fullName == relPath
+                } ?: RepoSummary(
+                    id = "local:$relPath",
+                    name = if (repo == ".") owner else repo,
+                    owner = owner,
+                    fullName = relPath,
+                    defaultBranch = "main"
+                )
+                RepoDetail(
+                    summary = matched,
+                    branches = listOf(BranchRef(name = matched.defaultBranch, sha = ""))
+                )
+            }
         }
     }
 
@@ -1306,7 +1434,10 @@ class GitHubRepository(
         when (activeProviderType()) {
             ProviderType.GITHUB -> restService.fetchBranches(owner, repo)
             ProviderType.FORGEJO_GITEA -> forgejoService.fetchBranches(activeForgejoApiBaseUrl(), owner, repo)
-            ProviderType.LOCAL -> emptyList()
+            ProviderType.LOCAL -> {
+                val branch = repoDetailCache.peek(repoKey(owner, repo))?.summary?.defaultBranch ?: "main"
+                listOf(BranchRef(name = branch, sha = ""))
+            }
         }
     }
 
@@ -1325,7 +1456,13 @@ class GitHubRepository(
         when (activeProviderType()) {
             ProviderType.GITHUB -> restService.fetchDirectoryContents(owner, repo, path, ref)
             ProviderType.FORGEJO_GITEA -> forgejoService.fetchDirectoryContents(activeForgejoApiBaseUrl(), owner, repo, path, ref)
-            ProviderType.LOCAL -> emptyList()
+            ProviderType.LOCAL -> LocalP2pClient.getTree(
+                clientSecretHex = getOrCreateLocalIdentitySecret(),
+                endpointTicket = activeLocalEndpointTicket(),
+                repoPath = joinLocalRepoRelativePath(owner, repo),
+                gitRef = ref,
+                dirPath = path
+            )
         }
     }
 
@@ -1344,7 +1481,13 @@ class GitHubRepository(
         when (activeProviderType()) {
             ProviderType.GITHUB -> restService.fetchFileContent(owner, repo, path, ref)
             ProviderType.FORGEJO_GITEA -> forgejoService.fetchFileContent(activeForgejoApiBaseUrl(), owner, repo, path, ref)
-            ProviderType.LOCAL -> throw GitHubApiException(501, "Not supported in local mode", isSyntheticStatus = true)
+            ProviderType.LOCAL -> LocalP2pClient.getFile(
+                clientSecretHex = getOrCreateLocalIdentitySecret(),
+                endpointTicket = activeLocalEndpointTicket(),
+                repoPath = joinLocalRepoRelativePath(owner, repo),
+                gitRef = ref,
+                filePath = path
+            )
         }
     }
 
@@ -1362,7 +1505,18 @@ class GitHubRepository(
         when (activeProviderType()) {
             ProviderType.GITHUB -> restService.fetchReadme(owner, repo, ref)
             ProviderType.FORGEJO_GITEA -> forgejoService.fetchReadme(activeForgejoApiBaseUrl(), owner, repo, ref)
-            ProviderType.LOCAL -> null
+            ProviderType.LOCAL -> {
+                val secret = getOrCreateLocalIdentitySecret()
+                val ticket = activeLocalEndpointTicket()
+                val repoPath = joinLocalRepoRelativePath(owner, repo)
+                val entries = LocalP2pClient.getTree(secret, ticket, repoPath, ref, "")
+                val readmeEntry = entries.firstOrNull {
+                    it.type == dev.maxxing.github.model.TreeEntryType.BLOB &&
+                        it.name.lowercase() in setOf("readme.md", "readme.markdown", "readme.txt", "readme")
+                } ?: return@cachedFetch null
+                val content = LocalP2pClient.getFile(secret, ticket, repoPath, ref, readmeEntry.path)
+                if (content.isBinary) null else content.content
+            }
         }
     }
 
@@ -1979,7 +2133,13 @@ class GitHubRepository(
         when (activeProviderType()) {
             ProviderType.GITHUB -> restService.fetchRepoCommits(owner, repo, ref, path.takeIf(String::isNotBlank))
             ProviderType.FORGEJO_GITEA -> forgejoService.fetchRepoCommits(activeForgejoApiBaseUrl(), owner, repo, ref, path.takeIf(String::isNotBlank))
-            ProviderType.LOCAL -> emptyList()
+            ProviderType.LOCAL -> LocalP2pClient.getCommits(
+                clientSecretHex = getOrCreateLocalIdentitySecret(),
+                endpointTicket = activeLocalEndpointTicket(),
+                repoPath = joinLocalRepoRelativePath(owner, repo),
+                gitRef = ref,
+                limit = 50
+            )
         }
     }
 
@@ -1997,8 +2157,33 @@ class GitHubRepository(
         when (activeProviderType()) {
             ProviderType.GITHUB -> restService.fetchCommitDetail(owner, repo, sha)
             ProviderType.FORGEJO_GITEA -> forgejoService.fetchCommitDetail(activeForgejoApiBaseUrl(), owner, repo, sha)
-            ProviderType.LOCAL -> throw GitHubApiException(501, "Not supported in local mode", isSyntheticStatus = true)
+            ProviderType.LOCAL -> LocalP2pClient.getCommitDiff(
+                clientSecretHex = getOrCreateLocalIdentitySecret(),
+                endpointTicket = activeLocalEndpointTicket(),
+                repoPath = joinLocalRepoRelativePath(owner, repo),
+                sha = sha
+            )
         }
+    }
+
+    suspend fun getLocalWorkingDiff(
+        owner: String,
+        repo: String,
+        forceRefresh: Boolean = false
+    ): Result<LocalWorkingDiffResult> = cachedFetch(
+        cache = localWorkingDiffCache,
+        cacheKey = repoKey(owner, repo),
+        flightNamespace = "localWorkingDiff",
+        forceRefresh = forceRefresh
+    ) {
+        if (activeProviderType() != ProviderType.LOCAL) {
+            throw GitHubApiException(501, "Working diff is only available for Local hosts", isSyntheticStatus = true)
+        }
+        LocalP2pClient.getWorkingDiff(
+            clientSecretHex = getOrCreateLocalIdentitySecret(),
+            endpointTicket = activeLocalEndpointTicket(),
+            repoPath = joinLocalRepoRelativePath(owner, repo)
+        )
     }
 
     suspend fun getRepoTags(
