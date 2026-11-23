@@ -87,11 +87,14 @@ import dev.maxxing.github.model.IssueOrPullKind
 import dev.maxxing.github.model.NotificationReason
 import dev.maxxing.github.model.NotificationSubjectType
 import dev.maxxing.github.model.NotificationThread
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventState
 import dev.maxxing.github.ui.components.ExpressiveStatusPill
 import dev.maxxing.github.ui.components.MaxxingDropdownSelector
 import dev.maxxing.github.ui.components.MaxxingFloatingToolbar
 import dev.maxxing.github.ui.components.MaxxingLoadingState
-import dev.maxxing.github.ui.components.MaxxingPredictiveBackContainer
+import dev.maxxing.github.ui.components.MaxxingPredictiveOverlayHost
 import dev.maxxing.github.ui.components.MaxxingSwipeableTabPager
 import dev.maxxing.github.ui.components.MaxxingTopHeaderDefaults
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
@@ -366,25 +369,19 @@ fun NotificationsScreen(
         headerTracker.expand()
     }
 
-    MaxxingPredictiveBackContainer(
-        enabled = isTabActive && (isFilterInputActive || navigator.canNavigateBack()),
-        onBack = {
-            when {
-                isFilterInputActive -> {
-                    focusManager.clearFocus()
-                    isFilterInputActive = false
-                }
-                navigator.canNavigateBack() -> scope.launch { navigator.navigateBack() }
+    val isSinglePane = navigator.scaffoldDirective.maxHorizontalPartitions <= 1
+    val navigateBackToList: () -> Unit = {
+        scope.launch {
+            if (navigator.canNavigateBack()) {
+                navigator.navigateBack()
+            } else {
+                navigator.navigateTo(ListDetailPaneScaffoldRole.List)
             }
-        },
-        modifier = Modifier.fillMaxSize()
-    ) {
-        ListDetailPaneScaffold(
-        directive = navigator.scaffoldDirective,
-        value = navigator.scaffoldValue,
-        listPane = {
-            AnimatedPane {
-                Box(modifier = Modifier.fillMaxSize()) {
+        }
+    }
+
+    val listPaneContent: @Composable () -> Unit = {
+        Box(modifier = Modifier.fillMaxSize()) {
                     Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
                         Column(modifier = Modifier.padding(horizontal = MaxxingTopHeaderDefaults.HorizontalPadding, vertical = headerVerticalPadding)) {
                             Row(
@@ -745,61 +742,98 @@ fun NotificationsScreen(
                         }
                         Spacer(Modifier.weight(1f))
                     }
-                }
+        }
+    }
+
+    val detailPaneContent: @Composable (String?) -> Unit = { contentKey ->
+        val issueTarget = contentKey?.let { selectedIssueTargets[it] }
+        val threadTarget = contentKey?.removePrefix("thread:")?.takeIf { contentKey.startsWith("thread:") }?.let { tid ->
+            threads.firstOrNull { it.id == tid } ?: selectedThreads[contentKey]
+        }
+        val showBack = isSinglePane || navigator.canNavigateBack()
+        when {
+            issueTarget != null -> {
+                IssuePullDetailPane(
+                    target = issueTarget,
+                    container = container,
+                    showBackButton = showBack,
+                    onBack = navigateBackToList,
+                    onOpenBranch = onOpenBranch,
+                    onMessage = onMessage
+                )
             }
-        },
-        detailPane = {
-            AnimatedPane {
-                val contentKey = navigator.currentDestination?.contentKey
-                val issueTarget = contentKey?.let { selectedIssueTargets[it] }
-                val threadTarget = contentKey?.removePrefix("thread:")?.takeIf { contentKey.startsWith("thread:") }?.let { tid ->
-                    threads.firstOrNull { it.id == tid } ?: selectedThreads[contentKey]
-                }
-                when {
-                    issueTarget != null -> {
-                        IssuePullDetailPane(
-                            target = issueTarget,
-                            container = container,
-                            showBackButton = navigator.canNavigateBack(),
-                            onBack = { scope.launch { navigator.navigateBack() } },
-                            onOpenBranch = onOpenBranch,
-                            onMessage = onMessage
+            threadTarget != null -> {
+                NotificationSubjectDetailPane(
+                    thread = threadTarget,
+                    container = container,
+                    showBackButton = showBack,
+                    onBack = navigateBackToList,
+                    onMessage = onMessage
+                )
+            }
+            else -> {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Lucide.BellOff,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                         )
-                    }
-                    threadTarget != null -> {
-                        NotificationSubjectDetailPane(
-                            thread = threadTarget,
-                            container = container,
-                            showBackButton = navigator.canNavigateBack(),
-                            onBack = { scope.launch { navigator.navigateBack() } },
-                            onMessage = onMessage
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = strings.selectNotificationToTriage,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                    }
-                    else -> {
-                        Box(
-                            modifier = Modifier.fillMaxSize().padding(32.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    Lucide.BellOff,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(48.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                )
-                                Spacer(Modifier.height(10.dp))
-                                Text(
-                                    text = strings.selectNotificationToTriage,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
                     }
                 }
             }
         }
+    }
+
+    val activeDetailKey = navigator.currentDestination
+        ?.takeIf { it.pane == ListDetailPaneScaffoldRole.Detail }
+        ?.contentKey
+
+    val filterBackState = rememberNavigationEventState(NavigationEventInfo.None)
+    NavigationBackHandler(
+        state = filterBackState,
+        isBackEnabled = isTabActive && isFilterInputActive && (!isSinglePane || activeDetailKey == null),
+        onBackCompleted = {
+            focusManager.clearFocus()
+            isFilterInputActive = false
+        }
     )
+
+    if (isSinglePane) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            listPaneContent()
+            MaxxingPredictiveOverlayHost(
+                target = activeDetailKey,
+                onBack = navigateBackToList,
+                backEnabled = isTabActive,
+                contentKey = { it }
+            ) { detailKey ->
+                detailPaneContent(detailKey)
+            }
+        }
+    } else {
+        val multiPaneBackState = rememberNavigationEventState(NavigationEventInfo.None)
+        NavigationBackHandler(
+            state = multiPaneBackState,
+            isBackEnabled = isTabActive && !isFilterInputActive && navigator.canNavigateBack(),
+            onBackCompleted = navigateBackToList
+        )
+        ListDetailPaneScaffold(
+            directive = navigator.scaffoldDirective,
+            value = navigator.scaffoldValue,
+            listPane = { AnimatedPane { listPaneContent() } },
+            detailPane = { AnimatedPane { detailPaneContent(navigator.currentDestination?.contentKey) } }
+        )
     }
 }
 

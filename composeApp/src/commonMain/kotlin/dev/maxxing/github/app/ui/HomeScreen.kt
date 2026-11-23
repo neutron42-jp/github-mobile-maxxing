@@ -92,6 +92,7 @@ import dev.maxxing.github.ui.components.MaxxingDropdownSelector
 import dev.maxxing.github.ui.components.MaxxingFilledIcons
 import dev.maxxing.github.ui.components.MaxxingLoadingState
 import dev.maxxing.github.ui.components.MaxxingPredictiveOverlayHost
+import dev.maxxing.github.ui.components.MaxxingPredictiveStackHost
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
 import dev.maxxing.github.ui.components.formatCompactCount
 import dev.maxxing.github.ui.components.UserAvatar
@@ -119,6 +120,7 @@ private enum class FeedTab {
 fun HomeScreen(
     container: AppContainer,
     unreadCount: Int,
+    isTabActive: Boolean = true,
     onNavigateInbox: () -> Unit,
     onNavigateIssuesPrs: () -> Unit,
     onNavigateRepos: () -> Unit,
@@ -163,14 +165,16 @@ fun HomeScreen(
             onMessage = onMessage
         )
 
-        MaxxingPredictiveOverlayHost(
-            target = repoStack.lastOrNull(),
+        MaxxingPredictiveStackHost(
+            stack = repoStack,
             onBack = { repoStack = repoStack.dropLast(1) },
+            backEnabled = isTabActive && selectedIssueTarget == null,
             contentKey = { it.fullName }
-        ) { repo ->
+        ) { repo, isTop ->
             RepoDetailScreen(
                 repo = repo,
                 container = container,
+                backEnabled = isTop && isTabActive && selectedIssueTarget == null,
                 onBack = { repoStack = repoStack.dropLast(1) },
                 onOpenIssueOrPull = { selectedIssueTarget = it },
                 onOpenRepo = { pushRepo(it) },
@@ -181,7 +185,8 @@ fun HomeScreen(
 
         MaxxingPredictiveOverlayHost(
             target = selectedIssueTarget,
-            onBack = { selectedIssueTarget = null }
+            onBack = { selectedIssueTarget = null },
+            backEnabled = isTabActive
         ) { target ->
             IssuePullDetailPane(
                 target = target,

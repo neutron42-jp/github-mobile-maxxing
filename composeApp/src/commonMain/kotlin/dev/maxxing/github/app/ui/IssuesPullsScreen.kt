@@ -72,12 +72,15 @@ import dev.maxxing.github.model.IssueOrPullKind
 import dev.maxxing.github.model.IssueOrPullState
 import dev.maxxing.github.model.IssueOrPullSummary
 import dev.maxxing.github.model.IssueStateFilter
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventState
 import dev.maxxing.github.ui.components.ExpressiveStatusPill
 import dev.maxxing.github.ui.components.GitHubLabelChip
 import dev.maxxing.github.ui.components.MaxxingDropdownSelector
 import dev.maxxing.github.ui.components.MaxxingIconLabelTab
 import dev.maxxing.github.ui.components.MaxxingLoadingState
-import dev.maxxing.github.ui.components.MaxxingPredictiveBackContainer
+import dev.maxxing.github.ui.components.MaxxingPredictiveOverlayHost
 import dev.maxxing.github.ui.components.MaxxingSwipeableTabPager
 import dev.maxxing.github.ui.components.MaxxingTopHeaderDefaults
 import dev.maxxing.github.ui.components.MaxxingWavyProgress
@@ -199,17 +202,19 @@ fun IssuesPullsScreen(
         }
     }
 
-    MaxxingPredictiveBackContainer(
-        enabled = isTabActive && navigator.canNavigateBack(),
-        onBack = { scope.launch { navigator.navigateBack() } },
-        modifier = Modifier.fillMaxSize()
-    ) {
-        ListDetailPaneScaffold(
-        directive = navigator.scaffoldDirective,
-        value = navigator.scaffoldValue,
-        listPane = {
-            AnimatedPane {
-                Box(modifier = Modifier.fillMaxSize()) {
+    val isSinglePane = navigator.scaffoldDirective.maxHorizontalPartitions <= 1
+    val navigateBackToList: () -> Unit = {
+        scope.launch {
+            if (navigator.canNavigateBack()) {
+                navigator.navigateBack()
+            } else {
+                navigator.navigateTo(ListDetailPaneScaffoldRole.List)
+            }
+        }
+    }
+
+    val listPaneContent: @Composable () -> Unit = {
+        Box(modifier = Modifier.fillMaxSize()) {
                 Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
                     Column(modifier = Modifier.padding(horizontal = MaxxingTopHeaderDefaults.HorizontalPadding, vertical = headerVerticalPadding)) {
                         Row(
@@ -374,42 +379,68 @@ fun IssuesPullsScreen(
                 ) {
                     accountSwitcherPill()
                 }
-                }
-            }
-        },
-        detailPane = {
-            AnimatedPane {
-                val targetKey = navigator.currentDestination?.contentKey
-                val target = remember(targetKey) {
-                    targetKey?.let { openedTargets[it] ?: issuePullTargetFromPaneKey(it) }
-                }
-                LaunchedEffect(targetKey, target) {
-                    // A key that cannot be decoded has nothing to show; return to the list.
-                    if (targetKey != null && target == null && navigator.canNavigateBack()) {
-                        navigator.navigateBack()
-                    }
-                }
-                if (target != null) {
-                    IssuePullDetailPane(
-                        target = target,
-                        container = container,
-                        showBackButton = navigator.canNavigateBack(),
-                        onBack = { scope.launch { navigator.navigateBack() } },
-                        onOpenBranch = onOpenBranch,
-                        onMessage = onMessage
-                    )
-                } else {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = strings.selectIssueOrPr,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
+        }
+    }
+
+    val detailPaneContent: @Composable (String?) -> Unit = { targetKey ->
+        val target = remember(targetKey) {
+            targetKey?.let { openedTargets[it] ?: issuePullTargetFromPaneKey(it) }
+        }
+        LaunchedEffect(targetKey, target) {
+            // A key that cannot be decoded has nothing to show; return to the list.
+            if (targetKey != null && target == null && navigator.canNavigateBack()) {
+                navigator.navigateBack()
             }
         }
-    )
+        if (target != null) {
+            IssuePullDetailPane(
+                target = target,
+                container = container,
+                showBackButton = isSinglePane || navigator.canNavigateBack(),
+                onBack = navigateBackToList,
+                onOpenBranch = onOpenBranch,
+                onMessage = onMessage
+            )
+        } else {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = strings.selectIssueOrPr,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+
+    val activeDetailKey = navigator.currentDestination
+        ?.takeIf { it.pane == ListDetailPaneScaffoldRole.Detail }
+        ?.contentKey
+
+    if (isSinglePane) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            listPaneContent()
+            MaxxingPredictiveOverlayHost(
+                target = activeDetailKey,
+                onBack = navigateBackToList,
+                backEnabled = isTabActive,
+                contentKey = { it }
+            ) { detailKey ->
+                detailPaneContent(detailKey)
+            }
+        }
+    } else {
+        val multiPaneBackState = rememberNavigationEventState(NavigationEventInfo.None)
+        NavigationBackHandler(
+            state = multiPaneBackState,
+            isBackEnabled = isTabActive && navigator.canNavigateBack(),
+            onBackCompleted = navigateBackToList
+        )
+        ListDetailPaneScaffold(
+            directive = navigator.scaffoldDirective,
+            value = navigator.scaffoldValue,
+            listPane = { AnimatedPane { listPaneContent() } },
+            detailPane = { AnimatedPane { detailPaneContent(navigator.currentDestination?.contentKey) } }
+        )
     }
 }
 

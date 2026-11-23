@@ -1,5 +1,8 @@
 package dev.maxxing.github.app
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -45,7 +49,10 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -89,8 +96,15 @@ import dev.maxxing.github.model.ProviderType
 import dev.maxxing.github.model.RepoSummary
 import dev.maxxing.github.network.createProviderImageHttpClient
 import dev.maxxing.github.ui.components.MaxxingLoadingState
-import dev.maxxing.github.ui.components.MaxxingPredictiveBackContainer
+import dev.maxxing.github.ui.components.MaxxingPredictiveBackState
 import dev.maxxing.github.ui.components.MaxxingPredictiveOverlayHost
+import dev.maxxing.github.ui.components.MaxxingPredictiveStackHost
+import dev.maxxing.github.ui.components.PredictiveBackVisualState
+import dev.maxxing.github.ui.components.applyPredictiveBackBackground
+import dev.maxxing.github.ui.components.applyPredictiveBackExit
+import dev.maxxing.github.ui.components.applyPredictiveBackForeground
+import dev.maxxing.github.ui.components.rememberMaxxingPredictiveBackState
+import dev.maxxing.github.ui.components.resetPredictiveBackTransform
 import dev.maxxing.github.ui.i18n.AppStrings
 import dev.maxxing.github.ui.i18n.appStrings
 import dev.maxxing.github.ui.theme.MaxxingTheme
@@ -400,16 +414,42 @@ private fun MainAuthenticatedShell(
     val resolvedActiveId = activeAccountId ?: activeSession?.resolvedAccountId()
 
     var navState by rememberSaveable(stateSaver = ShellNavStateSaver) { mutableStateOf(ShellNavState()) }
-    var visitedDestinations by remember { mutableStateOf(setOf(navState.currentDestination)) }
+    var visitedDestinations by remember { mutableStateOf(setOf(ShellDestination.HOME, navState.currentDestination)) }
     var tabResetEpochs by remember { mutableStateOf(emptyMap<ShellDestination, Int>()) }
     var notificationDeepLinkTarget by remember { mutableStateOf<IssuePullTarget?>(null) }
     var showManageAccounts by remember { mutableStateOf(false) }
     var manageInitialCategory by remember { mutableStateOf(ProviderType.GITHUB) }
     var lastAccountKey by remember { mutableStateOf(resolvedActiveId) }
 
+    var exitingTab by remember { mutableStateOf<ShellDestination?>(null) }
+    var exitingTabVisual by remember { mutableStateOf(PredictiveBackVisualState()) }
+    var exitingTabTouchYDeltaPx by remember { mutableFloatStateOf(0f) }
+    var exitingTabWasTransforming by remember { mutableStateOf(false) }
+    val tabExitAnim = remember { Animatable(0f) }
+
+    LaunchedEffect(exitingTab) {
+        if (exitingTab != null) {
+            tabExitAnim.snapTo(0f)
+            tabExitAnim.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
+            )
+            exitingTab = null
+        } else if (tabExitAnim.value != 0f) {
+            tabExitAnim.snapTo(0f)
+        }
+    }
+
+    LaunchedEffect(navState.currentDestination, navState.hasOverlay, resolvedActiveId) {
+        if (exitingTab != null && (navState.currentDestination != ShellDestination.HOME || navState.hasOverlay)) {
+            exitingTab = null
+        }
+    }
+
     LaunchedEffect(resolvedActiveId) {
         if (resolvedActiveId != lastAccountKey) {
             lastAccountKey = resolvedActiveId
+            exitingTab = null
             navState = navState.copy(
                 profileBackStack = emptyList(),
                 repoBackStack = emptyList(),
@@ -418,7 +458,7 @@ private fun MainAuthenticatedShell(
                 overlayIssue = null,
                 overlayGistsUser = null
             )
-            visitedDestinations = setOf(navState.currentDestination)
+            visitedDestinations = setOf(ShellDestination.HOME, navState.currentDestination)
         }
     }
 
@@ -553,6 +593,7 @@ private fun MainAuthenticatedShell(
                     },
                     selected = !navState.hasOverlay && navState.currentDestination == dest.shell,
                     onClick = {
+                        exitingTab = null
                         val wasSameActiveTab = !navState.hasOverlay && navState.currentDestination == dest.shell
                         navState = navState.selectBottomDestination(dest.shell)
                         if (wasSameActiveTab) {
@@ -569,103 +610,180 @@ private fun MainAuthenticatedShell(
             snackbarHost = { SnackbarHost(snackbarHostState) }
         ) { innerPadding ->
             Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-                MaxxingPredictiveBackContainer(
+                val isHomeTab = navState.currentDestination == ShellDestination.HOME
+                lateinit var tabBackState: MaxxingPredictiveBackState
+                tabBackState = rememberMaxxingPredictiveBackState(
                     enabled = !navState.hasOverlay &&
-                        navState.currentDestination != ShellDestination.HOME &&
+                        !isHomeTab &&
                         navState.settingsSection == null,
-                    onBack = { navState = navState.popBackOrReturnHome() },
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        val renderedDestinations = visitedDestinations + navState.currentDestination
-                        if (renderedDestinations.size > 1) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .zIndex(0.5f)
-                                    .pointerInput(Unit) {
-                                        awaitPointerEventScope {
-                                            while (true) {
-                                                awaitPointerEvent().changes.forEach { it.consume() }
-                                            }
+                    onBack = {
+                        val outgoing = navState.currentDestination
+                        if (outgoing != ShellDestination.HOME) {
+                            exitingTabVisual = tabBackState.visual
+                            exitingTabTouchYDeltaPx = tabBackState.touchYDeltaPx
+                            exitingTabWasTransforming = tabBackState.isTransforming
+                            exitingTab = outgoing
+                        }
+                        navState = navState.popBackOrReturnHome()
+                    }
+                )
+
+                Box(modifier = Modifier.fillMaxSize()) {
+                    val renderedDestinations = visitedDestinations + ShellDestination.HOME + navState.currentDestination + listOfNotNull(exitingTab)
+                    if (renderedDestinations.size > 1) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .zIndex(0.5f)
+                                .pointerInput(Unit) {
+                                    awaitPointerEventScope {
+                                        while (true) {
+                                            awaitPointerEvent().changes.forEach { it.consume() }
                                         }
                                     }
-                            )
+                                }
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .zIndex(if (exitingTab != null) 1.25f else 0.75f)
+                            .drawBehind {
+                                val scrimAlpha = when {
+                                    exitingTab != null -> exitingTabVisual.scrimAlpha * (1f - (tabExitAnim.value / 0.7f).coerceIn(0f, 1f))
+                                    !isHomeTab && tabBackState.isTransforming -> tabBackState.visual.scrimAlpha
+                                    else -> 0f
+                                }
+                                if (scrimAlpha > 0.002f) {
+                                    drawRect(Color.Black.copy(alpha = scrimAlpha))
+                                }
+                            }
+                    )
+                    renderedDestinations.forEach { dest ->
+                        val isCurrentTab = dest == navState.currentDestination
+                        val isExitingTab = exitingTab == dest && !isCurrentTab
+                        val isHomeCandidate = !isHomeTab && dest == ShellDestination.HOME
+                        val isTabActive = isCurrentTab && !navState.hasOverlay
+                        val tabZ = when {
+                            isExitingTab -> 1.5f
+                            isCurrentTab -> 1f
+                            isHomeCandidate -> 0.25f
+                            else -> 0f
                         }
-                        renderedDestinations.forEach { dest ->
-                            val isCurrentTab = dest == navState.currentDestination
-                            val isTabActive = isCurrentTab && !navState.hasOverlay
-                            val tabModifier = Modifier
-                                .fillMaxSize()
-                                .zIndex(if (isCurrentTab) 1f else 0f)
-                                .graphicsLayer { alpha = if (isCurrentTab) 1f else 0f }
-                                .then(
-                                    if (isCurrentTab) {
-                                        Modifier
-                                    } else {
-                                        Modifier
-                                            .focusProperties { canFocus = false }
-                                            .clearAndSetSemantics {}
-                                    }
-                                )
-                            Box(modifier = tabModifier) {
-                                key(dest, resolvedActiveId ?: "_", tabResetEpochs[dest] ?: 0) {
-                                    when (dest) {
-                                        ShellDestination.HOME -> HomeScreen(
-                                            container = container,
-                                            unreadCount = unreadCount,
-                                            onNavigateInbox = { navState = navState.selectBottomDestination(ShellDestination.INBOX) },
-                                            onNavigateIssuesPrs = { navState = navState.selectBottomDestination(ShellDestination.ISSUES_PRS) },
-                                            onNavigateRepos = { navState = navState.selectBottomDestination(ShellDestination.REPOS) },
-                                            onOpenGists = { navState = navState.copy(overlayGistsUser = "") },
-                                            onOpenUser = openUserProfile,
-                                            onOpenBranch = openBranch,
-                                            accountSwitcherPill = accountSwitcherPill,
-                                            onMessage = showMessage
-                                        )
-                                        ShellDestination.INBOX -> NotificationsScreen(
-                                            container = container,
-                                            deepLinkTarget = notificationDeepLinkTarget,
-                                            onConsumeDeepLink = {
-                                                notificationDeepLinkTarget = null
-                                                onConsumeDeepLink()
-                                            },
-                                            isTabActive = isTabActive,
-                                            onOpenBranch = openBranch,
-                                            accountSwitcherPill = accountSwitcherPill,
-                                            onMessage = showMessage
-                                        )
-                                        ShellDestination.ISSUES_PRS -> IssuesPullsScreen(
-                                            container = container,
-                                            isTabActive = isTabActive,
-                                            onOpenBranch = openBranch,
-                                            accountSwitcherPill = accountSwitcherPill,
-                                            onMessage = showMessage
-                                        )
-                                        ShellDestination.REPOS -> ReposScreen(
-                                            container = container,
-                                            isTabActive = isTabActive,
-                                            onOpenUser = openUserProfile,
-                                            onOpenBranch = openBranch,
-                                            accountSwitcherPill = accountSwitcherPill,
-                                            onMessage = showMessage
-                                        )
-                                        ShellDestination.SETTINGS -> SettingsScreen(
-                                            container = container,
-                                            activeSection = navState.settingsSection,
-                                            onSelectSection = { section ->
-                                                navState = if (section != null) {
-                                                    navState.openSettingsSection(section)
-                                                } else {
-                                                    navState.popSettingsSection()
-                                                }
-                                            },
-                                            onOpenUser = openUserProfile,
-                                            onOpenManageAccounts = onOpenManageAccounts,
-                                            onSignedOut = { navState = navState.selectBottomDestination(ShellDestination.HOME) },
-                                            onMessage = showMessage
+                        val tabModifier = Modifier
+                            .fillMaxSize()
+                            .zIndex(tabZ)
+                            .graphicsLayer {
+                                val isReturningHome = !isHomeTab && tabBackState.isTransforming
+                                when {
+                                    isExitingTab -> {
+                                        applyPredictiveBackExit(
+                                            visual = exitingTabVisual,
+                                            exitProgress = tabExitAnim.value,
+                                            isTransforming = exitingTabWasTransforming,
+                                            touchYDeltaPx = exitingTabTouchYDeltaPx
                                         )
                                     }
+                                    isCurrentTab && exitingTab != null -> {
+                                        applyPredictiveBackBackground(
+                                            visual = exitingTabVisual,
+                                            exitProgress = tabExitAnim.value
+                                        )
+                                    }
+                                    isCurrentTab && isReturningHome -> {
+                                        applyPredictiveBackForeground(
+                                            visual = tabBackState.visual,
+                                            isTransforming = true,
+                                            touchYDeltaPx = tabBackState.touchYDeltaPx
+                                        )
+                                    }
+                                    isCurrentTab -> {
+                                        resetPredictiveBackTransform(targetAlpha = 1f)
+                                    }
+                                    isHomeCandidate && isReturningHome -> {
+                                        applyPredictiveBackBackground(
+                                            visual = tabBackState.visual,
+                                            exitProgress = 0f
+                                        )
+                                    }
+                                    else -> {
+                                        resetPredictiveBackTransform(targetAlpha = 0f)
+                                    }
+                                }
+                            }
+                            .then(
+                                if (isCurrentTab) {
+                                    Modifier
+                                } else {
+                                    Modifier
+                                        .focusProperties { canFocus = false }
+                                        .clearAndSetSemantics {}
+                                }
+                            )
+                        Surface(
+                            color = MaterialTheme.colorScheme.surface,
+                            shape = RectangleShape,
+                            shadowElevation = 0.dp,
+                            modifier = tabModifier
+                        ) {
+                            key(dest, resolvedActiveId ?: "_", tabResetEpochs[dest] ?: 0) {
+                                when (dest) {
+                                    ShellDestination.HOME -> HomeScreen(
+                                        container = container,
+                                        unreadCount = unreadCount,
+                                        isTabActive = isTabActive,
+                                        onNavigateInbox = { navState = navState.selectBottomDestination(ShellDestination.INBOX) },
+                                        onNavigateIssuesPrs = { navState = navState.selectBottomDestination(ShellDestination.ISSUES_PRS) },
+                                        onNavigateRepos = { navState = navState.selectBottomDestination(ShellDestination.REPOS) },
+                                        onOpenGists = { navState = navState.copy(overlayGistsUser = "") },
+                                        onOpenUser = openUserProfile,
+                                        onOpenBranch = openBranch,
+                                        accountSwitcherPill = accountSwitcherPill,
+                                        onMessage = showMessage
+                                    )
+                                    ShellDestination.INBOX -> NotificationsScreen(
+                                        container = container,
+                                        deepLinkTarget = notificationDeepLinkTarget,
+                                        onConsumeDeepLink = {
+                                            notificationDeepLinkTarget = null
+                                            onConsumeDeepLink()
+                                        },
+                                        isTabActive = isTabActive,
+                                        onOpenBranch = openBranch,
+                                        accountSwitcherPill = accountSwitcherPill,
+                                        onMessage = showMessage
+                                    )
+                                    ShellDestination.ISSUES_PRS -> IssuesPullsScreen(
+                                        container = container,
+                                        isTabActive = isTabActive,
+                                        onOpenBranch = openBranch,
+                                        accountSwitcherPill = accountSwitcherPill,
+                                        onMessage = showMessage
+                                    )
+                                    ShellDestination.REPOS -> ReposScreen(
+                                        container = container,
+                                        isTabActive = isTabActive,
+                                        onOpenUser = openUserProfile,
+                                        onOpenBranch = openBranch,
+                                        accountSwitcherPill = accountSwitcherPill,
+                                        onMessage = showMessage
+                                    )
+                                    ShellDestination.SETTINGS -> SettingsScreen(
+                                        container = container,
+                                        activeSection = navState.settingsSection,
+                                        isTabActive = isTabActive,
+                                        onSelectSection = { section ->
+                                            navState = if (section != null) {
+                                                navState.openSettingsSection(section)
+                                            } else {
+                                                navState.popSettingsSection()
+                                            }
+                                        },
+                                        onOpenUser = openUserProfile,
+                                        onOpenManageAccounts = onOpenManageAccounts,
+                                        onSignedOut = { navState = navState.selectBottomDestination(ShellDestination.HOME) },
+                                        onMessage = showMessage
+                                    )
                                 }
                             }
                         }
@@ -710,11 +828,16 @@ private fun MainAuthenticatedShell(
                     }
                 }
 
-                MaxxingPredictiveOverlayHost(
-                    target = navState.profileBackStack.lastOrNull(),
+                val hasRepoOverlay = navState.activeRepo != null
+                val hasIssueOverlay = navState.overlayIssue != null
+                val hasGistsOverlay = navState.overlayGistsUser != null
+
+                MaxxingPredictiveStackHost(
+                    stack = navState.profileBackStack,
                     onBack = { navState = navState.copy(profileBackStack = navState.profileBackStack.dropLast(1)) },
+                    backEnabled = !hasRepoOverlay && !hasIssueOverlay && !hasGistsOverlay,
                     contentKey = { it }
-                ) { login ->
+                ) { login, _ ->
                     UserProfileScreen(
                         login = login,
                         container = container,
@@ -727,15 +850,25 @@ private fun MainAuthenticatedShell(
                     )
                 }
 
-                MaxxingPredictiveOverlayHost(
-                    target = navState.activeRepo,
+                val overlayRepoStack: List<Pair<RepoSummary, String?>> = if (navState.repoBackStack.isNotEmpty()) {
+                    navState.repoBackStack.mapIndexed { idx, repo ->
+                        repo to navState.repoBranchStack.getOrNull(idx)
+                    }
+                } else {
+                    listOfNotNull(navState.overlayRepo?.let { it to null })
+                }
+
+                MaxxingPredictiveStackHost(
+                    stack = overlayRepoStack,
                     onBack = { navState = navState.popRepo() },
-                    contentKey = { "${it.fullName}@${navState.activeRepoInitialBranch.orEmpty()}" }
-                ) { repo ->
+                    backEnabled = !hasIssueOverlay && !hasGistsOverlay,
+                    contentKey = { (repo, branch) -> "${repo.fullName}@${branch.orEmpty()}" }
+                ) { (repo, initialBranch), isTop ->
                     RepoDetailScreen(
                         repo = repo,
                         container = container,
-                        initialBranch = navState.activeRepoInitialBranch,
+                        initialBranch = initialBranch,
+                        backEnabled = isTop && !hasIssueOverlay && !hasGistsOverlay,
                         onBack = { navState = navState.popRepo() },
                         onOpenIssueOrPull = { navState = navState.copy(overlayIssue = it) },
                         onOpenRepo = { navState = navState.openRepo(it) },
@@ -746,7 +879,8 @@ private fun MainAuthenticatedShell(
 
                 MaxxingPredictiveOverlayHost(
                     target = navState.overlayIssue,
-                    onBack = { navState = navState.copy(overlayIssue = null) }
+                    onBack = { navState = navState.copy(overlayIssue = null) },
+                    backEnabled = !hasGistsOverlay
                 ) { target ->
                     IssuePullDetailPane(
                         target = target,
@@ -761,6 +895,7 @@ private fun MainAuthenticatedShell(
                 MaxxingPredictiveOverlayHost(
                     target = navState.overlayGistsUser,
                     onBack = { navState = navState.copy(overlayGistsUser = null) },
+                    backEnabled = true,
                     contentKey = { it }
                 ) { targetUser ->
                     GistsScreen(

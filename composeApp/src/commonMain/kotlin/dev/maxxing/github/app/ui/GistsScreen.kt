@@ -340,6 +340,7 @@ fun GistsScreen(
         MaxxingPredictiveOverlayHost(
             target = selectedDetail,
             onBack = { selectedDetail = null },
+            backEnabled = !showEditorDialog,
             contentKey = { it.summary.id }
         ) { opened ->
             GistDetailView(
