@@ -131,6 +131,58 @@ internal fun resolveAccountClusterLayout(accountCount: Int): AccountClusterLayou
     else -> AccountClusterLayout.GRID_OVERFLOW
 }
 
+/**
+ * Renders an account avatar, showing a distinct server icon badge for [ProviderType.LOCAL]
+ * hosts so they stand out from remote accounts that lack a custom avatar image.
+ */
+@Composable
+fun AccountAvatar(
+    providerType: ProviderType,
+    avatarUrl: String,
+    login: String,
+    sizeDp: Int = 28,
+    modifier: Modifier = Modifier
+) {
+    if (providerType == ProviderType.LOCAL) {
+        Box(
+            modifier = modifier
+                .size(sizeDp.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.tertiaryContainer),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Lucide.Server,
+                contentDescription = login,
+                tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                modifier = Modifier.size((sizeDp * 0.56f).dp.coerceAtLeast(10.dp))
+            )
+        }
+    } else {
+        UserAvatar(
+            avatarUrl = avatarUrl,
+            login = login,
+            sizeDp = sizeDp,
+            modifier = modifier
+        )
+    }
+}
+
+@Composable
+fun AccountAvatar(
+    session: AuthSession,
+    sizeDp: Int = 28,
+    modifier: Modifier = Modifier
+) {
+    AccountAvatar(
+        providerType = session.providerType,
+        avatarUrl = session.avatarUrl,
+        login = session.userLogin ?: "?",
+        sizeDp = sizeDp,
+        modifier = modifier
+    )
+}
+
 @Composable
 fun AccountAvatarCluster(
     accounts: List<AuthSession>,
@@ -161,12 +213,7 @@ fun AccountAvatarCluster(
                 }
             }
             AccountClusterLayout.SINGLE -> {
-                val acc = accounts.first()
-                UserAvatar(
-                    avatarUrl = acc.avatarUrl,
-                    login = acc.userLogin ?: "?",
-                    sizeDp = sizeDp
-                )
+                AccountAvatar(session = accounts.first(), sizeDp = sizeDp)
             }
             AccountClusterLayout.PAIR -> {
                 val itemSize = (sizeDp * 0.46f).toInt().coerceAtLeast(18)
@@ -175,11 +222,7 @@ fun AccountAvatarCluster(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     accounts.take(2).forEach { acc ->
-                        UserAvatar(
-                            avatarUrl = acc.avatarUrl,
-                            login = acc.userLogin ?: "?",
-                            sizeDp = itemSize
-                        )
+                        AccountAvatar(session = acc, sizeDp = itemSize)
                     }
                 }
             }
@@ -189,22 +232,10 @@ fun AccountAvatarCluster(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    UserAvatar(
-                        avatarUrl = accounts[0].avatarUrl,
-                        login = accounts[0].userLogin ?: "?",
-                        sizeDp = itemSize
-                    )
+                    AccountAvatar(session = accounts[0], sizeDp = itemSize)
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        UserAvatar(
-                            avatarUrl = accounts[1].avatarUrl,
-                            login = accounts[1].userLogin ?: "?",
-                            sizeDp = itemSize
-                        )
-                        UserAvatar(
-                            avatarUrl = accounts[2].avatarUrl,
-                            login = accounts[2].userLogin ?: "?",
-                            sizeDp = itemSize
-                        )
+                        AccountAvatar(session = accounts[1], sizeDp = itemSize)
+                        AccountAvatar(session = accounts[2], sizeDp = itemSize)
                     }
                 }
             }
@@ -212,12 +243,12 @@ fun AccountAvatarCluster(
                 val itemSize = (sizeDp * 0.46f).toInt().coerceAtLeast(16)
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        UserAvatar(accounts[0].avatarUrl, accounts[0].userLogin ?: "?", sizeDp = itemSize)
-                        UserAvatar(accounts[1].avatarUrl, accounts[1].userLogin ?: "?", sizeDp = itemSize)
+                        AccountAvatar(session = accounts[0], sizeDp = itemSize)
+                        AccountAvatar(session = accounts[1], sizeDp = itemSize)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        UserAvatar(accounts[2].avatarUrl, accounts[2].userLogin ?: "?", sizeDp = itemSize)
-                        UserAvatar(accounts[3].avatarUrl, accounts[3].userLogin ?: "?", sizeDp = itemSize)
+                        AccountAvatar(session = accounts[2], sizeDp = itemSize)
+                        AccountAvatar(session = accounts[3], sizeDp = itemSize)
                     }
                 }
             }
@@ -225,11 +256,11 @@ fun AccountAvatarCluster(
                 val itemSize = (sizeDp * 0.46f).toInt().coerceAtLeast(16)
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        UserAvatar(accounts[0].avatarUrl, accounts[0].userLogin ?: "?", sizeDp = itemSize)
-                        UserAvatar(accounts[1].avatarUrl, accounts[1].userLogin ?: "?", sizeDp = itemSize)
+                        AccountAvatar(session = accounts[0], sizeDp = itemSize)
+                        AccountAvatar(session = accounts[1], sizeDp = itemSize)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        UserAvatar(accounts[2].avatarUrl, accounts[2].userLogin ?: "?", sizeDp = itemSize)
+                        AccountAvatar(session = accounts[2], sizeDp = itemSize)
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -290,9 +321,8 @@ fun AccountSwitcherFloatingPill(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                UserAvatar(
-                    avatarUrl = activeAccount.avatarUrl,
-                    login = activeAccount.userLogin ?: "?",
+                AccountAvatar(
+                    session = activeAccount,
                     sizeDp = 26
                 )
                 Column(modifier = Modifier.weight(1f, fill = false)) {
@@ -355,9 +385,8 @@ fun AccountSwitcherFloatingPill(
                     val needsReauth = id in reauthRequiredIds
                     DropdownMenuItem(
                         leadingIcon = {
-                            UserAvatar(
-                                avatarUrl = acc.avatarUrl,
-                                login = acc.userLogin ?: "?",
+                            AccountAvatar(
+                                session = acc,
                                 sizeDp = 28
                             )
                         },
@@ -885,9 +914,8 @@ private fun AccountManageRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            UserAvatar(
-                avatarUrl = session.avatarUrl,
-                login = session.userLogin ?: "?",
+            AccountAvatar(
+                session = session,
                 sizeDp = 36
             )
             Column(modifier = Modifier.weight(1f)) {

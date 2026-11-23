@@ -1556,7 +1556,12 @@ fun RepoSummaryCard(
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                UserAvatar(repo.ownerAvatarUrl, repo.owner, sizeDp = 24)
+                AccountAvatar(
+                    providerType = if (repo.id.startsWith("local:")) ProviderType.LOCAL else ProviderType.GITHUB,
+                    avatarUrl = repo.ownerAvatarUrl,
+                    login = repo.owner,
+                    sizeDp = 24
+                )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = repo.fullName,

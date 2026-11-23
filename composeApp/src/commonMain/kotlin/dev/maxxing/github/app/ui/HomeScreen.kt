@@ -327,7 +327,8 @@ private fun HomeDashboardPane(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                UserAvatar(
+                AccountAvatar(
+                    providerType = session?.providerType ?: dev.maxxing.github.model.ProviderType.GITHUB,
                     avatarUrl = profile?.avatarUrl.orEmpty(),
                     login = login.ifBlank { "?" },
                     sizeDp = if (headerTracker.isCollapsed) 28 else 36,
