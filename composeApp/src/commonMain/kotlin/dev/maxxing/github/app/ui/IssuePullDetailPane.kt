@@ -2019,26 +2019,115 @@ private fun IssuePullDetailPaneContent(
     MaxxingPredictiveOverlayHost(
         target = openedActionsTarget,
         onBack = {
-            if (openedLogJob != null) {
-                openedLogJob = null
-                jobLogsText = null
-            } else {
-                openedActionsTarget = null
-                openedWorkflowRun = null
-                openedWorkflowJobs = null
-                workflowRunError = null
-            }
+            openedActionsTarget = null
+            openedWorkflowRun = null
+            openedWorkflowJobs = null
+            workflowRunError = null
         },
+        backEnabled = openedLogJob == null,
         contentKey = { "${it.owner}/${it.repo}/${it.runId}" }
     ) { actionsTarget ->
         Surface(
             color = MaterialTheme.colorScheme.surface,
             modifier = Modifier.fillMaxSize().statusBarsPadding()
         ) {
-            val activeLogJob = openedLogJob
-            val activeRun = openedWorkflowRun
-            when {
-                activeLogJob != null -> {
+            Box(modifier = Modifier.fillMaxSize()) {
+                val activeRun = openedWorkflowRun
+                when {
+                    activeRun != null -> {
+                        WorkflowRunDetailView(
+                            run = activeRun,
+                            jobs = openedWorkflowJobs,
+                            isLoading = workflowRunLoading,
+                            actionBusy = workflowActionBusy,
+                            canManageRuns = detail?.viewerCanMerge == true,
+                            highlightedJobId = actionsTarget.jobId,
+                            onBack = {
+                                openedActionsTarget = null
+                                openedWorkflowRun = null
+                                openedWorkflowJobs = null
+                                workflowRunError = null
+                            },
+                            onRefresh = { loadActionsOverlay(actionsTarget, forceRefresh = true) },
+                            onRerun = { failedOnly ->
+                                scope.launch {
+                                    workflowActionBusy = true
+                                    container.repository.rerunWorkflow(
+                                        actionsTarget.owner,
+                                        actionsTarget.repo,
+                                        activeRun.id,
+                                        failedOnly
+                                    ).onSuccess {
+                                        onMessage(if (failedOnly) strings.notifRerunningFailed else strings.notifRerunningWorkflow)
+                                        loadActionsOverlay(actionsTarget, forceRefresh = true)
+                                    }.onFailure { err ->
+                                        onMessage(strings.errorMessage(err, strings.actionsRerunFailedError))
+                                    }
+                                    workflowActionBusy = false
+                                }
+                            },
+                            onCancel = {
+                                scope.launch {
+                                    workflowActionBusy = true
+                                    container.repository.cancelWorkflowRun(
+                                        actionsTarget.owner,
+                                        actionsTarget.repo,
+                                        activeRun.id
+                                    ).onSuccess {
+                                        onMessage(strings.notifCancelRequested)
+                                        loadActionsOverlay(actionsTarget, forceRefresh = true)
+                                    }.onFailure { err ->
+                                        onMessage(strings.errorMessage(err, strings.actionsCancelFailedError))
+                                    }
+                                    workflowActionBusy = false
+                                }
+                            },
+                            onOpenLogs = { job -> openWorkflowJobLogs(actionsTarget, job) }
+                        )
+                    }
+                    workflowRunLoading -> {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            MaxxingLoadingState(message = strings.issueCheckLoadingRun)
+                        }
+                    }
+                    else -> {
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = workflowRunError ?: strings.issueCheckFailedLoadRun,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(
+                                    onClick = {
+                                        openedActionsTarget = null
+                                        workflowRunError = null
+                                    }
+                                ) {
+                                    Text(strings.back)
+                                }
+                                FilledTonalButton(
+                                    onClick = { loadActionsOverlay(actionsTarget, forceRefresh = true) }
+                                ) {
+                                    Text(strings.retry)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                MaxxingPredictiveOverlayHost(
+                    target = openedLogJob,
+                    onBack = {
+                        openedLogJob = null
+                        jobLogsText = null
+                    },
+                    contentKey = { it.id }
+                ) { activeLogJob ->
                     WorkflowLogViewer(
                         job = activeLogJob,
                         logs = jobLogsText,
@@ -2048,90 +2137,6 @@ private fun IssuePullDetailPaneContent(
                             jobLogsText = null
                         }
                     )
-                }
-                activeRun != null -> {
-                    WorkflowRunDetailView(
-                        run = activeRun,
-                        jobs = openedWorkflowJobs,
-                        isLoading = workflowRunLoading,
-                        actionBusy = workflowActionBusy,
-                        canManageRuns = detail?.viewerCanMerge == true,
-                        highlightedJobId = actionsTarget.jobId,
-                        onBack = {
-                            openedActionsTarget = null
-                            openedWorkflowRun = null
-                            openedWorkflowJobs = null
-                            workflowRunError = null
-                        },
-                        onRefresh = { loadActionsOverlay(actionsTarget, forceRefresh = true) },
-                        onRerun = { failedOnly ->
-                            scope.launch {
-                                workflowActionBusy = true
-                                container.repository.rerunWorkflow(
-                                    actionsTarget.owner,
-                                    actionsTarget.repo,
-                                    activeRun.id,
-                                    failedOnly
-                                ).onSuccess {
-                                    onMessage(if (failedOnly) strings.notifRerunningFailed else strings.notifRerunningWorkflow)
-                                    loadActionsOverlay(actionsTarget, forceRefresh = true)
-                                }.onFailure { err ->
-                                    onMessage(strings.errorMessage(err, strings.actionsRerunFailedError))
-                                }
-                                workflowActionBusy = false
-                            }
-                        },
-                        onCancel = {
-                            scope.launch {
-                                workflowActionBusy = true
-                                container.repository.cancelWorkflowRun(
-                                    actionsTarget.owner,
-                                    actionsTarget.repo,
-                                    activeRun.id
-                                ).onSuccess {
-                                    onMessage(strings.notifCancelRequested)
-                                    loadActionsOverlay(actionsTarget, forceRefresh = true)
-                                }.onFailure { err ->
-                                    onMessage(strings.errorMessage(err, strings.actionsCancelFailedError))
-                                }
-                                workflowActionBusy = false
-                            }
-                        },
-                        onOpenLogs = { job -> openWorkflowJobLogs(actionsTarget, job) }
-                    )
-                }
-                workflowRunLoading -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        MaxxingLoadingState(message = strings.issueCheckLoadingRun)
-                    }
-                }
-                else -> {
-                    Column(
-                        modifier = Modifier.fillMaxSize().padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = workflowRunError ?: strings.issueCheckFailedLoadRun,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton(
-                                onClick = {
-                                    openedActionsTarget = null
-                                    workflowRunError = null
-                                }
-                            ) {
-                                Text(strings.back)
-                            }
-                            FilledTonalButton(
-                                onClick = { loadActionsOverlay(actionsTarget, forceRefresh = true) }
-                            ) {
-                                Text(strings.retry)
-                            }
-                        }
-                    }
                 }
             }
         }

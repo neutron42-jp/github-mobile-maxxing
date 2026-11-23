@@ -185,6 +185,7 @@ import dev.maxxing.github.ui.components.MaxxingFullScreenEditorScaffold
 import dev.maxxing.github.ui.components.MaxxingLoadingState
 import dev.maxxing.github.ui.components.MaxxingPredictiveBackContainer
 import dev.maxxing.github.ui.components.MaxxingPredictiveOverlayHost
+import dev.maxxing.github.ui.components.MaxxingPredictiveStackHost
 import dev.maxxing.github.ui.components.MaxxingSwipeableTabPager
 import dev.maxxing.github.ui.components.MaxxingStarAmber
 import dev.maxxing.github.ui.components.RepoLabelsPickerDialog
@@ -342,17 +343,17 @@ fun ReposScreen(
             onMessage = onMessage
         )
 
-        MaxxingPredictiveOverlayHost(
-            target = repoStack.lastOrNull(),
+        MaxxingPredictiveStackHost(
+            stack = repoStack,
             onBack = { repoStack = repoStack.dropLast(1) },
             backEnabled = isTabActive && selectedIssueTarget == null,
             contentKey = { it.first.fullName }
-        ) { (repo, initialPath) ->
+        ) { (repo, initialPath), isTop ->
             RepoDetailScreen(
                 repo = repo,
                 container = container,
                 initialFilePath = initialPath,
-                backEnabled = isTabActive && selectedIssueTarget == null,
+                backEnabled = isTop && isTabActive && selectedIssueTarget == null,
                 onBack = { repoStack = repoStack.dropLast(1) },
                 onOpenIssueOrPull = { selectedIssueTarget = it },
                 onOpenRepo = { nextRepo -> pushRepo(nextRepo) },
@@ -2077,8 +2078,6 @@ fun RepoDetailScreen(
         openedLogJob != null ||
         openedRun != null ||
         openedDiscussionNumber != null
-    val hasInnerRepoBack = isInInnerRepoDetailView ||
-        (activeTab == RepoDetailTab.CODE && currentPath.isNotBlank())
     val hasOpenEditor = showFileEditorDialog ||
         showCreateReleaseDialog ||
         showCreateDiscussionDialog ||
@@ -2254,37 +2253,6 @@ fun RepoDetailScreen(
     val repoHeaderVerticalPadding by animateDpAsState(if (headerCollapseTracker.isCollapsed) 4.dp else 12.dp)
 
     Box(modifier = Modifier.fillMaxSize()) {
-        MaxxingPredictiveBackContainer(
-            enabled = backEnabled && hasInnerRepoBack && !hasOpenEditor,
-            onBack = {
-                when {
-                    activeTab == RepoDetailTab.ACTIONS && openedLogJob != null -> {
-                        openedLogJob = null
-                        jobLogsText = null
-                    }
-                    activeTab == RepoDetailTab.ACTIONS && openedRun != null -> {
-                        openedRun = null
-                        runJobs = null
-                    }
-                    activeTab == RepoDetailTab.DISCUSSIONS && openedDiscussionNumber != null -> {
-                        openedDiscussionNumber = null
-                        discussionDetail = null
-                    }
-                    activeTab == RepoDetailTab.CODE && openedCommitSha != null -> {
-                        openedCommitSha = null
-                        openedCommitDetail = null
-                    }
-                    activeTab == RepoDetailTab.CODE && showCompareView -> showCompareView = false
-                    activeTab == RepoDetailTab.CODE && showCommitsView -> showCommitsView = false
-                    openedFile != null -> openedFile = null
-                    activeTab == RepoDetailTab.CODE && currentPath.isNotBlank() -> {
-                        val parent = currentPath.substringBeforeLast('/', "")
-                        loadDirectory(parent, currentRef)
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        ) {
         Column(modifier = Modifier.fillMaxSize()) {
         // Header
         Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, tonalElevation = 0.dp) {
@@ -2764,366 +2732,458 @@ fun RepoDetailScreen(
             val isPageActive = pageTab == activeTab
             when (pageTab) {
             RepoDetailTab.CODE -> {
-                if (showCommitsView || showCompareView || openedCommitSha != null) {
-                    val allRefs = remember(detail?.branches, repoTags, currentRef, repo.defaultBranch, effectiveParent) {
-                        buildList {
-                            effectiveParent?.let { add("${it.owner}:${it.defaultBranch}") }
-                            addAll(detail?.branches.orEmpty().map { it.name })
-                            addAll(repoTags.map { it.name })
-                            add(currentRef)
-                            add(repo.defaultBranch)
-                        }.distinct()
-                    }
-                    val avatarResolver: (CommitSummary) -> String = { commit ->
-                        resolveCommitAuthorAvatarUrl(
-                            commit = commit,
+                val allRefs = remember(detail?.branches, repoTags, currentRef, repo.defaultBranch, effectiveParent) {
+                    buildList {
+                        effectiveParent?.let { add("${it.owner}:${it.defaultBranch}") }
+                        addAll(detail?.branches.orEmpty().map { it.name })
+                        addAll(repoTags.map { it.name })
+                        add(currentRef)
+                        add(repo.defaultBranch)
+                    }.distinct()
+                }
+                val avatarResolver: (CommitSummary) -> String = { commit ->
+                    resolveCommitAuthorAvatarUrl(
+                        commit = commit,
+                        repoOwner = repo.owner,
+                        repoOwnerAvatarUrl = detail?.summary?.ownerAvatarUrl?.ifBlank { repo.ownerAvatarUrl } ?: repo.ownerAvatarUrl,
+                        viewerLogin = viewerProfile?.login,
+                        viewerName = viewerProfile?.name,
+                        viewerAvatarUrl = viewerProfile?.avatarUrl
+                    )
+                }
+
+                val renderDirectoryContent: @Composable (dirPath: String, dirEntries: List<TreeEntry>, interactive: Boolean) -> Unit =
+                    { dirPath, dirEntries, interactive ->
+                        val readmeSections = rememberNormalizedMarkdownSections(
+                            content = if (dirPath.isBlank()) readme.orEmpty() else "",
                             repoOwner = repo.owner,
-                            repoOwnerAvatarUrl = detail?.summary?.ownerAvatarUrl?.ifBlank { repo.ownerAvatarUrl } ?: repo.ownerAvatarUrl,
-                            viewerLogin = viewerProfile?.login,
-                            viewerName = viewerProfile?.name,
-                            viewerAvatarUrl = viewerProfile?.avatarUrl
+                            repoName = repo.name,
+                            branchRef = currentRef,
+                            documentPath = "README.md"
                         )
-                    }
-                    when {
-                        openedCommitSha != null -> {
-                            RepoCommitDetailView(
-                                sha = openedCommitSha!!,
-                                detail = openedCommitDetail,
-                                isLoading = commitDetailLoading,
-                                commitAvatarResolver = avatarResolver,
-                                onBack = {
-                                    openedCommitSha = null
-                                    openedCommitDetail = null
-                                },
-                                onOpenParent = { parentSha -> openCommit(parentSha) },
-                                onOpenUser = onOpenUser,
-                                onOpenFullScreenDiff = { file, allFiles ->
-                                    fullScreenDiffContext = file to allFiles
-                                }
-                            )
-                        }
-                        showCompareView -> {
-                            RepoBranchCompareView(
-                                availableRefs = allRefs,
-                                baseRef = compareBase,
-                                headRef = compareHead,
-                                result = compareResult,
-                                isLoading = compareLoading,
-                                errorMsg = compareError,
-                                commitAvatarResolver = avatarResolver,
-                                onSelectBase = { base -> compareBase = base; runCompare(base, compareHead) },
-                                onSelectHead = { head -> compareHead = head; runCompare(compareBase, head) },
-                                onSwapRefs = {
-                                    val nextBase = compareHead
-                                    val nextHead = compareBase
-                                    compareBase = nextBase
-                                    compareHead = nextHead
-                                    runCompare(nextBase, nextHead)
-                                },
-                                onRefresh = { runCompare(compareBase, compareHead, forceRefresh = true) },
-                                onBackToCommits = { showCompareView = false },
-                                onOpenCommit = { sha -> openCommit(sha) },
-                                onOpenUser = onOpenUser,
-                                onOpenFullScreenDiff = { file, allFiles ->
-                                    fullScreenDiffContext = file to allFiles
-                                }
-                            )
-                        }
-                        else -> {
-                            RepoCommitsTabContent(
-                                currentRef = currentRef,
-                                commits = repoCommits,
-                                isLoading = commitsLoading,
-                                errorMsg = commitsError,
-                                parentRepo = effectiveParent,
-                                upstreamCompare = upstreamCompare,
-                                upstreamCompareLoading = upstreamCompareLoading,
-                                forkOnlyCommits = showForkOnlyCommits,
-                                commitAvatarResolver = avatarResolver,
-                                onBackToCode = { showCommitsView = false },
-                                onRefresh = {
-                                    loadCommits(currentRef, forceRefresh = true)
-                                    effectiveParent?.let { loadUpstreamCompare(it, currentRef, forceRefresh = true) }
-                                },
-                                onToggleForkOnly = { showForkOnlyCommits = it },
-                                onOpenCompare = {
-                                    showCompareView = true
-                                    val targetBase = effectiveParent?.let { "${it.owner}:${it.defaultBranch}" } ?: compareBase
-                                    val targetHead = if (effectiveParent != null) currentRef else compareHead
-                                    compareBase = targetBase
-                                    compareHead = targetHead
-                                    runCompare(targetBase, targetHead)
-                                },
-                                onOpenCommit = { commit -> openCommit(commit.sha) },
-                                onOpenUser = onOpenUser
-                            )
-                        }
-                    }
-                } else if (openedFile != null) {
-                    val file = openedFile!!
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.fillMaxWidth()
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            FilledTonalButton(
-                                onClick = {
-                                    val parent = currentPath.substringBeforeLast('/', "")
-                                    openedFile = null
-                                    if (parent == currentPath) loadDirectory("", currentRef)
-                                    else loadDirectory(currentPath, currentRef)
-                                }
-                            ) {
-                                Icon(Lucide.ArrowLeft, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(strings.back)
-                            }
-                            Text(
-                                text = file.path,
-                                style = MaterialTheme.typography.titleSmall.copy(fontFamily = FontFamily.Monospace),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
-                            if (!file.isBinary && file.sha.isNotBlank() && capabilities.canPush) {
-                                IconButton(
-                                    onClick = {
-                                        editingExistingFile = file
-                                        fileMutationError = null
-                                        showFileEditorDialog = true
-                                    }
+                            // Breadcrumbs + New File action
+                            item(key = "breadcrumbs_$dirPath", contentType = "breadcrumbs") {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Icon(Lucide.Pencil, contentDescription = strings.repoEditFile, modifier = Modifier.size(18.dp))
-                                }
-                            }
-                            if (file.sha.isNotBlank() && capabilities.canPush) {
-                                IconButton(
-                                    onClick = {
-                                        fileMutationError = null
-                                        showDeleteFileDialog = true
-                                    }
-                                ) {
-                                    Icon(
-                                        Lucide.Trash2,
-                                        contentDescription = strings.repoDeleteFile,
-                                        tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        }
-                        when {
-                            file.isBinary -> Text(strings.repoBinaryFile(file.size))
-                            file.name.endsWith(".md", ignoreCase = true) -> {
-                                val fileSections = rememberNormalizedMarkdownSections(
-                                    content = file.content,
-                                    repoOwner = repo.owner,
-                                    repoName = repo.name,
-                                    branchRef = currentRef,
-                                    documentPath = file.path
-                                )
-                                Surface(
-                                    shape = MaterialTheme.shapes.large,
-                                    color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                                    modifier = Modifier.weight(1f).fillMaxWidth()
-                                ) {
-                                    LazyColumn(
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentPadding = PaddingValues(16.dp),
+                                    FlowRow(
+                                        modifier = Modifier.weight(1f),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         verticalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        itemsIndexed(
-                                            items = fileSections,
-                                            key = { idx, _ -> "file_md_${file.path}_$idx" },
-                                            contentType = { _, _ -> "md_section" }
-                                        ) { _, section ->
-                                            GitHubMarkdownPreNormalized(normalizedContent = section)
+                                        TextButton(
+                                            enabled = interactive,
+                                            onClick = { loadDirectory("", currentRef) }
+                                        ) {
+                                            Text(repo.name)
+                                        }
+                                        val segments = if (dirPath.isBlank()) emptyList() else dirPath.split('/')
+                                        segments.forEachIndexed { idx, segment ->
+                                            val targetPath = segments.take(idx + 1).joinToString("/")
+                                            Text("/", modifier = Modifier.align(Alignment.CenterVertically))
+                                            TextButton(
+                                                enabled = interactive,
+                                                onClick = { loadDirectory(targetPath, currentRef) }
+                                            ) {
+                                                Text(segment)
+                                            }
                                         }
                                     }
-                                }
-                            }
-                            else -> {
-                                CodeViewer(
-                                    code = file.content,
-                                    filename = file.name,
-                                    modifier = Modifier.weight(1f).fillMaxWidth()
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    val readmeSections = rememberNormalizedMarkdownSections(
-                        content = if (currentPath.isBlank()) readme.orEmpty() else "",
-                        repoOwner = repo.owner,
-                        repoName = repo.name,
-                        branchRef = currentRef,
-                        documentPath = "README.md"
-                    )
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // Breadcrumbs + New File action
-                        item(key = "breadcrumbs", contentType = "breadcrumbs") {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                FlowRow(
-                                    modifier = Modifier.weight(1f),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    TextButton(onClick = { loadDirectory("", currentRef) }) {
-                                        Text(repo.name)
-                                    }
-                                    val segments = if (currentPath.isBlank()) emptyList() else currentPath.split('/')
-                                    segments.forEachIndexed { idx, segment ->
-                                        val targetPath = segments.take(idx + 1).joinToString("/")
-                                        Text("/", modifier = Modifier.align(Alignment.CenterVertically))
-                                        TextButton(onClick = { loadDirectory(targetPath, currentRef) }) {
-                                            Text(segment)
-                                        }
-                                    }
-                                }
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            openedCommitSha = null
-                                            showCompareView = false
-                                            showCommitsView = true
-                                            loadCommits(currentRef, forceRefresh = false)
-                                        },
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(Lucide.GitCommitHorizontal, contentDescription = null, modifier = Modifier.size(15.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text(strings.repoCommitsButton, maxLines = 1, softWrap = false)
-                                    }
-                                    if (capabilities.canPush) {
-                                        FilledTonalButton(
+                                        OutlinedButton(
+                                            enabled = interactive,
                                             onClick = {
-                                                editingExistingFile = null
-                                                fileMutationError = null
-                                                showFileEditorDialog = true
+                                                openedCommitSha = null
+                                                showCompareView = false
+                                                showCommitsView = true
+                                                loadCommits(currentRef, forceRefresh = false)
                                             },
                                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                                         ) {
-                                            Icon(Lucide.Plus, contentDescription = null, modifier = Modifier.size(15.dp))
+                                            Icon(Lucide.GitCommitHorizontal, contentDescription = null, modifier = Modifier.size(15.dp))
                                             Spacer(Modifier.width(4.dp))
-                                            Text(strings.repoNewFileButton, maxLines = 1, softWrap = false)
+                                            Text(strings.repoCommitsButton, maxLines = 1, softWrap = false)
+                                        }
+                                        if (capabilities.canPush) {
+                                            FilledTonalButton(
+                                                enabled = interactive,
+                                                onClick = {
+                                                    editingExistingFile = null
+                                                    fileMutationError = null
+                                                    showFileEditorDialog = true
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                            ) {
+                                                Icon(Lucide.Plus, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                Spacer(Modifier.width(4.dp))
+                                                Text(strings.repoNewFileButton, maxLines = 1, softWrap = false)
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
 
-                        items(
-                            items = entries,
-                            key = { it.path },
-                            contentType = { "tree_entry" }
-                        ) { entry ->
-                            Surface(
-                                shape = MaterialTheme.shapes.medium,
-                                color = MaterialTheme.colorScheme.surfaceContainerLow,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            if (entry.type == TreeEntryType.TREE) {
-                                                loadDirectory(entry.path, currentRef)
-                                            } else {
-                                                loadFile(entry.path, currentRef)
-                                            }
-                                        }
-                                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                            items(
+                                items = dirEntries,
+                                key = { it.path },
+                                contentType = { "tree_entry" }
+                            ) { entry ->
+                                Surface(
+                                    shape = MaterialTheme.shapes.medium,
+                                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Icon(
-                                        imageVector = if (entry.type == TreeEntryType.TREE) Lucide.Folder else Lucide.File,
-                                        contentDescription = null,
-                                        tint = if (entry.type == TreeEntryType.TREE) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        },
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(Modifier.width(12.dp))
-                                    Text(
-                                        text = entry.name,
-                                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    if (entry.type == TreeEntryType.BLOB && entry.size > 0) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable(enabled = interactive) {
+                                                if (entry.type == TreeEntryType.TREE) {
+                                                    loadDirectory(entry.path, currentRef)
+                                                } else {
+                                                    loadFile(entry.path, currentRef)
+                                                }
+                                            }
+                                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = if (entry.type == TreeEntryType.TREE) Lucide.Folder else Lucide.File,
+                                            contentDescription = null,
+                                            tint = if (entry.type == TreeEntryType.TREE) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                            },
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(Modifier.width(12.dp))
                                         Text(
-                                            text = "${entry.size} B",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            text = entry.name,
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        if (entry.type == TreeEntryType.BLOB && entry.size > 0) {
+                                            Text(
+                                                text = "${entry.size} B",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (readmeSections.isNotEmpty() && dirPath.isBlank()) {
+                                item(key = "readme_header_$dirPath", contentType = "readme_header") {
+                                    Text(
+                                        text = "README.md",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(top = 12.dp, start = 4.dp, bottom = 2.dp)
+                                    )
+                                }
+                                itemsIndexed(
+                                    items = readmeSections,
+                                    key = { idx, _ -> "readme_${repo.fullName}_${currentRef}_${dirPath}_$idx" },
+                                    contentType = { _, _ -> "md_section" }
+                                ) { _, section ->
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                                        shape = MaterialTheme.shapes.medium,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        GitHubMarkdownPreNormalized(
+                                            normalizedContent = section,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                                         )
                                     }
                                 }
                             }
                         }
+                    }
 
-                        if (readmeSections.isNotEmpty() && currentPath.isBlank()) {
-                            item(key = "readme_header", contentType = "readme_header") {
-                                Text(
-                                    text = "README.md",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(top = 12.dp, start = 4.dp, bottom = 2.dp)
-                                )
-                            }
-                            itemsIndexed(
-                                items = readmeSections,
-                                key = { idx, _ -> "readme_${repo.fullName}_${currentRef}_$idx" },
-                                contentType = { _, _ -> "md_section" }
-                            ) { _, section ->
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceContainerLowest,
-                                    shape = MaterialTheme.shapes.medium,
-                                    modifier = Modifier.fillMaxWidth()
+                val codeBackAllowed = backEnabled && isPageActive && !hasOpenEditor
+                Box(modifier = Modifier.fillMaxSize()) {
+                    val parentPath = currentPath.substringBeforeLast('/', "")
+                    val parentPreviewEntries = remember(repo.fullName, parentPath, currentRef, currentPath) {
+                        if (currentPath.isNotBlank()) {
+                            container.repository.peekDirectoryContents(repo.owner, repo.name, parentPath, currentRef).orEmpty()
+                        } else {
+                            emptyList()
+                        }
+                    }
+
+                    MaxxingPredictiveBackContainer(
+                        enabled = codeBackAllowed &&
+                            openedFile == null &&
+                            !showCommitsView &&
+                            !showCompareView &&
+                            openedCommitSha == null &&
+                            currentPath.isNotBlank(),
+                        onBack = { loadDirectory(parentPath, currentRef) },
+                        backgroundContent = if (currentPath.isNotBlank()) {
+                            { renderDirectoryContent(parentPath, parentPreviewEntries, false) }
+                        } else null,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        renderDirectoryContent(currentPath, entries, true)
+                    }
+
+                    MaxxingPredictiveOverlayHost(
+                        target = openedFile,
+                        onBack = { openedFile = null },
+                        backEnabled = codeBackAllowed && !showCommitsView && !showCompareView && openedCommitSha == null,
+                        contentKey = { "${it.path}@$currentRef" }
+                    ) { file ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                FilledTonalButton(
+                                    onClick = {
+                                        val parent = currentPath.substringBeforeLast('/', "")
+                                        openedFile = null
+                                        if (parent == currentPath) loadDirectory("", currentRef)
+                                        else loadDirectory(currentPath, currentRef)
+                                    }
                                 ) {
-                                    GitHubMarkdownPreNormalized(
-                                        normalizedContent = section,
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                                    Icon(Lucide.ArrowLeft, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(strings.back)
+                                }
+                                Text(
+                                    text = file.path,
+                                    style = MaterialTheme.typography.titleSmall.copy(fontFamily = FontFamily.Monospace),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                if (!file.isBinary && file.sha.isNotBlank() && capabilities.canPush) {
+                                    IconButton(
+                                        onClick = {
+                                            editingExistingFile = file
+                                            fileMutationError = null
+                                            showFileEditorDialog = true
+                                        }
+                                    ) {
+                                        Icon(Lucide.Pencil, contentDescription = strings.repoEditFile, modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                                if (file.sha.isNotBlank() && capabilities.canPush) {
+                                    IconButton(
+                                        onClick = {
+                                            fileMutationError = null
+                                            showDeleteFileDialog = true
+                                        }
+                                    ) {
+                                        Icon(
+                                            Lucide.Trash2,
+                                            contentDescription = strings.repoDeleteFile,
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            when {
+                                file.isBinary -> Text(strings.repoBinaryFile(file.size))
+                                file.name.endsWith(".md", ignoreCase = true) -> {
+                                    val fileSections = rememberNormalizedMarkdownSections(
+                                        content = file.content,
+                                        repoOwner = repo.owner,
+                                        repoName = repo.name,
+                                        branchRef = currentRef,
+                                        documentPath = file.path
+                                    )
+                                    Surface(
+                                        shape = MaterialTheme.shapes.large,
+                                        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                                        modifier = Modifier.weight(1f).fillMaxWidth()
+                                    ) {
+                                        LazyColumn(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentPadding = PaddingValues(16.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            itemsIndexed(
+                                                items = fileSections,
+                                                key = { idx, _ -> "file_md_${file.path}_$idx" },
+                                                contentType = { _, _ -> "md_section" }
+                                            ) { _, section ->
+                                                GitHubMarkdownPreNormalized(normalizedContent = section)
+                                            }
+                                        }
+                                    }
+                                }
+                                else -> {
+                                    CodeViewer(
+                                        code = file.content,
+                                        filename = file.name,
+                                        modifier = Modifier.weight(1f).fillMaxWidth()
                                     )
                                 }
                             }
                         }
                     }
+
+                    MaxxingPredictiveOverlayHost(
+                        target = if (showCommitsView) currentRef else null,
+                        onBack = { showCommitsView = false },
+                        backEnabled = codeBackAllowed && !showCompareView && openedCommitSha == null,
+                        contentKey = { "commits@$it" }
+                    ) { _ ->
+                        RepoCommitsTabContent(
+                            currentRef = currentRef,
+                            commits = repoCommits,
+                            isLoading = commitsLoading,
+                            errorMsg = commitsError,
+                            parentRepo = effectiveParent,
+                            upstreamCompare = upstreamCompare,
+                            upstreamCompareLoading = upstreamCompareLoading,
+                            forkOnlyCommits = showForkOnlyCommits,
+                            commitAvatarResolver = avatarResolver,
+                            onBackToCode = { showCommitsView = false },
+                            onRefresh = {
+                                loadCommits(currentRef, forceRefresh = true)
+                                effectiveParent?.let { loadUpstreamCompare(it, currentRef, forceRefresh = true) }
+                            },
+                            onToggleForkOnly = { showForkOnlyCommits = it },
+                            onOpenCompare = {
+                                showCompareView = true
+                                val targetBase = effectiveParent?.let { "${it.owner}:${it.defaultBranch}" } ?: compareBase
+                                val targetHead = if (effectiveParent != null) currentRef else compareHead
+                                compareBase = targetBase
+                                compareHead = targetHead
+                                runCompare(targetBase, targetHead)
+                            },
+                            onOpenCommit = { commit -> openCommit(commit.sha) },
+                            onOpenUser = onOpenUser
+                        )
+                    }
+
+                    MaxxingPredictiveOverlayHost(
+                        target = if (showCompareView) Unit else null,
+                        onBack = { showCompareView = false },
+                        backEnabled = codeBackAllowed && openedCommitSha == null,
+                        contentKey = { "compare" }
+                    ) { _ ->
+                        RepoBranchCompareView(
+                            availableRefs = allRefs,
+                            baseRef = compareBase,
+                            headRef = compareHead,
+                            result = compareResult,
+                            isLoading = compareLoading,
+                            errorMsg = compareError,
+                            commitAvatarResolver = avatarResolver,
+                            onSelectBase = { base -> compareBase = base; runCompare(base, compareHead) },
+                            onSelectHead = { head -> compareHead = head; runCompare(compareBase, head) },
+                            onSwapRefs = {
+                                val nextBase = compareHead
+                                val nextHead = compareBase
+                                compareBase = nextBase
+                                compareHead = nextHead
+                                runCompare(nextBase, nextHead)
+                            },
+                            onRefresh = { runCompare(compareBase, compareHead, forceRefresh = true) },
+                            onBackToCommits = { showCompareView = false },
+                            onOpenCommit = { sha -> openCommit(sha) },
+                            onOpenUser = onOpenUser,
+                            onOpenFullScreenDiff = { file, allFiles ->
+                                fullScreenDiffContext = file to allFiles
+                            }
+                        )
+                    }
+
+                    MaxxingPredictiveOverlayHost(
+                        target = openedCommitSha,
+                        onBack = {
+                            openedCommitSha = null
+                            openedCommitDetail = null
+                        },
+                        backEnabled = codeBackAllowed,
+                        contentKey = { it }
+                    ) { commitSha ->
+                        RepoCommitDetailView(
+                            sha = commitSha,
+                            detail = openedCommitDetail,
+                            isLoading = commitDetailLoading,
+                            commitAvatarResolver = avatarResolver,
+                            onBack = {
+                                openedCommitSha = null
+                                openedCommitDetail = null
+                            },
+                            onOpenParent = { parentSha -> openCommit(parentSha) },
+                            onOpenUser = onOpenUser,
+                            onOpenFullScreenDiff = { file, allFiles ->
+                                fullScreenDiffContext = file to allFiles
+                            }
+                        )
+                    }
                 }
             }
 
             RepoDetailTab.ACTIONS -> {
-                when {
-                    openedLogJob != null -> {
-                        WorkflowLogViewer(
-                            job = openedLogJob!!,
-                            logs = jobLogsText,
-                            isLoading = jobLogsLoading,
-                            onBack = {
-                                openedLogJob = null
-                                jobLogsText = null
+                val actionsBackAllowed = backEnabled && isPageActive && !hasOpenEditor
+                Box(modifier = Modifier.fillMaxSize()) {
+                    RepoActionsTabContent(
+                        workflows = workflows,
+                        selectedWorkflowId = selectedWorkflowId,
+                        runs = workflowRuns,
+                        isLoading = actionsLoading || (!isPageActive && workflowRuns == null && actionsError == null),
+                        errorMsg = actionsError,
+                        canDispatch = capabilities.canPush,
+                        onSelectWorkflow = { wfId ->
+                            selectedWorkflowId = wfId
+                            loadActions(wfId, forceRefresh = false)
+                        },
+                        onRefresh = { loadActions(selectedWorkflowId, forceRefresh = true) },
+                        onOpenDispatch = { showDispatchDialog = true },
+                        onOpenRun = { run -> openRun(run) },
+                        onOpenBranch = { branch ->
+                            val cleanRef = branch.trim()
+                            if (cleanRef.isNotEmpty()) {
+                                currentRef = cleanRef
+                                currentPath = ""
+                                openedFile = null
+                                showCommitsView = false
+                                showCompareView = false
+                                openedCommitSha = null
+                                activeTab = RepoDetailTab.CODE
+                                loadDirectory("", cleanRef)
+                                scope.launch {
+                                    container.repository.getReadme(repo.owner, repo.name, cleanRef)
+                                        .onSuccess { if (currentRef == cleanRef) readme = it }
+                                }
                             }
-                        )
-                    }
-                    openedRun != null -> {
-                        val activeRun = openedRun!!
+                        }
+                    )
+
+                    MaxxingPredictiveOverlayHost(
+                        target = openedRun,
+                        onBack = {
+                            openedRun = null
+                            runJobs = null
+                        },
+                        backEnabled = actionsBackAllowed && openedLogJob == null,
+                        contentKey = { it.id }
+                    ) { activeRun ->
                         WorkflowRunDetailView(
                             run = activeRun,
                             jobs = runJobs,
@@ -3168,37 +3228,23 @@ fun RepoDetailScreen(
                             onOpenLogs = { job -> loadJobLog(job) }
                         )
                     }
-                    else -> {
-                        RepoActionsTabContent(
-                            workflows = workflows,
-                            selectedWorkflowId = selectedWorkflowId,
-                            runs = workflowRuns,
-                            isLoading = actionsLoading || (!isPageActive && workflowRuns == null && actionsError == null),
-                            errorMsg = actionsError,
-                            canDispatch = capabilities.canPush,
-                            onSelectWorkflow = { wfId ->
-                                selectedWorkflowId = wfId
-                                loadActions(wfId, forceRefresh = false)
-                            },
-                            onRefresh = { loadActions(selectedWorkflowId, forceRefresh = true) },
-                            onOpenDispatch = { showDispatchDialog = true },
-                            onOpenRun = { run -> openRun(run) },
-                            onOpenBranch = { branch ->
-                                val cleanRef = branch.trim()
-                                if (cleanRef.isNotEmpty()) {
-                                    currentRef = cleanRef
-                                    currentPath = ""
-                                    openedFile = null
-                                    showCommitsView = false
-                                    showCompareView = false
-                                    openedCommitSha = null
-                                    activeTab = RepoDetailTab.CODE
-                                    loadDirectory("", cleanRef)
-                                    scope.launch {
-                                        container.repository.getReadme(repo.owner, repo.name, cleanRef)
-                                            .onSuccess { if (currentRef == cleanRef) readme = it }
-                                    }
-                                }
+
+                    MaxxingPredictiveOverlayHost(
+                        target = openedLogJob,
+                        onBack = {
+                            openedLogJob = null
+                            jobLogsText = null
+                        },
+                        backEnabled = actionsBackAllowed,
+                        contentKey = { it.id }
+                    ) { logJob ->
+                        WorkflowLogViewer(
+                            job = logJob,
+                            logs = jobLogsText,
+                            isLoading = jobLogsLoading,
+                            onBack = {
+                                openedLogJob = null
+                                jobLogsText = null
                             }
                         )
                     }
@@ -3235,69 +3281,8 @@ fun RepoDetailScreen(
             }
 
             RepoDetailTab.DISCUSSIONS -> {
-                val activeNum = openedDiscussionNumber
-                if (activeNum != null) {
-                    DiscussionDetailView(
-                        detail = discussionDetail,
-                        isLoading = discussionDetailLoading,
-                        commentBusy = discussionCommentBusy,
-                        errorMsg = discussionDetailError,
-                        commentError = discussionCommentError,
-                        canParticipate = capabilities.canCommentOrCreateDiscussion,
-                        onBack = {
-                            openedDiscussionNumber = null
-                            discussionDetail = null
-                            discussionCommentError = null
-                        },
-                        onRefresh = { openDiscussion(activeNum, forceRefresh = true) },
-                        onToggleUpvote = { dSummary ->
-                            scope.launch {
-                                container.repository.toggleDiscussionUpvote(
-                                    owner = repo.owner,
-                                    repo = repo.name,
-                                    subjectId = dSummary.id,
-                                    currentlyUpvoted = dSummary.viewerHasUpvoted,
-                                    discussionNumber = dSummary.number
-                                ).onSuccess { (upvoted, count) ->
-                                    discussionDetail = discussionDetail?.let { cur ->
-                                        cur.copy(summary = cur.summary.copy(viewerHasUpvoted = upvoted, upvoteCount = count))
-                                    }
-                                    discussionsData = discussionsData?.let { cur ->
-                                        cur.copy(
-                                            discussions = cur.discussions.map {
-                                                if (it.id == dSummary.id) it.copy(viewerHasUpvoted = upvoted, upvoteCount = count) else it
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        },
-                        onSubmitComment = { commentBody, replyToId, onSuccess ->
-                            val dId = discussionDetail?.summary?.id ?: return@DiscussionDetailView
-                            scope.launch {
-                                discussionCommentBusy = true
-                                discussionCommentError = null
-                                container.repository.addDiscussionComment(
-                                    owner = repo.owner,
-                                    repo = repo.name,
-                                    discussionNumber = activeNum,
-                                    discussionId = dId,
-                                    body = commentBody,
-                                    replyToId = replyToId
-                                ).onSuccess {
-                                    discussionCommentBusy = false
-                                    onSuccess()
-                                    openDiscussion(activeNum, forceRefresh = true)
-                                }.onFailure { err ->
-                                    discussionCommentBusy = false
-                                    val msg = strings.errorMessage(err, strings.failedPostComment)
-                                    discussionCommentError = msg
-                                    onMessage(msg)
-                                }
-                            }
-                        }
-                    )
-                } else {
+                val discussionsBackAllowed = backEnabled && isPageActive && !hasOpenEditor
+                Box(modifier = Modifier.fillMaxSize()) {
                     RepoDiscussionsTabContent(
                         data = discussionsData,
                         selectedCategoryId = selectedDiscussionCategoryId,
@@ -3334,6 +3319,78 @@ fun RepoDetailScreen(
                             }
                         }
                     )
+
+                    MaxxingPredictiveOverlayHost(
+                        target = openedDiscussionNumber,
+                        onBack = {
+                            openedDiscussionNumber = null
+                            discussionDetail = null
+                            discussionCommentError = null
+                        },
+                        backEnabled = discussionsBackAllowed,
+                        contentKey = { it }
+                    ) { activeNum ->
+                        DiscussionDetailView(
+                            detail = discussionDetail,
+                            isLoading = discussionDetailLoading,
+                            commentBusy = discussionCommentBusy,
+                            errorMsg = discussionDetailError,
+                            commentError = discussionCommentError,
+                            canParticipate = capabilities.canCommentOrCreateDiscussion,
+                            onBack = {
+                                openedDiscussionNumber = null
+                                discussionDetail = null
+                                discussionCommentError = null
+                            },
+                            onRefresh = { openDiscussion(activeNum, forceRefresh = true) },
+                            onToggleUpvote = { dSummary ->
+                                scope.launch {
+                                    container.repository.toggleDiscussionUpvote(
+                                        owner = repo.owner,
+                                        repo = repo.name,
+                                        subjectId = dSummary.id,
+                                        currentlyUpvoted = dSummary.viewerHasUpvoted,
+                                        discussionNumber = dSummary.number
+                                    ).onSuccess { (upvoted, count) ->
+                                        discussionDetail = discussionDetail?.let { cur ->
+                                            cur.copy(summary = cur.summary.copy(viewerHasUpvoted = upvoted, upvoteCount = count))
+                                        }
+                                        discussionsData = discussionsData?.let { cur ->
+                                            cur.copy(
+                                                discussions = cur.discussions.map {
+                                                    if (it.id == dSummary.id) it.copy(viewerHasUpvoted = upvoted, upvoteCount = count) else it
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                            onSubmitComment = { commentBody, replyToId, onSuccess ->
+                                val dId = discussionDetail?.summary?.id ?: return@DiscussionDetailView
+                                scope.launch {
+                                    discussionCommentBusy = true
+                                    discussionCommentError = null
+                                    container.repository.addDiscussionComment(
+                                        owner = repo.owner,
+                                        repo = repo.name,
+                                        discussionNumber = activeNum,
+                                        discussionId = dId,
+                                        body = commentBody,
+                                        replyToId = replyToId
+                                    ).onSuccess {
+                                        discussionCommentBusy = false
+                                        onSuccess()
+                                        openDiscussion(activeNum, forceRefresh = true)
+                                    }.onFailure { err ->
+                                        discussionCommentBusy = false
+                                        val msg = strings.errorMessage(err, strings.failedPostComment)
+                                        discussionCommentError = msg
+                                        onMessage(msg)
+                                    }
+                                }
+                            }
+                        )
+                    }
                 }
             }
 
@@ -3498,7 +3555,6 @@ fun RepoDetailScreen(
         }
         }
         }
-    }
 
     if (showCreateReleaseDialog) {
         CreateReleaseDialog(

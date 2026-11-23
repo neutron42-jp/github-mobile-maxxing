@@ -165,6 +165,7 @@ internal data class SettingsCategoryItem(
 fun SettingsScreen(
     container: AppContainer,
     activeSection: SettingsSection? = null,
+    isTabActive: Boolean = true,
     onSelectSection: (SettingsSection?) -> Unit = {},
     onOpenUser: (String) -> Unit = {},
     onOpenManageAccounts: () -> Unit = {},
@@ -246,6 +247,7 @@ fun SettingsScreen(
         MaxxingPredictiveOverlayHost(
             target = activeSection,
             onBack = { onSelectSection(null) },
+            backEnabled = isTabActive,
             contentKey = { it }
         ) { section ->
             when (section) {
